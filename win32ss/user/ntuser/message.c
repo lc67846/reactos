@@ -164,7 +164,7 @@ static UINT FASTCALL
 MsgMemorySize(PMSGMEMORY MsgMemoryEntry, WPARAM wParam, LPARAM lParam)
 {
     CREATESTRUCTW *Cs;
-    PUNICODE_STRING WindowName;
+    PLARGE_STRING WindowName;
     PUNICODE_STRING ClassName;
     UINT Size = 0;
 
@@ -196,7 +196,7 @@ MsgMemorySize(PMSGMEMORY MsgMemoryEntry, WPARAM wParam, LPARAM lParam)
             case WM_CREATE:
             case WM_NCCREATE:
                 Cs = (CREATESTRUCTW *) lParam;
-                WindowName = (PUNICODE_STRING) Cs->lpszName;
+                WindowName = (PLARGE_STRING) Cs->lpszName;
                 ClassName = (PUNICODE_STRING) Cs->lpszClass;
                 Size = sizeof(CREATESTRUCTW) + WindowName->Length + sizeof(WCHAR);
                 if (IS_ATOM(ClassName->Buffer))
@@ -681,7 +681,6 @@ static LRESULT handle_internal_events( PTHREADINFO pti, PWND pWnd, DWORD dwQEven
 LRESULT FASTCALL
 IntDispatchMessage(PMSG pMsg)
 {
-    LARGE_INTEGER TickCount;
     LONG Time;
     LRESULT retval = 0;
     PTHREADINFO pti;
@@ -710,8 +709,7 @@ IntDispatchMessage(PMSG pMsg)
         {
             if (ValidateTimerCallback(pti,pMsg->lParam))
             {
-                KeQueryTickCount(&TickCount);
-                Time = MsqCalculateMessageTime(&TickCount);
+                Time = EngGetTickCount32();
                 retval = co_IntCallWindowProc((WNDPROC)pMsg->lParam,
                                               TRUE,
                                               pMsg->hwnd,
@@ -727,8 +725,7 @@ IntDispatchMessage(PMSG pMsg)
             PTIMER pTimer = FindSystemTimer(pMsg);
             if (pTimer && pTimer->pfn)
             {
-                KeQueryTickCount(&TickCount);
-                Time = MsqCalculateMessageTime(&TickCount);
+                Time = EngGetTickCount32();
                 pTimer->pfn(pMsg->hwnd, WM_SYSTIMER, (UINT)pMsg->wParam, Time);
             }
             return 0;
@@ -815,7 +812,6 @@ co_IntPeekMessage( PMSG Msg,
                    BOOL bGMSG )
 {
     PTHREADINFO pti;
-    LARGE_INTEGER LargeTickCount;
     BOOL RemoveMessages;
     UINT ProcessMask;
     BOOL Hit = FALSE;
@@ -833,9 +829,8 @@ co_IntPeekMessage( PMSG Msg,
 
     do
     {
-        KeQueryTickCount(&LargeTickCount);
-        pti->timeLast = LargeTickCount.u.LowPart;
-        pti->pcti->tickLastMsgChecked = LargeTickCount.u.LowPart;
+        pti->timeLast = EngGetTickCount32();
+        pti->pcti->tickLastMsgChecked = pti->timeLast;
 
         // Post mouse moves while looping through peek messages.
         if (pti->MessageQueue->QF_flags & QF_MOUSEMOVED)
@@ -1152,7 +1147,6 @@ UserPostThreadMessage( PTHREADINFO pti,
                        LPARAM lParam )
 {
     MSG Message;
-    LARGE_INTEGER LargeTickCount;
 
     if (is_pointer_message(Msg))
     {
@@ -1164,9 +1158,7 @@ UserPostThreadMessage( PTHREADINFO pti,
     Message.wParam = wParam;
     Message.lParam = lParam;
     Message.pt = gpsi->ptCursor;
-
-    KeQueryTickCount(&LargeTickCount);
-    Message.time = MsqCalculateMessageTime(&LargeTickCount);
+    Message.time = EngGetTickCount32();
     MsqPostMessage(pti, &Message, FALSE, QS_POSTMESSAGE, 0, 0);
     return TRUE;
 }
@@ -1193,7 +1185,6 @@ UserPostMessage( HWND Wnd,
 {
     PTHREADINFO pti;
     MSG Message;
-    LARGE_INTEGER LargeTickCount;
     LONG_PTR ExtraInfo = 0;
 
     Message.hwnd = Wnd;
@@ -1201,8 +1192,7 @@ UserPostMessage( HWND Wnd,
     Message.wParam = wParam;
     Message.lParam = lParam;
     Message.pt = gpsi->ptCursor;
-    KeQueryTickCount(&LargeTickCount);
-    Message.time = MsqCalculateMessageTime(&LargeTickCount);
+    Message.time = EngGetTickCount32();
 
     if (is_pointer_message(Message.message))
     {
@@ -1433,11 +1423,14 @@ co_IntSendMessageTimeoutSingle( HWND hWnd,
         RETURN( TRUE);
     }
 
-    if (uFlags & SMTO_ABORTIFHUNG && MsqIsHung(ptiSendTo))
+    if (MsqIsHung(ptiSendTo))
     {
-        // FIXME: Set window hung and add to a list.
-        /* FIXME: Set a LastError? */
-        RETURN( FALSE);
+        if (uFlags & SMTO_ABORTIFHUNG)
+        {
+            // FIXME: Set window hung and add to a list.
+            /* FIXME: Set a LastError? */
+            RETURN( FALSE);
+        }
     }
 
     if (Window->state & WNDS_DESTROYED)
@@ -1465,6 +1458,11 @@ co_IntSendMessageTimeoutSingle( HWND hWnd,
 
     if (Status == STATUS_TIMEOUT)
     {
+        if (0 && MsqIsHung(ptiSendTo))
+        {
+            TRACE("Let's go Ghost!\n");
+            IntMakeHungWindowGhosted(hWnd);
+        }
 /*
  *  MSDN says:
  *  Microsoft Windows 2000: If GetLastError returns zero, then the function
@@ -2090,7 +2088,7 @@ NtUserPostThreadMessage(DWORD idThread,
 
     UserEnterExclusive();
 
-    Status = PsLookupThreadByThreadId((HANDLE)idThread,&peThread);
+    Status = PsLookupThreadByThreadId(UlongToHandle(idThread), &peThread);
 
     if ( Status == STATUS_SUCCESS )
     {

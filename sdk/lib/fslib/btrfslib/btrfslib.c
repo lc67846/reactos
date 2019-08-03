@@ -887,7 +887,7 @@ static NTSTATUS write_superblocks(HANDLE h, btrfs_dev* dev, btrfs_root* chunk_ro
     UINT64 bytes_used;
     LIST_ENTRY* le;
 
-    sblen = sizeof(sb);
+    sblen = sizeof(*sb);
     if (sblen & (sector_size - 1))
         sblen = (sblen & sector_size) + sector_size;
 
@@ -1297,7 +1297,7 @@ static BOOL is_mounted_multi_device(HANDLE h, UINT32 sector_size) {
 
     static WCHAR btrfs[] = L"\\Btrfs";
 
-    sblen = sizeof(sb);
+    sblen = sizeof(*sb);
     if (sblen & (sector_size - 1))
         sblen = (sblen & sector_size) + sector_size;
 
@@ -1454,6 +1454,7 @@ NTSTATUS NTAPI BtrfsFormatEx(PUNICODE_STRING DriveRoot, FMIFS_MEDIA_FLAG MediaFl
     LUID luid;
 #endif
     UINT64 incompat_flags;
+    UNICODE_STRING empty_label;
 
     static WCHAR btrfs[] = L"\\Btrfs";
 
@@ -1542,6 +1543,12 @@ NTSTATUS NTAPI BtrfsFormatEx(PUNICODE_STRING DriveRoot, FMIFS_MEDIA_FLAG MediaFl
 
     incompat_flags = def_incompat_flags;
     incompat_flags |= BTRFS_INCOMPAT_FLAGS_MIXED_BACKREF | BTRFS_INCOMPAT_FLAGS_BIG_METADATA;
+
+    if (!Label) {
+        empty_label.Buffer = NULL;
+        empty_label.Length = empty_label.MaximumLength = 0;
+        Label = &empty_label;
+    }
 
     Status = write_btrfs(h, gli.Length.QuadPart, Label, sector_size, node_size, incompat_flags);
 

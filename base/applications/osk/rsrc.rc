@@ -21,7 +21,8 @@
 
 #include <reactos/version.rc>
 
-IDI_OSK       ICON "res/osk.ico"
+IDI_OSK             ICON "res/osk.ico"
+IDI_SOUNDCLICK      WAVE "res/click.wav"
 
 
 IDI_BACK      ICON "res/back.ico"
@@ -61,11 +62,20 @@ IDI_BOTTOM    ICON "res/bottom.ico"
 #ifdef LANGUAGE_ES_ES
     #include "lang/es-ES.rc"
 #endif
+#ifdef LANGUAGE_ET_EE
+    #include "lang/et-EE.rc"
+#endif
 #ifdef LANGUAGE_FR_CA
     #include "lang/fr-CA.rc"
 #endif
 #ifdef LANGUAGE_FR_FR
     #include "lang/fr-FR.rc"
+#endif
+#ifdef LANGUAGE_HE_IL
+    #include "lang/he-IL.rc"
+#endif
+#ifdef LANGUAGE_ID_ID
+    #include "lang/id-ID.rc"
 #endif
 #ifdef LANGUAGE_IT_IT
     #include "lang/it-IT.rc"

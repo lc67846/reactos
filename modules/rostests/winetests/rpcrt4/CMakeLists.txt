@@ -3,13 +3,16 @@ remove_definitions(-DWINVER=0x502 -D_WIN32_IE=0x600 -D_WIN32_WINNT=0x502)
 
 add_definitions(
     -DUSE_WINE_TODOS
-    -DWINETEST_USE_DBGSTR_LONGLONG)
+    -DWINETEST_USE_DBGSTR_LONGLONG
+    -DPROXY_DELEGATION)
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
+set(OLD_IDL_FLAGS ${IDL_FLAGS})
 set(IDL_FLAGS ${IDL_FLAGS} --prefix-server=s_)
 add_rpc_files(client server.idl)
 add_rpc_files(server server.idl)
-unset(IDL_FLAGS)
+set(IDL_FLAGS ${OLD_IDL_FLAGS})
+add_rpcproxy_files(cstub.idl)
 
 list(APPEND SOURCE
     cstub.c
@@ -19,6 +22,8 @@ list(APPEND SOURCE
     rpc_async.c
     server.c
     testlist.c
+    ${CMAKE_CURRENT_BINARY_DIR}/cstub_p.c
+    ${CMAKE_CURRENT_BINARY_DIR}/proxy.dlldata.c
     ${CMAKE_CURRENT_BINARY_DIR}/server_c.c
     ${CMAKE_CURRENT_BINARY_DIR}/server_s.c)
 
@@ -28,11 +33,15 @@ if(MSVC)
 endif()
 
 add_executable(rpcrt4_winetest ${SOURCE})
+
+if(USE_CLANG_CL OR (NOT MSVC))
+    add_target_compile_flags(rpcrt4_winetest "-Wno-format")
+    if(USE_CLANG_CL)
+        add_target_compile_flags(rpcrt4_winetest "-Wno-cast-calling-convention")
+    endif()
+endif()
+
 target_link_libraries(rpcrt4_winetest uuid wine ${PSEH_LIB})
 set_module_type(rpcrt4_winetest win32cui)
 add_importlibs(rpcrt4_winetest oleaut32 ole32 rpcrt4 secur32 advapi32 msvcrt kernel32 ntdll)
 add_rostests_file(TARGET rpcrt4_winetest)
-
-if(NOT MSVC)
-    add_target_compile_flags(rpcrt4_winetest "-Wno-format")
-endif()

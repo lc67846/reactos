@@ -19,16 +19,10 @@
  *
  */
 
-//#include "windows.h"
-
-#define WIN32_NO_STATUS
-
-#include <wine/test.h>
-
-#include <wingdi.h>
-#include <winuser.h>
-#include <cderr.h>
-#include <commdlg.h>
+#include "windows.h"
+#include "commdlg.h"
+#include "cderr.h"
+#include "wine/test.h"
 
 static UINT ID_FINDMSGSTRING;
 

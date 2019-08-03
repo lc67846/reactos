@@ -1,15 +1,15 @@
 /*
- * PROJECT:         ReactOS api tests
- * LICENSE:         LGPLv2.1+ - See COPYING.LIB in the top level directory
- * PURPOSE:         Test for CString
- * PROGRAMMERS:     Mark Jansen
- *                  Katayama Hirofumi MZ
+ * PROJECT:     ReactOS api tests
+ * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * PURPOSE:     Test for CString
+ * COPYRIGHT:   Copyright 2016-2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2017 Katayama Hirofumi MZ
  */
 
 #include <atlstr.h>
 #include "resource.h"
 
-#ifdef __REACTOS__
+#ifdef HAVE_APITEST
     #include <apitest.h>
 #else
     #include <stdlib.h>
@@ -171,7 +171,7 @@ static void test_basetypes()
 
 // Allocation strategy seems to differ a bit between us and MS's atl.
 // if someone cares enough to find out why, feel free to change the macro below.
-#ifdef __REACTOS__
+#ifdef __GNUC__
 #define ALLOC_EXPECT(a, b)  b
 #else
 #define ALLOC_EXPECT(a, b)  a
@@ -254,8 +254,11 @@ START_TEST(CString)
     test_load_strW();
     test_load_strA();
 
-#ifndef __REACTOS__
+    test_bstrW();
+    test_bstrA();
+
+#ifndef HAVE_APITEST
     printf("CString: %i tests executed (0 marked as todo, %i failures), %i skipped.\n", g_tests_executed, g_tests_failed, g_tests_skipped);
-    return 0;
+    return g_tests_failed;
 #endif
 }

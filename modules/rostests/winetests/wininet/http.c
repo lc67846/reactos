@@ -22,20 +22,15 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-//#include <stdlib.h>
+#include <stdlib.h>
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
+#include "windef.h"
+#include "winbase.h"
+#include "wininet.h"
+#include "winineti.h"
+#include "winsock2.h"
 
-#include <windef.h>
-#include <winbase.h>
-#include <winreg.h>
-#include <winnls.h>
-#include <wincrypt.h>
-#include <wininet.h>
-#include <winsock.h>
-
-#include <wine/test.h>
+#include "wine/test.h"
 
 /* Undocumented security flags */
 #define _SECURITY_FLAG_CERT_REV_FAILED    0x00800000
@@ -725,7 +720,7 @@ static void InternetReadFile_test(int flags, const test_data_t *test)
     res = InternetQueryOptionA(hor,INTERNET_OPTION_URL,buffer,&length);
     ok(res, "InternetQueryOptionA(INTERNET_OPTION_URL) failed with error %d\n", GetLastError());
 
-    length = sizeof(buffer)-1;
+    length = sizeof(buffer)-2;
     memset(buffer, 0x77, sizeof(buffer));
     res = HttpQueryInfoA(hor,HTTP_QUERY_RAW_HEADERS,buffer,&length,0x0);
     ok(res, "HttpQueryInfoA(HTTP_QUERY_RAW_HEADERS) failed with error %d\n", GetLastError());
@@ -749,7 +744,7 @@ static void InternetReadFile_test(int flags, const test_data_t *test)
     ok(buffer[length2+1] == 0x77, "Expected 0x77, got %02X\n", buffer[length2+1]);
     ok(length2 == length, "Value should not have changed: %d != %d\n", length2, length);
 
-    length = sizeof(wbuffer)-sizeof(WCHAR);
+    length = sizeof(wbuffer)-2*sizeof(WCHAR);
     memset(wbuffer, 0x77, sizeof(wbuffer));
     res = HttpQueryInfoW(hor, HTTP_QUERY_RAW_HEADERS, wbuffer, &length, 0x0);
     ok(res, "HttpQueryInfoW(HTTP_QUERY_RAW_HEADERS) failed with error %d\n", GetLastError());
@@ -2116,12 +2111,6 @@ static const char ok_with_length2[] =
 "Content-Length: 19\r\n\r\n"
 "HTTP/1.1 211 OK\r\n\r\n";
 
-static const char redir_no_host[] =
-"HTTP/1.1 302 Found\r\n"
-"Location: http:///test1\r\n"
-"Server: winetest\r\n"
-"\r\n";
-
 struct server_info {
     HANDLE hEvent;
     int port;
@@ -2531,10 +2520,6 @@ static DWORD CALLBACK server_thread(LPVOID param)
                 send(c, okmsg, sizeof okmsg-1, 0);
             else
                 send(c, noauthmsg, sizeof noauthmsg-1, 0);
-        }
-        if (strstr(buffer, "GET /test_redirect_no_host"))
-        {
-            send(c, redir_no_host, sizeof redir_no_host-1, 0);
         }
         shutdown(c, 2);
         closesocket(c);
@@ -5798,27 +5783,6 @@ static void test_remove_dot_segments(int port)
     close_request(&req);
 }
 
-static void test_redirect_no_host(int port)
-{
-    test_request_t req;
-    BOOL ret;
-
-    open_simple_request(&req, "localhost", port, NULL, "/test_redirect_no_host");
-    ret = HttpSendRequestA(req.request, NULL, 0, NULL, 0);
-    if (ret)
-    {
-        trace("Succeeded with status code 302\n");
-        test_status_code(req.request, 302);
-    }
-    else
-    {
-        trace("Failed with error ERROR_INTERNET_INVALID_URL\n");
-        ok(GetLastError() == ERROR_INTERNET_INVALID_URL,
-           "Expected error ERROR_INTERNET_INVALID_URL, got %u\n", GetLastError());
-    }
-    close_request(&req);
-}
-
 static void test_http_connection(void)
 {
     struct server_info si;
@@ -5834,7 +5798,10 @@ static void test_http_connection(void)
     r = WaitForSingleObject(si.hEvent, 10000);
     ok (r == WAIT_OBJECT_0, "failed to start wininet test server\n");
     if (r != WAIT_OBJECT_0)
+    {
+        CloseHandle(hThread);
         return;
+    }
 
     test_basic_request(si.port, "GET", "/test1");
     test_proxy_indirect(si.port);
@@ -5871,10 +5838,20 @@ static void test_http_connection(void)
     test_http_read(si.port);
     test_connection_break(si.port);
     test_long_url(si.port);
+#ifdef __REACTOS__
+if (!winetest_interactive)
+{
+    skip("Skipping test_redirect and test_persistent_connection due to hang. See ROSTESTS-294.\n");
+}
+else
+{
+#endif
     test_redirect(si.port);
     test_persistent_connection(si.port);
+#ifdef __REACTOS__
+}
+#endif
     test_remove_dot_segments(si.port);
-    test_redirect_no_host(si.port);
 
     /* send the basic request again to shutdown the server thread */
     test_basic_request(si.port, "GET", "/quit");
@@ -5899,11 +5876,22 @@ typedef struct {
 } cert_struct_test_t;
 
 static const cert_struct_test_t test_winehq_org_cert = {
+    "US\r\n"
+    "55114\r\n"
+    "MN\r\n"
+    "Saint Paul\r\n"
+    "Ste 120\r\n"
+    "700 Raymond Ave\r\n"
+    "CodeWeavers\r\n"
+    "IT\r\n"
+    "Secure Link SSL Wildcard\r\n"
     "*.winehq.org",
 
     "US\r\n"
-    "GeoTrust Inc.\r\n"
-    "RapidSSL SHA256 CA"
+    "VA\r\n"
+    "Herndon\r\n"
+    "Network Solutions L.L.C.\r\n"
+    "Network Solutions OV Server CA 2"
 };
 
 static const cert_struct_test_t test_winehq_com_cert = {
@@ -5966,6 +5954,18 @@ static void _test_security_info(unsigned line, const char *urlc, DWORD error, DW
         ok_(__FILE__,line)(chain != NULL, "chain = NULL\n");
         ok_(__FILE__,line)(flags == ex_flags, "flags = %x\n", flags);
         CertFreeCertificateChain(chain);
+
+        SetLastError(0xdeadbeef);
+        res = pInternetGetSecurityInfoByURLA(url, NULL, NULL);
+        ok_(__FILE__,line)(!res && GetLastError() == ERROR_INVALID_PARAMETER,
+                           "InternetGetSecurityInfoByURLA returned: %x(%u)\n", res, GetLastError());
+
+        res = pInternetGetSecurityInfoByURLA(url, &chain, NULL);
+        ok_(__FILE__,line)(res, "InternetGetSecurityInfoByURLA failed: %u\n", GetLastError());
+        CertFreeCertificateChain(chain);
+
+        res = pInternetGetSecurityInfoByURLA(url, NULL, &flags);
+        ok_(__FILE__,line)(res, "InternetGetSecurityInfoByURLA failed: %u\n", GetLastError());
     }else {
         ok_(__FILE__,line)(!res && GetLastError() == error,
                            "InternetGetSecurityInfoByURLA returned: %x(%u), expected %u\n", res, GetLastError(), error);

@@ -16,18 +16,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
 #define COBJMACROS
 #define CONST_VTABLE
 
-#include <windef.h>
-#include <winbase.h>
-#include <winreg.h>
 #include <initguid.h>
+#include <ole2.h>
 #include <dispex.h>
-#include <wshom.h>
-#include <wine/test.h>
+
+#include "wshom.h"
+#include "wine/test.h"
 
 DEFINE_GUID(GUID_NULL,0,0,0,0,0,0,0,0,0,0,0);
 
@@ -569,6 +566,54 @@ static void test_registry(void)
     IWshShell3_Release(sh3);
 }
 
+static void test_popup(void)
+{
+    static const WCHAR textW[] = {'T','e','x','t',0};
+    VARIANT timeout, type, title, optional;
+    IWshShell *sh;
+    int button;
+    HRESULT hr;
+    BSTR text;
+
+    hr = CoCreateInstance(&CLSID_WshShell, NULL, CLSCTX_INPROC_SERVER | CLSCTX_INPROC_HANDLER,
+            &IID_IWshShell, (void **)&sh);
+    ok(hr == S_OK, "Failed to create WshShell object, hr %#x.\n", hr);
+
+    button = 123;
+    text = SysAllocString(textW);
+
+    hr = IWshShell_Popup(sh, NULL, NULL, NULL, NULL, &button);
+    ok(hr == E_POINTER, "Unexpected retval %#x.\n", hr);
+    ok(button == 123, "Unexpected button id %d.\n", button);
+
+    hr = IWshShell_Popup(sh, text, NULL, NULL, NULL, &button);
+    ok(hr == E_POINTER, "Unexpected retval %#x.\n", hr);
+    ok(button == 123, "Unexpected button id %d.\n", button);
+
+    V_VT(&optional) = VT_ERROR;
+    V_ERROR(&optional) = DISP_E_PARAMNOTFOUND;
+
+    V_VT(&timeout) = VT_I2;
+    V_I2(&timeout) = 1;
+
+    V_VT(&type) = VT_I2;
+    V_I2(&type) = 1;
+
+    V_VT(&title) = VT_BSTR;
+    V_BSTR(&title) = NULL;
+
+    hr = IWshShell_Popup(sh, text, &timeout, &optional, &type, &button);
+    ok(hr == S_OK, "Unexpected retval %#x.\n", hr);
+    ok(button == -1, "Unexpected button id %d.\n", button);
+
+    hr = IWshShell_Popup(sh, text, &timeout, &title, &optional, &button);
+    ok(hr == S_OK, "Unexpected retval %#x.\n", hr);
+    ok(button == -1, "Unexpected button id %d.\n", button);
+
+    SysFreeString(text);
+    IWshShell_Release(sh);
+}
+
 START_TEST(wshom)
 {
     IUnknown *unk;
@@ -586,6 +631,7 @@ START_TEST(wshom)
 
     test_wshshell();
     test_registry();
+    test_popup();
 
     CoUninitialize();
 }

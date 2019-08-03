@@ -23,7 +23,24 @@
 
 extern PDEVICE_OBJECT master_devobj;
 
-static WCHAR datastring[] = L"::$DATA";
+static const WCHAR datastring[] = L"::$DATA";
+
+// Windows 10
+#define ATOMIC_CREATE_ECP_IN_FLAG_REPARSE_POINT_SPECIFIED   0x0002
+#define ATOMIC_CREATE_ECP_IN_FLAG_BEST_EFFORT               0x0100
+#define ATOMIC_CREATE_ECP_OUT_FLAG_REPARSE_POINT_SET        0x0002
+
+typedef struct _ATOMIC_CREATE_ECP_CONTEXT {
+    USHORT Size;
+    USHORT InFlags;
+    USHORT OutFlags;
+    USHORT ReparseBufferLength;
+    PREPARSE_DATA_BUFFER ReparseBuffer;
+    LONGLONG FileSize;
+    LONGLONG ValidDataLength;
+} ATOMIC_CREATE_ECP_CONTEXT, *PATOMIC_CREATE_ECP_CONTEXT;
+
+static const GUID GUID_ECP_ATOMIC_CREATE = { 0x4720bd83, 0x52ac, 0x4104, { 0xa1, 0x30, 0xd1, 0xec, 0x6a, 0x8c, 0xc8, 0xe5 } };
 
 fcb* create_fcb(device_extension* Vcb, POOL_TYPE pool_type) {
     fcb* fcb;
@@ -120,7 +137,6 @@ file_ref* create_fileref(device_extension* Vcb) {
     InitializeListHead(&fr->children);
 
     ExInitializeResourceLite(&fr->nonpaged->fileref_lock);
-    ExInitializeResourceLite(&fr->nonpaged->children_lock);
 
     return fr;
 }
@@ -265,10 +281,16 @@ static NTSTATUS split_path(device_extension* Vcb, PUNICODE_STRING path, LIST_ENT
     BOOL has_stream;
     WCHAR* buf;
     name_bit* nb;
+    NTSTATUS Status;
 
     len = path->Length / sizeof(WCHAR);
     if (len > 0 && (path->Buffer[len - 1] == '/' || path->Buffer[len - 1] == '\\'))
         len--;
+
+    if (len == 0 || (path->Buffer[len - 1] == '/' || path->Buffer[len - 1] == '\\')) {
+        WARN("zero-length filename part\n");
+        return STATUS_OBJECT_NAME_INVALID;
+    }
 
     has_stream = FALSE;
     for (i = 0; i < len; i++) {
@@ -283,10 +305,17 @@ static NTSTATUS split_path(device_extension* Vcb, PUNICODE_STRING path, LIST_ENT
 
     for (i = 0; i < len; i++) {
         if (path->Buffer[i] == '/' || path->Buffer[i] == '\\') {
+            if (buf[0] == '/' || buf[0] == '\\') {
+                WARN("zero-length filename part\n");
+                Status = STATUS_OBJECT_NAME_INVALID;
+                goto cleanup;
+            }
+
             nb = ExAllocateFromPagedLookasideList(&Vcb->name_bit_lookaside);
             if (!nb) {
                 ERR("out of memory\n");
-                return STATUS_INSUFFICIENT_RESOURCES;
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+                goto cleanup;
             }
 
             nb->us.Buffer = buf;
@@ -300,7 +329,8 @@ static NTSTATUS split_path(device_extension* Vcb, PUNICODE_STRING path, LIST_ENT
     nb = ExAllocateFromPagedLookasideList(&Vcb->name_bit_lookaside);
     if (!nb) {
         ERR("out of memory\n");
-        return STATUS_INSUFFICIENT_RESOURCES;
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto cleanup;
     }
 
     nb->us.Buffer = buf;
@@ -308,20 +338,27 @@ static NTSTATUS split_path(device_extension* Vcb, PUNICODE_STRING path, LIST_ENT
     InsertTailList(parts, &nb->list_entry);
 
     if (has_stream) {
-        static WCHAR datasuf[] = {':','$','D','A','T','A',0};
+        static const WCHAR datasuf[] = {':','$','D','A','T','A',0};
         UNICODE_STRING dsus;
 
-        dsus.Buffer = datasuf;
-        dsus.Length = dsus.MaximumLength = (UINT16)wcslen(datasuf) * sizeof(WCHAR);
+        dsus.Buffer = (WCHAR*)datasuf;
+        dsus.Length = dsus.MaximumLength = sizeof(datasuf) - sizeof(WCHAR);
 
         for (i = 0; i < nb->us.Length / sizeof(WCHAR); i++) {
             if (nb->us.Buffer[i] == ':') {
                 name_bit* nb2;
 
+                if (nb->us.Buffer[i+1] == 0) {
+                    WARN("zero-length stream name\n");
+                    Status = STATUS_OBJECT_NAME_INVALID;
+                    goto cleanup;
+                }
+
                 nb2 = ExAllocateFromPagedLookasideList(&Vcb->name_bit_lookaside);
                 if (!nb2) {
                     ERR("out of memory\n");
-                    return STATUS_INSUFFICIENT_RESOURCES;
+                    Status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto cleanup;
                 }
 
                 nb2->us.Buffer = &nb->us.Buffer[i+1];
@@ -360,6 +397,15 @@ static NTSTATUS split_path(device_extension* Vcb, PUNICODE_STRING path, LIST_ENT
     *stream = has_stream;
 
     return STATUS_SUCCESS;
+
+cleanup:
+    while (!IsListEmpty(parts)) {
+        nb = CONTAINING_RECORD(RemoveHeadList(parts), name_bit, list_entry);
+
+        ExFreeToPagedLookasideList(&Vcb->name_bit_lookaside, nb);
+    }
+
+    return Status;
 }
 
 NTSTATUS load_csum(_Requires_lock_held_(_Curr_->tree_lock) device_extension* Vcb, UINT32* csum, UINT64 start, UINT64 length, PIRP Irp) {
@@ -543,16 +589,11 @@ cont:
             break;
     }
 
-    // If a directory has a lot of files, force it to stick around until the next flush
-    // so we aren't constantly re-reading.
-    if (num_children >= 100)
-        mark_fcb_dirty(fcb);
-
     return STATUS_SUCCESS;
 }
 
 NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lock_held_(_Curr_->fcb_lock) device_extension* Vcb,
-                  root* subvol, UINT64 inode, UINT8 type, PANSI_STRING utf8, fcb* parent, fcb** pfcb, POOL_TYPE pooltype, PIRP Irp) {
+                  root* subvol, UINT64 inode, UINT8 type, PANSI_STRING utf8, BOOL always_add_hl, fcb* parent, fcb** pfcb, POOL_TYPE pooltype, PIRP Irp) {
     KEY searchkey;
     traverse_ptr tp, next_tp;
     NTSTATUS Status;
@@ -560,9 +601,15 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
     BOOL atts_set = FALSE, sd_set = FALSE, no_data;
     LIST_ENTRY* lastle = NULL;
     EXTENT_DATA* ed = NULL;
+    UINT64 fcbs_version;
+    UINT32 hash;
 
-    if (!IsListEmpty(&subvol->fcbs)) {
-        LIST_ENTRY* le = subvol->fcbs.Flink;
+    hash = calc_crc32c(0xffffffff, (UINT8*)&inode, sizeof(UINT64));
+
+    acquire_fcb_lock_shared(Vcb);
+
+    if (subvol->fcbs_ptrs[hash >> 24]) {
+        LIST_ENTRY* le = subvol->fcbs_ptrs[hash >> 24];
 
         while (le != &subvol->fcbs) {
             fcb = CONTAINING_RECORD(le, struct _fcb, list_entry);
@@ -581,23 +628,29 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
 #endif
 
                         *pfcb = fcb;
+                        release_fcb_lock(Vcb);
                         return STATUS_SUCCESS;
                     }
                 }
-            } else if (fcb->inode > inode) {
+            } else if (fcb->hash > hash) {
                 if (deleted_fcb) {
                     InterlockedIncrement(&deleted_fcb->refcount);
                     *pfcb = deleted_fcb;
+                    release_fcb_lock(Vcb);
                     return STATUS_SUCCESS;
                 }
 
                 lastle = le->Blink;
+                fcbs_version = subvol->fcbs_version;
+
                 break;
             }
 
             le = le->Flink;
         }
     }
+
+    release_fcb_lock(Vcb);
 
     if (deleted_fcb) {
         InterlockedIncrement(&deleted_fcb->refcount);
@@ -615,6 +668,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
 
     fcb->subvol = subvol;
     fcb->inode = inode;
+    fcb->hash = hash;
     fcb->type = type;
 
     searchkey.obj_id = inode;
@@ -624,13 +678,13 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
     Status = find_item(Vcb, subvol, &tp, &searchkey, FALSE, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("error - find_item returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
         return Status;
     }
 
     if (tp.item->key.obj_id != searchkey.obj_id || tp.item->key.obj_type != searchkey.obj_type) {
         WARN("couldn't find INODE_ITEM for inode %llx in subvol %llx\n", inode, subvol->id);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -665,7 +719,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
         if ((no_data && tp.item->key.obj_type > TYPE_XATTR_ITEM) || tp.item->key.obj_type > TYPE_EXTENT_DATA)
             break;
 
-        if (fcb->inode_item.st_nlink > 1 && tp.item->key.obj_type == TYPE_INODE_REF) {
+        if ((always_add_hl || fcb->inode_item.st_nlink > 1) && tp.item->key.obj_type == TYPE_INODE_REF) {
             ULONG len;
             INODE_REF* ir;
 
@@ -679,7 +733,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 hl = ExAllocatePoolWithTag(pooltype, sizeof(hardlink), ALLOC_TAG);
                 if (!hl) {
                     ERR("out of memory\n");
-                    free_fcb(Vcb, fcb);
+                    reap_fcb(fcb);
                     return STATUS_INSUFFICIENT_RESOURCES;
                 }
 
@@ -697,7 +751,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 if (!NT_SUCCESS(Status)) {
                     ERR("RtlUTF8ToUnicodeN 1 returned %08x\n", Status);
                     ExFreePool(hl);
-                    free_fcb(Vcb, fcb);
+                    reap_fcb(fcb);
                     return Status;
                 }
 
@@ -711,7 +765,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                     if (!hl->name.Buffer) {
                         ERR("out of memory\n");
                         ExFreePool(hl);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return STATUS_INSUFFICIENT_RESOURCES;
                     }
 
@@ -720,7 +774,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         ERR("RtlUTF8ToUnicodeN 2 returned %08x\n", Status);
                         ExFreePool(hl->name.Buffer);
                         ExFreePool(hl);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return Status;
                     }
                 }
@@ -730,7 +784,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 len -= sizeof(INODE_REF) - 1 + ir->n;
                 ir = (INODE_REF*)&ir->name[ir->n];
             }
-        } else if (fcb->inode_item.st_nlink > 1 && tp.item->key.obj_type == TYPE_INODE_EXTREF) {
+        } else if ((always_add_hl || fcb->inode_item.st_nlink > 1) && tp.item->key.obj_type == TYPE_INODE_EXTREF) {
             ULONG len;
             INODE_EXTREF* ier;
 
@@ -744,7 +798,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 hl = ExAllocatePoolWithTag(pooltype, sizeof(hardlink), ALLOC_TAG);
                 if (!hl) {
                     ERR("out of memory\n");
-                    free_fcb(Vcb, fcb);
+                    reap_fcb(fcb);
                     return STATUS_INSUFFICIENT_RESOURCES;
                 }
 
@@ -762,7 +816,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 if (!NT_SUCCESS(Status)) {
                     ERR("RtlUTF8ToUnicodeN 1 returned %08x\n", Status);
                     ExFreePool(hl);
-                    free_fcb(Vcb, fcb);
+                    reap_fcb(fcb);
                     return Status;
                 }
 
@@ -776,7 +830,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                     if (!hl->name.Buffer) {
                         ERR("out of memory\n");
                         ExFreePool(hl);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return STATUS_INSUFFICIENT_RESOURCES;
                     }
 
@@ -785,7 +839,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         ERR("RtlUTF8ToUnicodeN 2 returned %08x\n", Status);
                         ExFreePool(hl->name.Buffer);
                         ExFreePool(hl);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return Status;
                     }
                 }
@@ -799,7 +853,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
             ULONG len;
             DIR_ITEM* di;
 
-            static char xapref[] = "user.";
+            static const char xapref[] = "user.";
 
             if (tp.item->size < offsetof(DIR_ITEM, name[0])) {
                 ERR("(%llx,%x,%llx) was %u bytes, expected at least %u\n", tp.item->key.obj_id, tp.item->key.obj_type, tp.item->key.offset, tp.item->size, offsetof(DIR_ITEM, name[0]));
@@ -813,12 +867,12 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 if (len < offsetof(DIR_ITEM, name[0]) + di->m + di->n)
                     break;
 
-                if (tp.item->key.offset == EA_REPARSE_HASH && di->n == strlen(EA_REPARSE) && RtlCompareMemory(EA_REPARSE, di->name, di->n) == di->n) {
+                if (tp.item->key.offset == EA_REPARSE_HASH && di->n == sizeof(EA_REPARSE) - 1 && RtlCompareMemory(EA_REPARSE, di->name, di->n) == di->n) {
                     if (di->m > 0) {
                         fcb->reparse_xattr.Buffer = ExAllocatePoolWithTag(PagedPool, di->m, ALLOC_TAG);
                         if (!fcb->reparse_xattr.Buffer) {
                             ERR("out of memory\n");
-                            free_fcb(Vcb, fcb);
+                            reap_fcb(fcb);
                             return STATUS_INSUFFICIENT_RESOURCES;
                         }
 
@@ -827,7 +881,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         fcb->reparse_xattr.Buffer = NULL;
 
                     fcb->reparse_xattr.Length = fcb->reparse_xattr.MaximumLength = di->m;
-                } else if (tp.item->key.offset == EA_EA_HASH && di->n == strlen(EA_EA) && RtlCompareMemory(EA_EA, di->name, di->n) == di->n) {
+                } else if (tp.item->key.offset == EA_EA_HASH && di->n == sizeof(EA_EA) - 1 && RtlCompareMemory(EA_EA, di->name, di->n) == di->n) {
                     if (di->m > 0) {
                         ULONG offset;
 
@@ -841,7 +895,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                             fcb->ea_xattr.Buffer = ExAllocatePoolWithTag(PagedPool, di->m, ALLOC_TAG);
                             if (!fcb->ea_xattr.Buffer) {
                                 ERR("out of memory\n");
-                                free_fcb(Vcb, fcb);
+                                reap_fcb(fcb);
                                 return STATUS_INSUFFICIENT_RESOURCES;
                             }
 
@@ -863,7 +917,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                             } while (TRUE);
                         }
                     }
-                } else if (tp.item->key.offset == EA_DOSATTRIB_HASH && di->n == strlen(EA_DOSATTRIB) && RtlCompareMemory(EA_DOSATTRIB, di->name, di->n) == di->n) {
+                } else if (tp.item->key.offset == EA_DOSATTRIB_HASH && di->n == sizeof(EA_DOSATTRIB) - 1 && RtlCompareMemory(EA_DOSATTRIB, di->name, di->n) == di->n) {
                     if (di->m > 0) {
                         if (get_file_attributes_from_xattr(&di->name[di->n], di->m, &fcb->atts)) {
                             atts_set = TRUE;
@@ -884,12 +938,12 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                             }
                         }
                     }
-                } else if (tp.item->key.offset == EA_NTACL_HASH && di->n == strlen(EA_NTACL) && RtlCompareMemory(EA_NTACL, di->name, di->n) == di->n) {
+                } else if (tp.item->key.offset == EA_NTACL_HASH && di->n == sizeof(EA_NTACL) - 1 && RtlCompareMemory(EA_NTACL, di->name, di->n) == di->n) {
                     if (di->m > 0) {
                         fcb->sd = ExAllocatePoolWithTag(PagedPool, di->m, ALLOC_TAG);
                         if (!fcb->sd) {
                             ERR("out of memory\n");
-                            free_fcb(Vcb, fcb);
+                            reap_fcb(fcb);
                             return STATUS_INSUFFICIENT_RESOURCES;
                         }
 
@@ -902,48 +956,56 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         else
                             sd_set = TRUE;
                     }
-                } else if (tp.item->key.offset == EA_PROP_COMPRESSION_HASH && di->n == strlen(EA_PROP_COMPRESSION) && RtlCompareMemory(EA_PROP_COMPRESSION, di->name, di->n) == di->n) {
+                } else if (tp.item->key.offset == EA_PROP_COMPRESSION_HASH && di->n == sizeof(EA_PROP_COMPRESSION) - 1 && RtlCompareMemory(EA_PROP_COMPRESSION, di->name, di->n) == di->n) {
                     if (di->m > 0) {
-                        const char lzo[] = "lzo";
-                        const char zlib[] = "zlib";
+                        static const char lzo[] = "lzo";
+                        static const char zlib[] = "zlib";
+                        static const char zstd[] = "zstd";
 
-                        if (di->m == strlen(lzo) && RtlCompareMemory(&di->name[di->n], lzo, di->m) == di->m)
+                        if (di->m == sizeof(lzo) - 1 && RtlCompareMemory(&di->name[di->n], lzo, di->m) == di->m)
                             fcb->prop_compression = PropCompression_LZO;
-                        else if (di->m == strlen(zlib) && RtlCompareMemory(&di->name[di->n], zlib, di->m) == di->m)
+                        else if (di->m == sizeof(zlib) - 1 && RtlCompareMemory(&di->name[di->n], zlib, di->m) == di->m)
                             fcb->prop_compression = PropCompression_Zlib;
+                        else if (di->m == sizeof(zstd) - 1 && RtlCompareMemory(&di->name[di->n], zstd, di->m) == di->m)
+                            fcb->prop_compression = PropCompression_ZSTD;
                         else
                             fcb->prop_compression = PropCompression_None;
                     }
-                } else if (di->n > strlen(xapref) && RtlCompareMemory(xapref, di->name, strlen(xapref)) == strlen(xapref)) {
+                } else if (tp.item->key.offset == EA_CASE_SENSITIVE_HASH && di->n == sizeof(EA_CASE_SENSITIVE) - 1 && RtlCompareMemory(EA_CASE_SENSITIVE, di->name, di->n) == di->n) {
+                    if (di->m > 0) {
+                        fcb->case_sensitive = di->m == 1 && di->name[di->n] == '1';
+                        fcb->case_sensitive_set = TRUE;
+                    }
+                } else if (di->n > sizeof(xapref) - 1 && RtlCompareMemory(xapref, di->name, sizeof(xapref) - 1) == sizeof(xapref) - 1) {
                     dir_child* dc;
                     ULONG utf16len;
 
-                    Status = RtlUTF8ToUnicodeN(NULL, 0, &utf16len, &di->name[strlen(xapref)], di->n - (ULONG)strlen(xapref));
+                    Status = RtlUTF8ToUnicodeN(NULL, 0, &utf16len, &di->name[sizeof(xapref) - 1], di->n + 1 - sizeof(xapref));
                     if (!NT_SUCCESS(Status)) {
                         ERR("RtlUTF8ToUnicodeN 1 returned %08x\n", Status);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return Status;
                     }
 
                     dc = ExAllocatePoolWithTag(PagedPool, sizeof(dir_child), ALLOC_TAG);
                     if (!dc) {
                         ERR("out of memory\n");
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return STATUS_INSUFFICIENT_RESOURCES;
                     }
 
                     RtlZeroMemory(dc, sizeof(dir_child));
 
-                    dc->utf8.MaximumLength = dc->utf8.Length = di->n - (UINT16)strlen(xapref);
+                    dc->utf8.MaximumLength = dc->utf8.Length = di->n + 1 - sizeof(xapref);
                     dc->utf8.Buffer = ExAllocatePoolWithTag(PagedPool, dc->utf8.MaximumLength, ALLOC_TAG);
                     if (!dc->utf8.Buffer) {
                         ERR("out of memory\n");
                         ExFreePool(dc);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return STATUS_INSUFFICIENT_RESOURCES;
                     }
 
-                    RtlCopyMemory(dc->utf8.Buffer, &di->name[strlen(xapref)], dc->utf8.Length);
+                    RtlCopyMemory(dc->utf8.Buffer, &di->name[sizeof(xapref) - 1], dc->utf8.Length);
 
                     dc->name.MaximumLength = dc->name.Length = (UINT16)utf16len;
                     dc->name.Buffer = ExAllocatePoolWithTag(PagedPool, dc->name.MaximumLength, ALLOC_TAG);
@@ -951,7 +1013,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         ERR("out of memory\n");
                         ExFreePool(dc->utf8.Buffer);
                         ExFreePool(dc);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return STATUS_INSUFFICIENT_RESOURCES;
                     }
 
@@ -961,7 +1023,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         ExFreePool(dc->utf8.Buffer);
                         ExFreePool(dc->name.Buffer);
                         ExFreePool(dc);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return Status;
                     }
 
@@ -971,7 +1033,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                         ExFreePool(dc->utf8.Buffer);
                         ExFreePool(dc->name.Buffer);
                         ExFreePool(dc);
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return Status;
                     }
 
@@ -984,7 +1046,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                     xa = ExAllocatePoolWithTag(PagedPool, offsetof(xattr, data[0]) + di->m + di->n, ALLOC_TAG);
                     if (!xa) {
                         ERR("out of memory\n");
-                        free_fcb(Vcb, fcb);
+                        reap_fcb(fcb);
                         return STATUS_INSUFFICIENT_RESOURCES;
                     }
 
@@ -1013,7 +1075,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                 ERR("(%llx,%x,%llx) was %u bytes, expected at least %u\n", tp.item->key.obj_id, tp.item->key.obj_type, tp.item->key.offset,
                     tp.item->size, sizeof(EXTENT_DATA));
 
-                free_fcb(Vcb, fcb);
+                reap_fcb(fcb);
                 return STATUS_INTERNAL_ERROR;
             }
 
@@ -1024,7 +1086,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
                     ERR("(%llx,%x,%llx) was %u bytes, expected at least %u\n", tp.item->key.obj_id, tp.item->key.obj_type, tp.item->key.offset,
                         tp.item->size, sizeof(EXTENT_DATA) - 1 + sizeof(EXTENT_DATA2));
 
-                    free_fcb(Vcb, fcb);
+                    reap_fcb(fcb);
                     return STATUS_INTERNAL_ERROR;
                 }
 
@@ -1038,7 +1100,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
             ext = ExAllocatePoolWithTag(pooltype, offsetof(extent, extent_data) + tp.item->size, ALLOC_TAG);
             if (!ext) {
                 ERR("out of memory\n");
-                free_fcb(Vcb, fcb);
+                reap_fcb(fcb);
                 return STATUS_INSUFFICIENT_RESOURCES;
             }
 
@@ -1058,7 +1120,7 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
         Status = load_dir_children(Vcb, fcb, FALSE, Irp);
         if (!NT_SUCCESS(Status)) {
             ERR("load_dir_children returned %08x\n", Status);
-            free_fcb(Vcb, fcb);
+            reap_fcb(fcb);
             return Status;
         }
     }
@@ -1083,25 +1145,102 @@ NTSTATUS open_fcb(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lo
     if (!sd_set)
         fcb_get_sd(fcb, parent, FALSE, Irp);
 
-    if (fcb->type == BTRFS_TYPE_DIRECTORY && fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT && fcb->reparse_xattr.Length == 0) {
-        fcb->atts &= ~FILE_ATTRIBUTE_REPARSE_POINT;
+    acquire_fcb_lock_exclusive(Vcb);
 
-        if (!Vcb->readonly && !is_subvol_readonly(subvol, Irp)) {
-            fcb->atts_changed = TRUE;
-            mark_fcb_dirty(fcb);
+    if (lastle && subvol->fcbs_version == fcbs_version)
+        InsertHeadList(lastle, &fcb->list_entry);
+    else {
+        if (subvol->fcbs_ptrs[hash >> 24]) {
+            LIST_ENTRY* le = subvol->fcbs_ptrs[hash >> 24];
+
+            while (le != &subvol->fcbs) {
+                struct _fcb* fcb2 = CONTAINING_RECORD(le, struct _fcb, list_entry);
+
+                if (fcb2->inode == inode) {
+                    if (!fcb2->ads) {
+                        if (fcb2->deleted)
+                            deleted_fcb = fcb2;
+                        else {
+#ifdef DEBUG_FCB_REFCOUNTS
+                            LONG rc = InterlockedIncrement(&fcb2->refcount);
+
+                            WARN("fcb %p: refcount now %i (subvol %llx, inode %llx)\n", fcb2, rc, fcb2->subvol->id, fcb2->inode);
+#else
+                            InterlockedIncrement(&fcb2->refcount);
+#endif
+
+                            *pfcb = fcb2;
+                            reap_fcb(fcb);
+                            release_fcb_lock(Vcb);
+                            return STATUS_SUCCESS;
+                        }
+                    }
+                } else if (fcb2->hash > hash) {
+                    if (deleted_fcb) {
+                        InterlockedIncrement(&deleted_fcb->refcount);
+                        *pfcb = deleted_fcb;
+                        reap_fcb(fcb);
+                        release_fcb_lock(Vcb);
+                        return STATUS_SUCCESS;
+                    }
+
+                    lastle = le->Blink;
+                    break;
+                }
+
+                le = le->Flink;
+            }
+        }
+
+        if (fcb->type == BTRFS_TYPE_DIRECTORY && fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT && fcb->reparse_xattr.Length == 0) {
+            fcb->atts &= ~FILE_ATTRIBUTE_REPARSE_POINT;
+
+            if (!Vcb->readonly && !is_subvol_readonly(subvol, Irp)) {
+                fcb->atts_changed = TRUE;
+                mark_fcb_dirty(fcb);
+            }
+        }
+
+        if (!lastle) {
+            UINT8 c = hash >> 24;
+
+            if (c != 0xff) {
+                UINT8 d = c + 1;
+
+                do {
+                    if (subvol->fcbs_ptrs[d]) {
+                        lastle = subvol->fcbs_ptrs[d]->Blink;
+                        break;
+                    }
+
+                    d++;
+                } while (d != 0);
+            }
+        }
+
+        if (lastle) {
+            InsertHeadList(lastle, &fcb->list_entry);
+
+            if (lastle == &subvol->fcbs || (CONTAINING_RECORD(lastle, struct _fcb, list_entry)->hash >> 24) != (hash >> 24))
+                subvol->fcbs_ptrs[hash >> 24] = &fcb->list_entry;
+        } else {
+            InsertTailList(&subvol->fcbs, &fcb->list_entry);
+
+            if (fcb->list_entry.Blink == &subvol->fcbs || (CONTAINING_RECORD(fcb->list_entry.Blink, struct _fcb, list_entry)->hash >> 24) != (hash >> 24))
+                subvol->fcbs_ptrs[hash >> 24] = &fcb->list_entry;
         }
     }
 
-    if (lastle)
-        InsertHeadList(lastle, &fcb->list_entry);
-    else
-        InsertTailList(&subvol->fcbs, &fcb->list_entry);
+    subvol->fcbs_version++;
 
     InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
+
+    release_fcb_lock(Vcb);
 
     fcb->Header.IsFastIoPossible = fast_io_possible(fcb);
 
     *pfcb = fcb;
+
     return STATUS_SUCCESS;
 }
 
@@ -1113,11 +1252,11 @@ static NTSTATUS open_fcb_stream(_Requires_lock_held_(_Curr_->tree_lock) _Require
     NTSTATUS Status;
     KEY searchkey;
     traverse_ptr tp;
-    static char xapref[] = "user.";
+    static const char xapref[] = "user.";
     ANSI_STRING xattr;
     UINT32 crc32;
 
-    xattr.Length = (UINT16)strlen(xapref) + dc->utf8.Length;
+    xattr.Length = sizeof(xapref) - 1 + dc->utf8.Length;
     xattr.MaximumLength = xattr.Length + 1;
     xattr.Buffer = ExAllocatePoolWithTag(PagedPool, xattr.MaximumLength, ALLOC_TAG);
     if (!xattr.Buffer) {
@@ -1125,8 +1264,8 @@ static NTSTATUS open_fcb_stream(_Requires_lock_held_(_Curr_->tree_lock) _Require
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    RtlCopyMemory(xattr.Buffer, xapref, strlen(xapref));
-    RtlCopyMemory(&xattr.Buffer[strlen(xapref)], dc->utf8.Buffer, dc->utf8.Length);
+    RtlCopyMemory(xattr.Buffer, xapref, sizeof(xapref) - 1);
+    RtlCopyMemory(&xattr.Buffer[sizeof(xapref) - 1], dc->utf8.Buffer, dc->utf8.Length);
     xattr.Buffer[xattr.Length] = 0;
 
     fcb = create_fcb(Vcb, PagedPool);
@@ -1142,7 +1281,7 @@ static NTSTATUS open_fcb_stream(_Requires_lock_held_(_Curr_->tree_lock) _Require
 
     if (!get_xattr(Vcb, parent->subvol, parent->inode, xattr.Buffer, crc32, &xattrdata, &xattrlen, Irp)) {
         ERR("get_xattr failed\n");
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
         ExFreePool(xattr.Buffer);
         return STATUS_INTERNAL_ERROR;
     }
@@ -1163,19 +1302,19 @@ static NTSTATUS open_fcb_stream(_Requires_lock_held_(_Curr_->tree_lock) _Require
     Status = find_item(Vcb, parent->subvol, &tp, &searchkey, FALSE, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("find_item returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
         return Status;
     }
 
     if (keycmp(tp.item->key, searchkey)) {
         ERR("error - could not find key for xattr\n");
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
         return STATUS_INTERNAL_ERROR;
     }
 
     if (tp.item->size < xattrlen) {
         ERR("(%llx,%x,%llx) was %u bytes, expected at least %u\n", tp.item->key.obj_id, tp.item->key.obj_type, tp.item->key.offset, tp.item->size, xattrlen);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
         return STATUS_INTERNAL_ERROR;
     }
 
@@ -1192,10 +1331,6 @@ static NTSTATUS open_fcb_stream(_Requires_lock_held_(_Curr_->tree_lock) _Require
     fcb->Header.ValidDataLength.QuadPart = xattrlen;
 
     TRACE("stream found: size = %x, hash = %08x\n", xattrlen, fcb->adshash);
-
-    InsertHeadList(&parent->list_entry, &fcb->list_entry);
-
-    InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
 
     *pfcb = fcb;
 
@@ -1217,6 +1352,8 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
         UNICODE_STRING name_uc;
         dir_child* dc = NULL;
         fcb* fcb;
+        struct _fcb* duff_fcb = NULL;
+        file_ref* duff_fr = NULL;
 
         if (!case_sensitive) {
             Status = RtlUpcaseUnicodeString(&name_uc, name, TRUE);
@@ -1248,20 +1385,33 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
             le = le->Flink;
         }
 
-        if (!case_sensitive)
-            ExFreePool(name_uc.Buffer);
+        if (!dc) {
+            if (locked)
+                ExReleaseResourceLite(&sf->fcb->nonpaged->dir_children_lock);
 
-        if (locked)
-            ExReleaseResourceLite(&sf->fcb->nonpaged->dir_children_lock);
+            if (!case_sensitive)
+                ExFreePool(name_uc.Buffer);
 
-        if (!dc)
             return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
 
         if (dc->fileref) {
+            if (locked)
+                ExReleaseResourceLite(&sf->fcb->nonpaged->dir_children_lock);
+
+            if (!case_sensitive)
+                ExFreePool(name_uc.Buffer);
+
             increase_fileref_refcount(dc->fileref);
             *psf2 = dc->fileref;
             return STATUS_SUCCESS;
         }
+
+        if (locked)
+            ExReleaseResourceLite(&sf->fcb->nonpaged->dir_children_lock);
+
+        if (!case_sensitive)
+            ExFreePool(name_uc.Buffer);
 
         Status = open_fcb_stream(Vcb, dc, sf->fcb, &fcb, Irp);
         if (!NT_SUCCESS(Status)) {
@@ -1269,25 +1419,68 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
             return Status;
         }
 
+        fcb->hash = sf->fcb->hash;
+
+        acquire_fcb_lock_exclusive(Vcb);
+
+        if (sf->fcb->subvol->fcbs_ptrs[fcb->hash >> 24]) {
+            LIST_ENTRY* le = sf->fcb->subvol->fcbs_ptrs[fcb->hash >> 24];
+
+            while (le != &sf->fcb->subvol->fcbs) {
+                struct _fcb* fcb2 = CONTAINING_RECORD(le, struct _fcb, list_entry);
+
+                if (fcb2->inode == fcb->inode) {
+                    if (fcb2->ads && fcb2->adshash == fcb->adshash) { // FIXME - handle hash collisions
+                        duff_fcb = fcb;
+                        fcb = fcb2;
+                        break;
+                    }
+                } else if (fcb2->hash > fcb->hash)
+                    break;
+
+                le = le->Flink;
+            }
+        }
+
+        if (!duff_fcb) {
+            InsertHeadList(&sf->fcb->list_entry, &fcb->list_entry);
+            InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
+            fcb->subvol->fcbs_version++;
+        }
+
+        release_fcb_lock(Vcb);
+
+        if (duff_fcb) {
+            reap_fcb(duff_fcb);
+            InterlockedIncrement(&fcb->refcount);
+        }
+
         sf2 = create_fileref(Vcb);
         if (!sf2) {
             ERR("out of memory\n");
-            free_fcb(Vcb, fcb);
+            free_fcb(fcb);
             return STATUS_INSUFFICIENT_RESOURCES;
         }
 
-        sf2->fcb = fcb;
+        ExAcquireResourceExclusiveLite(&sf->fcb->nonpaged->dir_children_lock, TRUE);
 
-        sf2->parent = (struct _file_ref*)sf;
+        if (dc->fileref) {
+            duff_fr = sf2;
+            sf2 = dc->fileref;
+            increase_fileref_refcount(sf2);
+        } else {
+            sf2->fcb = fcb;
+            sf2->parent = (struct _file_ref*)sf;
+            sf2->dc = dc;
+            dc->fileref = sf2;
+            increase_fileref_refcount(sf);
+            InsertTailList(&sf->children, &sf2->list_entry);
+        }
 
-        sf2->dc = dc;
-        dc->fileref = sf2;
+        ExReleaseResourceLite(&sf->fcb->nonpaged->dir_children_lock);
 
-        ExAcquireResourceExclusiveLite(&sf->nonpaged->children_lock, TRUE);
-        InsertTailList(&sf->children, &sf2->list_entry);
-        ExReleaseResourceLite(&sf->nonpaged->children_lock);
-
-        increase_fileref_refcount(sf);
+        if (duff_fr)
+            reap_fileref(Vcb, duff_fr);
     } else {
         root* subvol;
         UINT64 inode;
@@ -1303,6 +1496,7 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
             return Status;
         } else {
             fcb* fcb;
+            file_ref* duff_fr = NULL;
 #ifdef DEBUG_STATS
             LARGE_INTEGER time1, time2;
 #endif
@@ -1325,7 +1519,7 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
 #ifdef DEBUG_STATS
                 time1 = KeQueryPerformanceCounter(NULL);
 #endif
-                Status = open_fcb(Vcb, subvol, inode, dc->type, &dc->utf8, sf->fcb, &fcb, pooltype, Irp);
+                Status = open_fcb(Vcb, subvol, inode, dc->type, &dc->utf8, FALSE, sf->fcb, &fcb, pooltype, Irp);
 #ifdef DEBUG_STATS
                 time2 = KeQueryPerformanceCounter(NULL);
                 Vcb->stats.open_fcb_calls++;
@@ -1340,14 +1534,14 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
 
             if (dc->type != BTRFS_TYPE_DIRECTORY && !lastpart && !(fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT)) {
                 TRACE("passed path including file as subdirectory\n");
-                free_fcb(Vcb, fcb);
+                free_fcb(fcb);
                 return STATUS_OBJECT_PATH_NOT_FOUND;
             }
 
             sf2 = create_fileref(Vcb);
             if (!sf2) {
                 ERR("out of memory\n");
-                free_fcb(Vcb, fcb);
+                free_fcb(fcb);
                 return STATUS_INSUFFICIENT_RESOURCES;
             }
 
@@ -1356,16 +1550,24 @@ NTSTATUS open_fileref_child(_Requires_lock_held_(_Curr_->tree_lock) _Requires_ex
             if (dc->type == BTRFS_TYPE_DIRECTORY)
                 fcb->fileref = sf2;
 
-            sf2->dc = dc;
-            dc->fileref = sf2;
+            ExAcquireResourceExclusiveLite(&sf->fcb->nonpaged->dir_children_lock, TRUE);
 
-            sf2->parent = (struct _file_ref*)sf;
+            if (!dc->fileref) {
+                sf2->parent = (struct _file_ref*)sf;
+                sf2->dc = dc;
+                dc->fileref = sf2;
+                InsertTailList(&sf->children, &sf2->list_entry);
+                increase_fileref_refcount(sf);
+            } else {
+                duff_fr = sf2;
+                sf2 = dc->fileref;
+                increase_fileref_refcount(sf2);
+            }
 
-            ExAcquireResourceExclusiveLite(&sf->nonpaged->children_lock, TRUE);
-            InsertTailList(&sf->children, &sf2->list_entry);
-            ExReleaseResourceLite(&sf->nonpaged->children_lock);
+            ExReleaseResourceLite(&sf->fcb->nonpaged->dir_children_lock);
 
-            increase_fileref_refcount(sf);
+            if (duff_fr)
+                reap_fileref(Vcb, duff_fr);
         }
     }
 
@@ -1385,13 +1587,6 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
     LIST_ENTRY* le;
 
     TRACE("(%p, %p, %p, %u, %p)\n", Vcb, pfr, related, parent, parsed);
-
-#ifdef DEBUG
-    if (!ExIsResourceAcquiredExclusiveLite(&Vcb->fcb_lock) && !ExIsResourceAcquiredExclusiveLite(&Vcb->tree_lock)) {
-        ERR("fcb_lock not acquired exclusively\n");
-        int3;
-    }
-#endif
 
     if (Vcb->removing || Vcb->locked)
         return STATUS_ACCESS_DENIED;
@@ -1418,6 +1613,13 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
             return STATUS_OBJECT_PATH_NOT_FOUND;
         }
 
+        // if path starts with two backslashes, ignore one of them
+        if (fnus2.Length >= 2 * sizeof(WCHAR) && fnus2.Buffer[1] == '\\') {
+            fnus2.Buffer++;
+            fnus2.Length -= sizeof(WCHAR);
+            fnus2.MaximumLength -= sizeof(WCHAR);
+        }
+
         if (fnus2.Length == sizeof(WCHAR)) {
             if (Vcb->root_fileref->open_count == 0 && !(Vcb->Vpb->Flags & VPB_MOUNTED)) // don't allow root to be opened on unmounted FS
                 return STATUS_DEVICE_NOT_READY;
@@ -1429,7 +1631,8 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
                 *fn_offset = 0;
 
             return STATUS_SUCCESS;
-        }
+        } else if (fnus2.Length >= 2 * sizeof(WCHAR) && fnus2.Buffer[1] == '\\')
+            return STATUS_OBJECT_NAME_INVALID;
 
         dir = Vcb->root_fileref;
 
@@ -1447,7 +1650,7 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
     InitializeListHead(&parts);
 
     if (fnus->Length != 0 &&
-        (fnus->Length != wcslen(datastring) * sizeof(WCHAR) || RtlCompareMemory(fnus->Buffer, datastring, wcslen(datastring) * sizeof(WCHAR)) != wcslen(datastring) * sizeof(WCHAR))) {
+        (fnus->Length != sizeof(datastring) - sizeof(WCHAR) || RtlCompareMemory(fnus->Buffer, datastring, sizeof(datastring) - sizeof(WCHAR)) != sizeof(datastring) - sizeof(WCHAR))) {
         Status = split_path(Vcb, &fnus2, &parts, &has_stream);
         if (!NT_SUCCESS(Status)) {
             ERR("split_path returned %08x\n", Status);
@@ -1487,8 +1690,28 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
         name_bit* nb = CONTAINING_RECORD(le, name_bit, list_entry);
         BOOL lastpart = le->Flink == &parts || (has_stream && le->Flink->Flink == &parts);
         BOOL streampart = has_stream && le->Flink == &parts;
+#ifdef DEBUG_STATS
+        LARGE_INTEGER time1, time2;
+#endif
 
-        Status = open_fileref_child(Vcb, sf, &nb->us, case_sensitive, lastpart, streampart, pooltype, &sf2, Irp);
+#ifdef DEBUG_STATS
+        time1 = KeQueryPerformanceCounter(NULL);
+#endif
+        BOOL cs = case_sensitive;
+
+        if (!cs) {
+            if (streampart)
+                cs = sf->parent->fcb->case_sensitive;
+            else
+                cs = sf->fcb->case_sensitive;
+        }
+
+        Status = open_fileref_child(Vcb, sf, &nb->us, cs, lastpart, streampart, pooltype, &sf2, Irp);
+#ifdef DEBUG_STATS
+        time2 = KeQueryPerformanceCounter(NULL);
+        Vcb->stats.open_fileref_child_calls++;
+        Vcb->stats.open_fileref_child_time += time2.QuadPart - time1.QuadPart;
+#endif
         if (!NT_SUCCESS(Status)) {
             if (Status == STATUS_OBJECT_PATH_NOT_FOUND || Status == STATUS_OBJECT_NAME_NOT_FOUND)
                 TRACE("open_fileref_child returned %08x\n", Status);
@@ -1521,7 +1744,7 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
             break;
         }
 
-        free_fileref(Vcb, sf);
+        free_fileref(sf);
         sf = sf2;
 
         le = le->Flink;
@@ -1532,7 +1755,7 @@ NTSTATUS open_fileref(_Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusiv
     *pfr = sf2;
 
 end:
-    free_fileref(Vcb, sf);
+    free_fileref(sf);
 
     while (!IsListEmpty(&parts)) {
         name_bit* nb = CONTAINING_RECORD(RemoveHeadList(&parts), name_bit, list_entry);
@@ -1548,6 +1771,7 @@ end2:
 NTSTATUS add_dir_child(fcb* fcb, UINT64 inode, BOOL subvol, PANSI_STRING utf8, PUNICODE_STRING name, UINT8 type, dir_child** pdc) {
     NTSTATUS Status;
     dir_child* dc;
+    BOOL locked;
 
     dc = ExAllocatePoolWithTag(PagedPool, sizeof(dir_child), ALLOC_TAG);
     if (!dc) {
@@ -1594,7 +1818,10 @@ NTSTATUS add_dir_child(fcb* fcb, UINT64 inode, BOOL subvol, PANSI_STRING utf8, P
     dc->hash = calc_crc32c(0xffffffff, (UINT8*)dc->name.Buffer, dc->name.Length);
     dc->hash_uc = calc_crc32c(0xffffffff, (UINT8*)dc->name_uc.Buffer, dc->name_uc.Length);
 
-    ExAcquireResourceExclusiveLite(&fcb->nonpaged->dir_children_lock, TRUE);
+    locked = ExIsResourceAcquiredExclusive(&fcb->nonpaged->dir_children_lock);
+
+    if (!locked)
+        ExAcquireResourceExclusiveLite(&fcb->nonpaged->dir_children_lock, TRUE);
 
     if (IsListEmpty(&fcb->dir_children_index))
         dc->index = 2;
@@ -1608,7 +1835,8 @@ NTSTATUS add_dir_child(fcb* fcb, UINT64 inode, BOOL subvol, PANSI_STRING utf8, P
 
     insert_dir_child_into_hash_lists(fcb, dc);
 
-    ExReleaseResourceLite(&fcb->nonpaged->dir_children_lock);
+    if (!locked)
+        ExReleaseResourceLite(&fcb->nonpaged->dir_children_lock);
 
     *pdc = dc;
 
@@ -1631,9 +1859,221 @@ UINT32 inherit_mode(fcb* parfcb, BOOL is_dir) {
     return mode;
 }
 
+static NTSTATUS file_create_parse_ea(fcb* fcb, FILE_FULL_EA_INFORMATION* ea) {
+    NTSTATUS Status;
+    LIST_ENTRY ealist, *le;
+    UINT16 size = 0;
+    char* buf;
+
+    InitializeListHead(&ealist);
+
+    do {
+        STRING s;
+        BOOL found = FALSE;
+
+        s.Length = s.MaximumLength = ea->EaNameLength;
+        s.Buffer = ea->EaName;
+
+        RtlUpperString(&s, &s);
+
+        le = ealist.Flink;
+        while (le != &ealist) {
+            ea_item* item = CONTAINING_RECORD(le, ea_item, list_entry);
+
+            if (item->name.Length == s.Length && RtlCompareMemory(item->name.Buffer, s.Buffer, s.Length) == s.Length) {
+                item->flags = ea->Flags;
+                item->value.Length = item->value.MaximumLength = ea->EaValueLength;
+                item->value.Buffer = &ea->EaName[ea->EaNameLength + 1];
+                found = TRUE;
+                break;
+            }
+
+            le = le->Flink;
+        }
+
+        if (!found) {
+            ea_item* item = ExAllocatePoolWithTag(PagedPool, sizeof(ea_item), ALLOC_TAG);
+            if (!item) {
+                ERR("out of memory\n");
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+                goto end;
+            }
+
+            item->name.Length = item->name.MaximumLength = ea->EaNameLength;
+            item->name.Buffer = ea->EaName;
+
+            item->value.Length = item->value.MaximumLength = ea->EaValueLength;
+            item->value.Buffer = &ea->EaName[ea->EaNameLength + 1];
+
+            item->flags = ea->Flags;
+
+            InsertTailList(&ealist, &item->list_entry);
+        }
+
+        if (ea->NextEntryOffset == 0)
+            break;
+
+        ea = (FILE_FULL_EA_INFORMATION*)(((UINT8*)ea) + ea->NextEntryOffset);
+    } while (TRUE);
+
+    // handle LXSS values
+    le = ealist.Flink;
+    while (le != &ealist) {
+        LIST_ENTRY* le2 = le->Flink;
+        ea_item* item = CONTAINING_RECORD(le, ea_item, list_entry);
+
+        if (item->name.Length == sizeof(lxuid) - 1 && RtlCompareMemory(item->name.Buffer, lxuid, item->name.Length) == item->name.Length) {
+            if (item->value.Length < sizeof(UINT32)) {
+                ERR("uid value was shorter than expected\n");
+                Status = STATUS_INVALID_PARAMETER;
+                goto end;
+            }
+
+            RtlCopyMemory(&fcb->inode_item.st_uid, item->value.Buffer, sizeof(UINT32));
+            fcb->sd_dirty = TRUE;
+            fcb->sd_deleted = FALSE;
+
+            RemoveEntryList(&item->list_entry);
+            ExFreePool(item);
+        } else if (item->name.Length == sizeof(lxgid) - 1 && RtlCompareMemory(item->name.Buffer, lxgid, item->name.Length) == item->name.Length) {
+            if (item->value.Length < sizeof(UINT32)) {
+                ERR("gid value was shorter than expected\n");
+                Status = STATUS_INVALID_PARAMETER;
+                goto end;
+            }
+
+            RtlCopyMemory(&fcb->inode_item.st_gid, item->value.Buffer, sizeof(UINT32));
+
+            RemoveEntryList(&item->list_entry);
+            ExFreePool(item);
+        } else if (item->name.Length == sizeof(lxmod) - 1 && RtlCompareMemory(item->name.Buffer, lxmod, item->name.Length) == item->name.Length) {
+            UINT32 allowed = S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH | S_ISGID | S_ISVTX | S_ISUID;
+            UINT32 val;
+
+            if (item->value.Length < sizeof(UINT32)) {
+                ERR("mode value was shorter than expected\n");
+                Status = STATUS_INVALID_PARAMETER;
+                goto end;
+            }
+
+            RtlCopyMemory(&val, item->value.Buffer, sizeof(UINT32));
+
+            if (fcb->type != BTRFS_TYPE_DIRECTORY)
+                allowed |= __S_IFIFO | __S_IFCHR | __S_IFBLK | __S_IFSOCK;
+
+            fcb->inode_item.st_mode &= ~allowed;
+            fcb->inode_item.st_mode |= val & allowed;
+
+            if (fcb->type != BTRFS_TYPE_DIRECTORY) {
+                if ((fcb->inode_item.st_mode & __S_IFCHR) == __S_IFCHR)
+                    fcb->type = BTRFS_TYPE_CHARDEV;
+                else if ((fcb->inode_item.st_mode & __S_IFBLK) == __S_IFBLK)
+                    fcb->type = BTRFS_TYPE_BLOCKDEV;
+                else if ((fcb->inode_item.st_mode & __S_IFIFO) == __S_IFIFO)
+                    fcb->type = BTRFS_TYPE_FIFO;
+                else if ((fcb->inode_item.st_mode & __S_IFSOCK) == __S_IFSOCK)
+                    fcb->type = BTRFS_TYPE_SOCKET;
+            }
+
+            RemoveEntryList(&item->list_entry);
+            ExFreePool(item);
+        } else if (item->name.Length == sizeof(lxdev) - 1 && RtlCompareMemory(item->name.Buffer, lxdev, item->name.Length) == item->name.Length) {
+            UINT32 major, minor;
+
+            if (item->value.Length < sizeof(UINT64)) {
+                ERR("dev value was shorter than expected\n");
+                Status = STATUS_INVALID_PARAMETER;
+                goto end;
+            }
+
+            major = *(UINT32*)item->value.Buffer;
+            minor = *(UINT32*)&item->value.Buffer[sizeof(UINT32)];
+
+            fcb->inode_item.st_rdev = (minor & 0xFFFFF) | ((major & 0xFFFFFFFFFFF) << 20);
+
+            RemoveEntryList(&item->list_entry);
+            ExFreePool(item);
+        }
+
+        le = le2;
+    }
+
+    if (fcb->type != BTRFS_TYPE_CHARDEV && fcb->type != BTRFS_TYPE_BLOCKDEV)
+        fcb->inode_item.st_rdev = 0;
+
+    if (IsListEmpty(&ealist))
+        return STATUS_SUCCESS;
+
+    le = ealist.Flink;
+    while (le != &ealist) {
+        ea_item* item = CONTAINING_RECORD(le, ea_item, list_entry);
+
+        if (size % 4 > 0)
+            size += 4 - (size % 4);
+
+        size += (UINT16)offsetof(FILE_FULL_EA_INFORMATION, EaName[0]) + item->name.Length + 1 + item->value.Length;
+
+        le = le->Flink;
+    }
+
+    buf = ExAllocatePoolWithTag(PagedPool, size, ALLOC_TAG);
+    if (!buf) {
+        ERR("out of memory\n");
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto end;
+    }
+
+    fcb->ea_xattr.Length = fcb->ea_xattr.MaximumLength = size;
+    fcb->ea_xattr.Buffer = buf;
+
+    fcb->ealen = 4;
+    ea = NULL;
+
+    le = ealist.Flink;
+    while (le != &ealist) {
+        ea_item* item = CONTAINING_RECORD(le, ea_item, list_entry);
+
+        if (ea) {
+            ea->NextEntryOffset = (ULONG)offsetof(FILE_FULL_EA_INFORMATION, EaName[0]) + ea->EaNameLength + ea->EaValueLength;
+
+            if (ea->NextEntryOffset % 4 > 0)
+                ea->NextEntryOffset += 4 - (ea->NextEntryOffset % 4);
+
+            ea = (FILE_FULL_EA_INFORMATION*)(((UINT8*)ea) + ea->NextEntryOffset);
+        } else
+            ea = (FILE_FULL_EA_INFORMATION*)fcb->ea_xattr.Buffer;
+
+        ea->NextEntryOffset = 0;
+        ea->Flags = item->flags;
+        ea->EaNameLength = (UCHAR)item->name.Length;
+        ea->EaValueLength = item->value.Length;
+
+        RtlCopyMemory(ea->EaName, item->name.Buffer, item->name.Length);
+        ea->EaName[item->name.Length] = 0;
+        RtlCopyMemory(&ea->EaName[item->name.Length + 1], item->value.Buffer, item->value.Length);
+
+        fcb->ealen += 5 + item->name.Length + item->value.Length;
+
+        le = le->Flink;
+    }
+
+    fcb->ea_changed = TRUE;
+
+    Status = STATUS_SUCCESS;
+
+end:
+    while (!IsListEmpty(&ealist)) {
+        ea_item* item = CONTAINING_RECORD(RemoveHeadList(&ealist), ea_item, list_entry);
+
+        ExFreePool(item);
+    }
+
+    return Status;
+}
+
 static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr_->fcb_lock) _In_ device_extension* Vcb, _In_ PUNICODE_STRING fpus,
                              _In_ file_ref* parfileref, _In_ ULONG options, _In_reads_bytes_opt_(ealen) FILE_FULL_EA_INFORMATION* ea, _In_ ULONG ealen,
-                             _Out_ file_ref** pfr, _In_ LIST_ENTRY* rollback) {
+                             _Out_ file_ref** pfr, BOOL case_sensitive, _In_ LIST_ENTRY* rollback) {
     NTSTATUS Status;
     fcb* fcb;
     ULONG utf8len;
@@ -1648,12 +2088,17 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
     file_ref* fileref;
     dir_child* dc;
     ANSI_STRING utf8as;
+    LIST_ENTRY* lastle = NULL;
+    file_ref* existing_fileref = NULL;
 #ifdef DEBUG_FCB_REFCOUNTS
     LONG rc;
 #endif
 
     if (parfileref->fcb == Vcb->dummy_fcb)
         return STATUS_ACCESS_DENIED;
+
+    if (options & FILE_DIRECTORY_FILE && IrpSp->Parameters.Create.FileAttributes & FILE_ATTRIBUTE_TEMPORARY)
+        return STATUS_INVALID_PARAMETER;
 
     Status = RtlUnicodeToUTF8N(NULL, 0, &utf8len, fpus->Buffer, fpus->Length);
     if (!NT_SUCCESS(Status)) {
@@ -1701,9 +2146,7 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
 
     TRACE("requested attributes = %x\n", IrpSp->Parameters.Create.FileAttributes);
 
-    IrpSp->Parameters.Create.FileAttributes |= FILE_ATTRIBUTE_ARCHIVE;
-
-    defda = FILE_ATTRIBUTE_ARCHIVE;
+    defda = 0;
 
     if (utf8[0] == '.')
         defda |= FILE_ATTRIBUTE_HIDDEN;
@@ -1713,6 +2156,11 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
         IrpSp->Parameters.Create.FileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
     } else
         IrpSp->Parameters.Create.FileAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
+
+    if (!(IrpSp->Parameters.Create.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        IrpSp->Parameters.Create.FileAttributes |= FILE_ATTRIBUTE_ARCHIVE;
+        defda |= FILE_ATTRIBUTE_ARCHIVE;
+    }
 
     TRACE("defda = %x\n", defda);
 
@@ -1801,17 +2249,73 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
     fcb->created = TRUE;
     fcb->deleted = TRUE;
 
+    fcb->hash = calc_crc32c(0xffffffff, (UINT8*)&inode, sizeof(UINT64));
+
+    acquire_fcb_lock_exclusive(Vcb);
+
+    if (fcb->subvol->fcbs_ptrs[fcb->hash >> 24]) {
+        LIST_ENTRY* le = fcb->subvol->fcbs_ptrs[fcb->hash >> 24];
+
+        while (le != &fcb->subvol->fcbs) {
+            struct _fcb* fcb2 = CONTAINING_RECORD(le, struct _fcb, list_entry);
+
+            if (fcb2->hash > fcb->hash) {
+                lastle = le->Blink;
+                break;
+            }
+
+            le = le->Flink;
+        }
+    }
+
+    if (!lastle) {
+        UINT8 c = fcb->hash >> 24;
+
+        if (c != 0xff) {
+            UINT8 d = c + 1;
+
+            do {
+                if (fcb->subvol->fcbs_ptrs[d]) {
+                    lastle = fcb->subvol->fcbs_ptrs[d]->Blink;
+                    break;
+                }
+
+                d++;
+            } while (d != 0);
+        }
+    }
+
+    if (lastle) {
+        InsertHeadList(lastle, &fcb->list_entry);
+
+        if (lastle == &fcb->subvol->fcbs || (CONTAINING_RECORD(lastle, struct _fcb, list_entry)->hash >> 24) != (fcb->hash >> 24))
+            fcb->subvol->fcbs_ptrs[fcb->hash >> 24] = &fcb->list_entry;
+    } else {
+        InsertTailList(&fcb->subvol->fcbs, &fcb->list_entry);
+
+        if (fcb->list_entry.Blink == &fcb->subvol->fcbs || (CONTAINING_RECORD(fcb->list_entry.Blink, struct _fcb, list_entry)->hash >> 24) != (fcb->hash >> 24))
+            fcb->subvol->fcbs_ptrs[fcb->hash >> 24] = &fcb->list_entry;
+    }
+
+    InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
+
+    fcb->subvol->fcbs_version++;
+
+    release_fcb_lock(Vcb);
+
     mark_fcb_dirty(fcb);
 
     Status = fcb_get_new_sd(fcb, parfileref, IrpSp->Parameters.Create.SecurityContext->AccessState);
 
     if (!NT_SUCCESS(Status)) {
         ERR("fcb_get_new_sd returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        free_fcb(fcb);
 
         ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
         parfileref->fcb->inode_item.st_size -= utf8len * 2;
         ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+        ExFreePool(utf8);
 
         return Status;
     }
@@ -1819,54 +2323,31 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
     fcb->sd_dirty = TRUE;
 
     if (ea && ealen > 0) {
-        FILE_FULL_EA_INFORMATION* eainfo;
-
-        fcb->ealen = 4;
-
-        // capitalize EA names
-        eainfo = ea;
-        do {
-            STRING s;
-
-            s.Length = s.MaximumLength = eainfo->EaNameLength;
-            s.Buffer = eainfo->EaName;
-
-            RtlUpperString(&s, &s);
-
-            fcb->ealen += 5 + eainfo->EaNameLength + eainfo->EaValueLength;
-
-            if (eainfo->NextEntryOffset == 0)
-                break;
-
-            eainfo = (FILE_FULL_EA_INFORMATION*)(((UINT8*)eainfo) + eainfo->NextEntryOffset);
-        } while (TRUE);
-
-        fcb->ea_xattr.Buffer = ExAllocatePoolWithTag(pool_type, ealen, ALLOC_TAG);
-        if (!fcb->ea_xattr.Buffer) {
-            ERR("out of memory\n");
-            free_fcb(Vcb, fcb);
+        Status = file_create_parse_ea(fcb, ea);
+        if (!NT_SUCCESS(Status)) {
+            ERR("file_create_parse_ea returned %08x\n", Status);
+            free_fcb(fcb);
 
             ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
             parfileref->fcb->inode_item.st_size -= utf8len * 2;
             ExReleaseResourceLite(parfileref->fcb->Header.Resource);
 
-            return STATUS_INSUFFICIENT_RESOURCES;
+            ExFreePool(utf8);
+
+            return Status;
         }
-
-        fcb->ea_xattr.Length = fcb->ea_xattr.MaximumLength = (UINT16)ealen;
-        RtlCopyMemory(fcb->ea_xattr.Buffer, ea, fcb->ea_xattr.Length);
-
-        fcb->ea_changed = TRUE;
     }
 
     fileref = create_fileref(Vcb);
     if (!fileref) {
         ERR("out of memory\n");
-        free_fcb(Vcb, fcb);
+        free_fcb(fcb);
 
         ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
         parfileref->fcb->inode_item.st_size -= utf8len * 2;
         ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+        ExFreePool(utf8);
 
         return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -1878,11 +2359,13 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
 
         if (!NT_SUCCESS(Status)) {
             ERR("extend_file returned %08x\n", Status);
-            free_fileref(Vcb, fileref);
+            reap_fileref(Vcb, fileref);
 
             ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
             parfileref->fcb->inode_item.st_size -= utf8len * 2;
             ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+            ExFreePool(utf8);
 
             return Status;
         }
@@ -1892,11 +2375,13 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
         fcb->hash_ptrs = ExAllocatePoolWithTag(PagedPool, sizeof(LIST_ENTRY*) * 256, ALLOC_TAG);
         if (!fcb->hash_ptrs) {
             ERR("out of memory\n");
-            free_fileref(Vcb, fileref);
+            reap_fileref(Vcb, fileref);
 
             ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
             parfileref->fcb->inode_item.st_size -= utf8len * 2;
             ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+            ExFreePool(utf8);
 
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -1906,11 +2391,13 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
         fcb->hash_ptrs_uc = ExAllocatePoolWithTag(PagedPool, sizeof(LIST_ENTRY*) * 256, ALLOC_TAG);
         if (!fcb->hash_ptrs_uc) {
             ERR("out of memory\n");
-            free_fileref(Vcb, fileref);
+            reap_fileref(Vcb, fileref);
 
             ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
             parfileref->fcb->inode_item.st_size -= utf8len * 2;
             ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+            ExFreePool(utf8);
 
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -1921,38 +2408,125 @@ static NTSTATUS file_create2(_In_ PIRP Irp, _Requires_exclusive_lock_held_(_Curr
     fcb->deleted = FALSE;
 
     fileref->created = TRUE;
-    mark_fileref_dirty(fileref);
 
     fcb->subvol->root_item.ctransid = Vcb->superblock.generation;
     fcb->subvol->root_item.ctime = now;
 
-    fileref->parent = parfileref;
-
     utf8as.Buffer = utf8;
     utf8as.Length = utf8as.MaximumLength = (UINT16)utf8len;
 
-    Status = add_dir_child(fileref->parent->fcb, fcb->inode, FALSE, &utf8as, fpus, fcb->type, &dc);
-    if (!NT_SUCCESS(Status))
-        WARN("add_dir_child returned %08x\n", Status);
+    ExAcquireResourceExclusiveLite(&parfileref->fcb->nonpaged->dir_children_lock, TRUE);
 
-    ExFreePool(utf8);
+    // check again doesn't already exist
+    if (case_sensitive) {
+        UINT32 dc_hash = calc_crc32c(0xffffffff, (UINT8*)fpus->Buffer, fpus->Length);
 
+        if (parfileref->fcb->hash_ptrs[dc_hash >> 24]) {
+            LIST_ENTRY* le = parfileref->fcb->hash_ptrs[dc_hash >> 24];
+            while (le != &parfileref->fcb->dir_children_hash) {
+                dir_child* dc = CONTAINING_RECORD(le, dir_child, list_entry_hash);
+
+                if (dc->hash == dc_hash && dc->name.Length == fpus->Length && RtlCompareMemory(dc->name.Buffer, fpus->Buffer, fpus->Length) == fpus->Length) {
+                    existing_fileref = dc->fileref;
+                    break;
+                } else if (dc->hash > dc_hash)
+                    break;
+
+                le = le->Flink;
+            }
+        }
+    } else {
+        UNICODE_STRING fpusuc;
+#ifdef __REACTOS__
+        UINT32 dc_hash;
+#endif
+
+        Status = RtlUpcaseUnicodeString(&fpusuc, fpus, TRUE);
+        if (!NT_SUCCESS(Status)) {
+            ExReleaseResourceLite(&parfileref->fcb->nonpaged->dir_children_lock);
+            ERR("RtlUpcaseUnicodeString returned %08x\n", Status);
+            reap_fileref(Vcb, fileref);
+
+            ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
+            parfileref->fcb->inode_item.st_size -= utf8len * 2;
+            ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+            ExFreePool(utf8);
+
+            return Status;
+        }
+
+#ifndef __REACTOS__
+        UINT32 dc_hash = calc_crc32c(0xffffffff, (UINT8*)fpusuc.Buffer, fpusuc.Length);
+#else
+        dc_hash = calc_crc32c(0xffffffff, (UINT8*)fpusuc.Buffer, fpusuc.Length);
+#endif
+
+        if (parfileref->fcb->hash_ptrs_uc[dc_hash >> 24]) {
+            LIST_ENTRY* le = parfileref->fcb->hash_ptrs_uc[dc_hash >> 24];
+            while (le != &parfileref->fcb->dir_children_hash_uc) {
+                dir_child* dc = CONTAINING_RECORD(le, dir_child, list_entry_hash_uc);
+
+                if (dc->hash_uc == dc_hash && dc->name.Length == fpusuc.Length && RtlCompareMemory(dc->name.Buffer, fpusuc.Buffer, fpusuc.Length) == fpusuc.Length) {
+                    existing_fileref = dc->fileref;
+                    break;
+                } else if (dc->hash_uc > dc_hash)
+                    break;
+
+                le = le->Flink;
+            }
+        }
+
+        ExFreePool(fpusuc.Buffer);
+    }
+
+    if (existing_fileref) {
+        ExReleaseResourceLite(&parfileref->fcb->nonpaged->dir_children_lock);
+        reap_fileref(Vcb, fileref);
+
+        ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
+        parfileref->fcb->inode_item.st_size -= utf8len * 2;
+        ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+        ExFreePool(utf8);
+
+        increase_fileref_refcount(existing_fileref);
+        *pfr = existing_fileref;
+
+        return STATUS_OBJECT_NAME_COLLISION;
+    }
+
+    Status = add_dir_child(parfileref->fcb, fcb->inode, FALSE, &utf8as, fpus, fcb->type, &dc);
+    if (!NT_SUCCESS(Status)) {
+        ExReleaseResourceLite(&parfileref->fcb->nonpaged->dir_children_lock);
+        ERR("add_dir_child returned %08x\n", Status);
+        reap_fileref(Vcb, fileref);
+
+        ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
+        parfileref->fcb->inode_item.st_size -= utf8len * 2;
+        ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+
+        ExFreePool(utf8);
+
+        return Status;
+    }
+
+    fileref->parent = parfileref;
     fileref->dc = dc;
     dc->fileref = fileref;
 
-    ExAcquireResourceExclusiveLite(&parfileref->nonpaged->children_lock, TRUE);
-    InsertTailList(&parfileref->children, &fileref->list_entry);
-    ExReleaseResourceLite(&parfileref->nonpaged->children_lock);
-
-    increase_fileref_refcount(parfileref);
-
-    InsertTailList(&fcb->subvol->fcbs, &fcb->list_entry);
-    InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
-
-    *pfr = fileref;
-
     if (type == BTRFS_TYPE_DIRECTORY)
         fileref->fcb->fileref = fileref;
+
+    InsertTailList(&parfileref->children, &fileref->list_entry);
+    ExReleaseResourceLite(&parfileref->fcb->nonpaged->dir_children_lock);
+
+    ExFreePool(utf8);
+
+    mark_fileref_dirty(fileref);
+    increase_fileref_refcount(parfileref);
+
+    *pfr = fileref;
 
     TRACE("created new file %S in subvol %llx, inode %llx\n", file_desc_fileref(fileref), fcb->subvol->id, fcb->inode);
 
@@ -1965,11 +2539,11 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
     file_ref *fileref, *newpar, *parfileref;
     fcb* fcb;
-    static char xapref[] = "user.";
-    static WCHAR DOSATTRIB[] = L"DOSATTRIB";
-    static WCHAR EA[] = L"EA";
-    static WCHAR reparse[] = L"reparse";
-    UINT16 xapreflen = (UINT16)strlen(xapref);
+    static const char xapref[] = "user.";
+    static const WCHAR DOSATTRIB[] = L"DOSATTRIB";
+    static const WCHAR EA[] = L"EA";
+    static const WCHAR reparse[] = L"reparse";
+    static const WCHAR casesensitive_str[] = L"casesensitive";
     LARGE_INTEGER time;
     BTRFS_TIME now;
     ULONG utf8len, overhead;
@@ -1977,9 +2551,13 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
     KEY searchkey;
     traverse_ptr tp;
     dir_child* dc;
+    dir_child* existing_dc = NULL;
     ACCESS_MASK granted_access;
 #ifdef DEBUG_FCB_REFCOUNTS
     LONG rc;
+#endif
+#ifdef __REACTOS__
+    LIST_ENTRY* le;
 #endif
 
     TRACE("fpus = %.*S\n", fpus->Length / sizeof(WCHAR), fpus->Buffer);
@@ -2020,16 +2598,18 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
 
         SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
 
-        Status = file_create2(Irp, Vcb, &fpus2, parfileref, options, NULL, 0, &newpar, rollback);
+        Status = file_create2(Irp, Vcb, &fpus2, parfileref, options, NULL, 0, &newpar, case_sensitive, rollback);
 
         if (!NT_SUCCESS(Status)) {
             ERR("file_create2 returned %08x\n", Status);
             ExFreePool(fpus2.Buffer);
             return Status;
+        } else if (Status != STATUS_OBJECT_NAME_COLLISION) {
+            send_notification_fileref(newpar, options & FILE_DIRECTORY_FILE ? FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME, FILE_ACTION_ADDED, NULL);
+            send_notification_fcb(newpar->parent, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_ACTION_MODIFIED, NULL);
         }
 
-        send_notification_fileref(newpar, options & FILE_DIRECTORY_FILE ? FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME, FILE_ACTION_ADDED, NULL);
-        send_notification_fcb(newpar->parent, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_ACTION_MODIFIED, NULL);
+        ExFreePool(fpus2.Buffer);
     } else if (!NT_SUCCESS(Status)) {
         ERR("open_fileref returned %08x\n", Status);
         return Status;
@@ -2040,16 +2620,20 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
 
     if (parfileref->fcb->type != BTRFS_TYPE_FILE && parfileref->fcb->type != BTRFS_TYPE_SYMLINK && parfileref->fcb->type != BTRFS_TYPE_DIRECTORY) {
         WARN("parent not file, directory, or symlink\n");
+        free_fileref(parfileref);
         return STATUS_INVALID_PARAMETER;
     }
 
     if (options & FILE_DIRECTORY_FILE) {
         WARN("tried to create directory as stream\n");
+        free_fileref(parfileref);
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (parfileref->fcb->atts & FILE_ATTRIBUTE_READONLY)
+    if (parfileref->fcb->atts & FILE_ATTRIBUTE_READONLY) {
+        free_fileref(parfileref);
         return STATUS_ACCESS_DENIED;
+    }
 
     SeLockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
 
@@ -2057,20 +2641,24 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
                        TRUE, FILE_WRITE_DATA, 0, NULL, IoGetFileObjectGenericMapping(), IrpSp->Flags & SL_FORCE_ACCESS_CHECK ? UserMode : Irp->RequestorMode,
                        &granted_access, &Status)) {
         SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
+        free_fileref(parfileref);
         return Status;
     }
 
     SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
 
-    if ((stream->Length == wcslen(DOSATTRIB) * sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, DOSATTRIB, stream->Length) == stream->Length) ||
-        (stream->Length == wcslen(EA) * sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, EA, stream->Length) == stream->Length) ||
-        (stream->Length == wcslen(reparse) * sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, reparse, stream->Length) == stream->Length)) {
+    if ((stream->Length == sizeof(DOSATTRIB) - sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, DOSATTRIB, stream->Length) == stream->Length) ||
+        (stream->Length == sizeof(EA) - sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, EA, stream->Length) == stream->Length) ||
+        (stream->Length == sizeof(reparse) - sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, reparse, stream->Length) == stream->Length) ||
+        (stream->Length == sizeof(casesensitive_str) - sizeof(WCHAR) && RtlCompareMemory(stream->Buffer, casesensitive_str, stream->Length) == stream->Length)) {
+        free_fileref(parfileref);
         return STATUS_OBJECT_NAME_INVALID;
     }
 
     fcb = create_fcb(Vcb, pool_type);
     if (!fcb) {
         ERR("out of memory\n");
+        free_fileref(parfileref);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -2096,25 +2684,28 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
     Status = RtlUnicodeToUTF8N(NULL, 0, &utf8len, stream->Buffer, stream->Length);
     if (!NT_SUCCESS(Status)) {
         ERR("RtlUnicodeToUTF8N 1 returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
+        free_fileref(parfileref);
         return Status;
     }
 
-    fcb->adsxattr.Length = (UINT16)utf8len + xapreflen;
+    fcb->adsxattr.Length = (UINT16)utf8len + sizeof(xapref) - 1;
     fcb->adsxattr.MaximumLength = fcb->adsxattr.Length + 1;
     fcb->adsxattr.Buffer = ExAllocatePoolWithTag(pool_type, fcb->adsxattr.MaximumLength, ALLOC_TAG);
     if (!fcb->adsxattr.Buffer) {
         ERR("out of memory\n");
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
+        free_fileref(parfileref);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    RtlCopyMemory(fcb->adsxattr.Buffer, xapref, xapreflen);
+    RtlCopyMemory(fcb->adsxattr.Buffer, xapref, sizeof(xapref) - 1);
 
-    Status = RtlUnicodeToUTF8N(&fcb->adsxattr.Buffer[xapreflen], utf8len, &utf8len, stream->Buffer, stream->Length);
+    Status = RtlUnicodeToUTF8N(&fcb->adsxattr.Buffer[sizeof(xapref) - 1], utf8len, &utf8len, stream->Buffer, stream->Length);
     if (!NT_SUCCESS(Status)) {
         ERR("RtlUnicodeToUTF8N 2 returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
+        free_fileref(parfileref);
         return Status;
     }
 
@@ -2132,7 +2723,8 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
     Status = find_item(Vcb, parfileref->fcb->subvol, &tp, &searchkey, FALSE, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("find_item returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        reap_fcb(fcb);
+        free_fileref(parfileref);
         return Status;
     }
 
@@ -2143,17 +2735,30 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
 
     fcb->adsmaxlen = Vcb->superblock.node_size - sizeof(tree_header) - sizeof(leaf_node) - (sizeof(DIR_ITEM) - 1);
 
-    if (utf8len + xapreflen + overhead > fcb->adsmaxlen) {
-        WARN("not enough room for new DIR_ITEM (%u + %u > %u)", utf8len + xapreflen, overhead, fcb->adsmaxlen);
-        free_fcb(Vcb, fcb);
+    if (utf8len + sizeof(xapref) - 1 + overhead > fcb->adsmaxlen) {
+        WARN("not enough room for new DIR_ITEM (%u + %u > %u)", utf8len + sizeof(xapref) - 1, overhead, fcb->adsmaxlen);
+        reap_fcb(fcb);
+        free_fileref(parfileref);
         return STATUS_DISK_FULL;
     } else
-        fcb->adsmaxlen -= overhead + utf8len + xapreflen;
+        fcb->adsmaxlen -= overhead + utf8len + sizeof(xapref) - 1;
+
+    fcb->created = TRUE;
+    fcb->deleted = TRUE;
+
+    acquire_fcb_lock_exclusive(Vcb);
+    InsertHeadList(&parfileref->fcb->list_entry, &fcb->list_entry); // insert in list after parent fcb
+    InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
+    parfileref->fcb->subvol->fcbs_version++;
+    release_fcb_lock(Vcb);
+
+    mark_fcb_dirty(fcb);
 
     fileref = create_fileref(Vcb);
     if (!fileref) {
         ERR("out of memory\n");
-        free_fcb(Vcb, fcb);
+        free_fcb(fcb);
+        free_fileref(parfileref);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -2162,22 +2767,24 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
     dc = ExAllocatePoolWithTag(PagedPool, sizeof(dir_child), ALLOC_TAG);
     if (!dc) {
         ERR("out of memory\n");
-        free_fileref(Vcb, fileref);
+        reap_fileref(Vcb, fileref);
+        free_fileref(parfileref);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     RtlZeroMemory(dc, sizeof(dir_child));
 
-    dc->utf8.MaximumLength = dc->utf8.Length = fcb->adsxattr.Length - xapreflen;
+    dc->utf8.MaximumLength = dc->utf8.Length = fcb->adsxattr.Length + 1 - sizeof(xapref);
     dc->utf8.Buffer = ExAllocatePoolWithTag(PagedPool, dc->utf8.MaximumLength, ALLOC_TAG);
     if (!dc->utf8.Buffer) {
         ERR("out of memory\n");
         ExFreePool(dc);
-        free_fileref(Vcb, fileref);
+        reap_fileref(Vcb, fileref);
+        free_fileref(parfileref);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    RtlCopyMemory(dc->utf8.Buffer, &fcb->adsxattr.Buffer[xapreflen], fcb->adsxattr.Length - xapreflen);
+    RtlCopyMemory(dc->utf8.Buffer, &fcb->adsxattr.Buffer[sizeof(xapref) - 1], fcb->adsxattr.Length + 1 - sizeof(xapref));
 
     dc->name.MaximumLength = dc->name.Length = stream->Length;
     dc->name.Buffer = ExAllocatePoolWithTag(pool_type, dc->name.MaximumLength, ALLOC_TAG);
@@ -2185,7 +2792,8 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
         ERR("out of memory\n");
         ExFreePool(dc->utf8.Buffer);
         ExFreePool(dc);
-        free_fileref(Vcb, fileref);
+        reap_fileref(Vcb, fileref);
+        free_fileref(parfileref);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -2197,23 +2805,62 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
         ExFreePool(dc->utf8.Buffer);
         ExFreePool(dc->name.Buffer);
         ExFreePool(dc);
-        free_fileref(Vcb, fileref);
+        reap_fileref(Vcb, fileref);
+        free_fileref(parfileref);
         return Status;
+    }
+
+    KeQuerySystemTime(&time);
+    win_time_to_unix(time, &now);
+
+    ExAcquireResourceExclusiveLite(&parfileref->fcb->nonpaged->dir_children_lock, TRUE);
+
+#ifndef __REACTOS__
+    LIST_ENTRY* le = parfileref->fcb->dir_children_index.Flink;
+#else
+    le = parfileref->fcb->dir_children_index.Flink;
+#endif
+    while (le != &parfileref->fcb->dir_children_index) {
+        dir_child* dc2 = CONTAINING_RECORD(le, dir_child, list_entry_index);
+
+        if (dc2->index == 0) {
+            if ((case_sensitive && dc2->name.Length == dc->name.Length && RtlCompareMemory(dc2->name.Buffer, dc->name.Buffer, dc2->name.Length) == dc2->name.Length) ||
+                (!case_sensitive && dc2->name_uc.Length == dc->name_uc.Length && RtlCompareMemory(dc2->name_uc.Buffer, dc->name_uc.Buffer, dc2->name_uc.Length) == dc2->name_uc.Length)
+            ) {
+                existing_dc = dc2;
+                break;
+            }
+        } else
+            break;
+
+        le = le->Flink;
+    }
+
+    if (existing_dc) {
+        ExFreePool(dc->utf8.Buffer);
+        ExFreePool(dc->name.Buffer);
+        ExFreePool(dc);
+        reap_fileref(Vcb, fileref);
+        free_fileref(parfileref);
+
+        increase_fileref_refcount(existing_dc->fileref);
+        *pfileref = existing_dc->fileref;
+
+        return STATUS_OBJECT_NAME_COLLISION;
     }
 
     dc->fileref = fileref;
     fileref->dc = dc;
+    fileref->parent = (struct _file_ref*)parfileref;
+    fcb->deleted = FALSE;
 
     InsertHeadList(&parfileref->fcb->dir_children_index, &dc->list_entry_index);
 
-    mark_fcb_dirty(fcb);
+    InsertTailList(&parfileref->children, &fileref->list_entry);
+
+    ExReleaseResourceLite(&parfileref->fcb->nonpaged->dir_children_lock);
+
     mark_fileref_dirty(fileref);
-
-    InsertHeadList(&parfileref->fcb->list_entry, &fcb->list_entry); // insert in list after parent fcb
-    InsertTailList(&Vcb->all_fcbs, &fcb->list_entry_all);
-
-    KeQuerySystemTime(&time);
-    win_time_to_unix(time, &now);
 
     parfileref->fcb->inode_item.transid = Vcb->superblock.generation;
     parfileref->fcb->inode_item.sequence++;
@@ -2225,23 +2872,29 @@ static NTSTATUS create_stream(_Requires_lock_held_(_Curr_->tree_lock) _Requires_
     parfileref->fcb->subvol->root_item.ctransid = Vcb->superblock.generation;
     parfileref->fcb->subvol->root_item.ctime = now;
 
-    fileref->parent = (struct _file_ref*)parfileref;
-
-    ExAcquireResourceExclusiveLite(&parfileref->nonpaged->children_lock, TRUE);
-    InsertTailList(&parfileref->children, &fileref->list_entry);
-    ExReleaseResourceLite(&parfileref->nonpaged->children_lock);
-
     increase_fileref_refcount(parfileref);
 
     *pfileref = fileref;
 
-    send_notification_fileref(parfileref, options & FILE_DIRECTORY_FILE ? FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME, FILE_ACTION_ADDED, &fileref->dc->name);
+    send_notification_fileref(parfileref, FILE_NOTIFY_CHANGE_STREAM_NAME, FILE_ACTION_ADDED_STREAM, &fileref->dc->name);
 
     return STATUS_SUCCESS;
 }
 
 // LXSS programs can be distinguished by the fact they have a NULL PEB.
 #ifdef _AMD64_
+#ifdef __REACTOS__
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryInformationProcess (
+    _In_ HANDLE ProcessHandle,
+    _In_ PROCESSINFOCLASS ProcessInformationClass,
+    _Out_ PVOID ProcessInformation,
+    _In_ ULONG ProcessInformationLength,
+    _Out_opt_ PULONG ReturnLength
+);
+#endif
 static __inline BOOL called_from_lxss() {
     NTSTATUS Status;
     PROCESS_BASIC_INFORMATION pbi;
@@ -2261,15 +2914,18 @@ static __inline BOOL called_from_lxss() {
 #endif
 
 static NTSTATUS file_create(PIRP Irp, _Requires_lock_held_(_Curr_->tree_lock) _Requires_exclusive_lock_held_(_Curr_->fcb_lock) device_extension* Vcb,
-                            PFILE_OBJECT FileObject, file_ref* related, BOOL loaded_related, PUNICODE_STRING fnus, ULONG disposition, ULONG options, LIST_ENTRY* rollback) {
+                            PFILE_OBJECT FileObject, file_ref* related, BOOL loaded_related, PUNICODE_STRING fnus, ULONG disposition, ULONG options,
+                            file_ref** existing_fileref, LIST_ENTRY* rollback) {
     NTSTATUS Status;
     file_ref *fileref, *parfileref = NULL;
     ULONG i, j;
     ccb* ccb;
-    static WCHAR datasuf[] = {':','$','D','A','T','A',0};
+    static const WCHAR datasuf[] = {':','$','D','A','T','A',0};
     UNICODE_STRING dsus, fpus, stream;
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
     POOL_TYPE pool_type = IrpSp->Flags & SL_OPEN_PAGING_FILE ? NonPagedPool : PagedPool;
+    ECP_LIST* ecp_list;
+    ATOMIC_CREATE_ECP_CONTEXT* acec = NULL;
 #ifdef DEBUG_FCB_REFCOUNTS
     LONG oc;
 #endif
@@ -2279,8 +2935,28 @@ static NTSTATUS file_create(PIRP Irp, _Requires_lock_held_(_Curr_->tree_lock) _R
     if (Vcb->readonly)
         return STATUS_MEDIA_WRITE_PROTECTED;
 
-    dsus.Buffer = datasuf;
-    dsus.Length = dsus.MaximumLength = (USHORT)wcslen(datasuf) * sizeof(WCHAR);
+    if (options & FILE_DELETE_ON_CLOSE && IrpSp->Parameters.Create.FileAttributes & FILE_ATTRIBUTE_READONLY)
+        return STATUS_CANNOT_DELETE;
+
+    if (NT_SUCCESS(FsRtlGetEcpListFromIrp(Irp, &ecp_list)) && ecp_list) {
+        void* ctx = NULL;
+        GUID type;
+        ULONG ctxsize;
+
+        do {
+            Status = FsRtlGetNextExtraCreateParameter(ecp_list, ctx, &type, &ctx, &ctxsize);
+
+            if (NT_SUCCESS(Status)) {
+                if (RtlCompareMemory(&type, &GUID_ECP_ATOMIC_CREATE, sizeof(GUID)) == sizeof(GUID) && ctxsize >= sizeof(ATOMIC_CREATE_ECP_CONTEXT)) {
+                    acec = ctx;
+                    break;
+                }
+            }
+        } while (NT_SUCCESS(Status));
+    }
+
+    dsus.Buffer = (WCHAR*)datasuf;
+    dsus.Length = dsus.MaximumLength = sizeof(datasuf) - sizeof(WCHAR);
     fpus.Buffer = NULL;
 
     if (!loaded_related) {
@@ -2393,9 +3069,12 @@ static NTSTATUS file_create(PIRP Irp, _Requires_lock_held_(_Curr_->tree_lock) _R
         }
 
         Status = file_create2(Irp, Vcb, &fpus, parfileref, options, Irp->AssociatedIrp.SystemBuffer, IrpSp->Parameters.Create.EaLength,
-                              &fileref, rollback);
+                              &fileref, IrpSp->Flags & SL_CASE_SENSITIVE, rollback);
 
-        if (!NT_SUCCESS(Status)) {
+        if (Status == STATUS_OBJECT_NAME_COLLISION) {
+            *existing_fileref = fileref;
+            goto end;
+        } else if (!NT_SUCCESS(Status)) {
             ERR("file_create2 returned %08x\n", Status);
             goto end;
         }
@@ -2412,7 +3091,16 @@ static NTSTATUS file_create(PIRP Irp, _Requires_lock_held_(_Curr_->tree_lock) _R
     if (!ccb) {
         ERR("out of memory\n");
         Status = STATUS_INSUFFICIENT_RESOURCES;
-        free_fileref(Vcb, fileref);
+        fileref->deleted = TRUE;
+        fileref->fcb->deleted = TRUE;
+
+        if (stream.Length == 0) {
+            ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
+            parfileref->fcb->inode_item.st_size -= fileref->dc->utf8.Length * 2;
+            ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+        }
+
+        free_fileref(fileref);
         goto end;
     }
 
@@ -2445,6 +3133,39 @@ static NTSTATUS file_create(PIRP Irp, _Requires_lock_held_(_Curr_->tree_lock) _R
 
     FileObject->SectionObjectPointer = &fileref->fcb->nonpaged->segment_object;
 
+    // FIXME - ATOMIC_CREATE_ECP_IN_FLAG_BEST_EFFORT
+    if (acec && acec->InFlags & ATOMIC_CREATE_ECP_IN_FLAG_REPARSE_POINT_SPECIFIED) {
+        if (acec->ReparseBufferLength > sizeof(UINT32) && *(UINT32*)acec->ReparseBuffer == IO_REPARSE_TAG_SYMLINK) {
+            fileref->fcb->inode_item.st_mode &= ~(__S_IFIFO | __S_IFCHR | __S_IFBLK | __S_IFSOCK);
+            fileref->fcb->type = BTRFS_TYPE_FILE;
+        }
+
+        if (fileref->fcb->type == BTRFS_TYPE_SOCKET || fileref->fcb->type == BTRFS_TYPE_FIFO ||
+            fileref->fcb->type == BTRFS_TYPE_CHARDEV || fileref->fcb->type == BTRFS_TYPE_BLOCKDEV) {
+            // NOP. If called from LXSS, humour it - we hardcode the values elsewhere.
+        } else {
+            Status = set_reparse_point2(fileref->fcb, acec->ReparseBuffer, acec->ReparseBufferLength, NULL, NULL, Irp, rollback);
+            if (!NT_SUCCESS(Status)) {
+                ERR("set_reparse_point2 returned %08x\n", Status);
+                fileref->deleted = TRUE;
+                fileref->fcb->deleted = TRUE;
+
+                if (stream.Length == 0) {
+                    ExAcquireResourceExclusiveLite(parfileref->fcb->Header.Resource, TRUE);
+                    parfileref->fcb->inode_item.st_size -= fileref->dc->utf8.Length * 2;
+                    ExReleaseResourceLite(parfileref->fcb->Header.Resource);
+                }
+
+                free_fileref(fileref);
+                return Status;
+            }
+        }
+
+        acec->OutFlags |= ATOMIC_CREATE_ECP_OUT_FLAG_REPARSE_POINT_SET;
+    }
+
+    fileref->dc->type = fileref->fcb->type;
+
     goto end2;
 
 end:
@@ -2453,7 +3174,7 @@ end:
 
 end2:
     if (parfileref && !loaded_related)
-        free_fileref(Vcb, parfileref);
+        free_fileref(parfileref);
 
     return Status;
 }
@@ -2699,7 +3420,8 @@ static NTSTATUS get_reparse_block(fcb* fcb, UINT8** data) {
         }
 
         RtlCopyMemory(*data, fcb->reparse_xattr.Buffer, fcb->reparse_xattr.Length);
-    }
+    } else
+        return STATUS_INVALID_PARAMETER;
 
     return STATUS_SUCCESS;
 }
@@ -2745,12 +3467,833 @@ end:
     fcb->csum_loaded = TRUE;
 }
 
+static NTSTATUS open_file2(device_extension* Vcb, ULONG RequestedDisposition, POOL_TYPE pool_type, file_ref* fileref, ACCESS_MASK* granted_access,
+                           PFILE_OBJECT FileObject, UNICODE_STRING* fn, ULONG options, PIRP Irp, LIST_ENTRY* rollback) {
+    NTSTATUS Status;
+    file_ref* sf;
+    BOOL readonly;
+    ccb* ccb;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+
+    if (RequestedDisposition == FILE_SUPERSEDE || RequestedDisposition == FILE_OVERWRITE || RequestedDisposition == FILE_OVERWRITE_IF) {
+        LARGE_INTEGER zero;
+
+#ifdef DEBUG_STATS
+        open_type = 1;
+#endif
+        if (fileref->fcb->type == BTRFS_TYPE_DIRECTORY || is_subvol_readonly(fileref->fcb->subvol, Irp)) {
+            free_fileref(fileref);
+
+            return STATUS_ACCESS_DENIED;
+        }
+
+        if (Vcb->readonly) {
+            free_fileref(fileref);
+
+            return STATUS_MEDIA_WRITE_PROTECTED;
+        }
+
+        zero.QuadPart = 0;
+        if (!MmCanFileBeTruncated(&fileref->fcb->nonpaged->segment_object, &zero)) {
+            free_fileref(fileref);
+
+            return STATUS_USER_MAPPED_FILE;
+        }
+    }
+
+    if (IrpSp->Parameters.Create.SecurityContext->DesiredAccess != 0) {
+        SeLockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
+
+        if (!SeAccessCheck((fileref->fcb->ads || fileref->fcb == Vcb->dummy_fcb) ? fileref->parent->fcb->sd : fileref->fcb->sd,
+                            &IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext,
+                            TRUE, IrpSp->Parameters.Create.SecurityContext->DesiredAccess, 0, NULL,
+                            IoGetFileObjectGenericMapping(), IrpSp->Flags & SL_FORCE_ACCESS_CHECK ? UserMode : Irp->RequestorMode,
+                            granted_access, &Status)) {
+            SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
+            TRACE("SeAccessCheck failed, returning %08x\n", Status);
+
+            free_fileref(fileref);
+
+            return Status;
+        }
+
+        SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
+    } else
+        *granted_access = 0;
+
+    TRACE("deleted = %s\n", fileref->deleted ? "TRUE" : "FALSE");
+
+    sf = fileref;
+    while (sf) {
+        if (sf->delete_on_close) {
+            TRACE("could not open as deletion pending\n");
+
+            free_fileref(fileref);
+
+            return STATUS_DELETE_PENDING;
+        }
+        sf = sf->parent;
+    }
+
+    readonly = (!fileref->fcb->ads && fileref->fcb->atts & FILE_ATTRIBUTE_READONLY) || (fileref->fcb->ads && fileref->parent->fcb->atts & FILE_ATTRIBUTE_READONLY) ||
+                is_subvol_readonly(fileref->fcb->subvol, Irp) || fileref->fcb == Vcb->dummy_fcb || Vcb->readonly;
+
+    if (options & FILE_DELETE_ON_CLOSE && (fileref == Vcb->root_fileref || readonly)) {
+        free_fileref(fileref);
+
+        return STATUS_CANNOT_DELETE;
+    }
+
+    if (readonly) {
+        ACCESS_MASK allowed;
+
+        allowed = READ_CONTROL | SYNCHRONIZE | ACCESS_SYSTEM_SECURITY | FILE_READ_DATA |
+                    FILE_READ_EA | FILE_READ_ATTRIBUTES | FILE_EXECUTE | FILE_LIST_DIRECTORY |
+                    FILE_TRAVERSE;
+
+        if (!Vcb->readonly && (fileref->fcb == Vcb->dummy_fcb || fileref->fcb->inode == SUBVOL_ROOT_INODE))
+            allowed |= DELETE;
+
+        if (fileref->fcb != Vcb->dummy_fcb && !is_subvol_readonly(fileref->fcb->subvol, Irp) && !Vcb->readonly) {
+            allowed |= DELETE | WRITE_OWNER | WRITE_DAC | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES;
+
+            if (!fileref->fcb->ads && fileref->fcb->type == BTRFS_TYPE_DIRECTORY)
+                allowed |= FILE_ADD_SUBDIRECTORY | FILE_ADD_FILE | FILE_DELETE_CHILD;
+        } else if (fileref->fcb->inode == SUBVOL_ROOT_INODE && is_subvol_readonly(fileref->fcb->subvol, Irp) && !Vcb->readonly) {
+            // We allow a subvolume root to be opened read-write even if its readonly flag is set, so it can be cleared
+
+            allowed |= FILE_WRITE_ATTRIBUTES;
+        }
+
+        if (IrpSp->Parameters.Create.SecurityContext->DesiredAccess & MAXIMUM_ALLOWED) {
+            *granted_access &= allowed;
+            IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess &= allowed;
+        } else if (*granted_access & ~allowed) {
+            free_fileref(fileref);
+
+            return Vcb->readonly ? STATUS_MEDIA_WRITE_PROTECTED : STATUS_ACCESS_DENIED;
+        }
+    }
+
+    if ((fileref->fcb->type == BTRFS_TYPE_SYMLINK || fileref->fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT) && !(options & FILE_OPEN_REPARSE_POINT))  {
+        REPARSE_DATA_BUFFER* data;
+
+        /* How reparse points work from the point of view of the filesystem appears to
+            * undocumented. When returning STATUS_REPARSE, MSDN encourages us to return
+            * IO_REPARSE in Irp->IoStatus.Information, but that means we have to do our own
+            * translation. If we instead return the reparse tag in Information, and store
+            * a pointer to the reparse data buffer in Irp->Tail.Overlay.AuxiliaryBuffer,
+            * IopSymlinkProcessReparse will do the translation for us. */
+
+        Status = get_reparse_block(fileref->fcb, (UINT8**)&data);
+        if (!NT_SUCCESS(Status)) {
+            ERR("get_reparse_block returned %08x\n", Status);
+            Status = STATUS_SUCCESS;
+        } else {
+            Irp->IoStatus.Information = data->ReparseTag;
+
+            if (fn->Buffer[(fn->Length / sizeof(WCHAR)) - 1] == '\\')
+                data->Reserved = sizeof(WCHAR);
+
+            Irp->Tail.Overlay.AuxiliaryBuffer = (void*)data;
+
+            free_fileref(fileref);
+
+            return STATUS_REPARSE;
+        }
+    }
+
+    if (fileref->fcb->type == BTRFS_TYPE_DIRECTORY && !fileref->fcb->ads) {
+        if (options & FILE_NON_DIRECTORY_FILE && !(fileref->fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            free_fileref(fileref);
+
+            return STATUS_FILE_IS_A_DIRECTORY;
+        }
+    } else if (options & FILE_DIRECTORY_FILE) {
+        TRACE("returning STATUS_NOT_A_DIRECTORY (type = %u, %S)\n", fileref->fcb->type, file_desc_fileref(fileref));
+
+        free_fileref(fileref);
+
+        return STATUS_NOT_A_DIRECTORY;
+    }
+
+    if (fileref->open_count > 0) {
+        Status = IoCheckShareAccess(*granted_access, IrpSp->Parameters.Create.ShareAccess, FileObject, &fileref->fcb->share_access, FALSE);
+
+        if (!NT_SUCCESS(Status)) {
+            if (Status == STATUS_SHARING_VIOLATION)
+                TRACE("IoCheckShareAccess failed, returning %08x\n", Status);
+            else
+                WARN("IoCheckShareAccess failed, returning %08x\n", Status);
+
+            free_fileref(fileref);
+
+            return Status;
+        }
+
+        IoUpdateShareAccess(FileObject, &fileref->fcb->share_access);
+    } else
+        IoSetShareAccess(*granted_access, IrpSp->Parameters.Create.ShareAccess, FileObject, &fileref->fcb->share_access);
+
+    if (*granted_access & FILE_WRITE_DATA || options & FILE_DELETE_ON_CLOSE) {
+        if (!MmFlushImageSection(&fileref->fcb->nonpaged->segment_object, MmFlushForWrite)) {
+
+            IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+            free_fileref(fileref);
+
+            return (options & FILE_DELETE_ON_CLOSE) ? STATUS_CANNOT_DELETE : STATUS_SHARING_VIOLATION;
+        }
+    }
+
+    if (RequestedDisposition == FILE_OVERWRITE || RequestedDisposition == FILE_OVERWRITE_IF || RequestedDisposition == FILE_SUPERSEDE) {
+        ULONG defda, oldatts, filter;
+        LARGE_INTEGER time;
+        BTRFS_TIME now;
+
+        if ((RequestedDisposition == FILE_OVERWRITE || RequestedDisposition == FILE_OVERWRITE_IF) && readonly) {
+            WARN("cannot overwrite readonly file\n");
+
+            IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+            free_fileref(fileref);
+
+            return STATUS_ACCESS_DENIED;
+        }
+
+        if (!fileref->fcb->ads && (IrpSp->Parameters.Create.FileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != ((fileref->fcb->atts & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN)))) {
+            IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+            free_fileref(fileref);
+
+            return STATUS_ACCESS_DENIED;
+        }
+
+        if (fileref->fcb->ads) {
+            Status = stream_set_end_of_file_information(Vcb, 0, fileref->fcb, fileref, FALSE);
+            if (!NT_SUCCESS(Status)) {
+                ERR("stream_set_end_of_file_information returned %08x\n", Status);
+
+                IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+                free_fileref(fileref);
+
+                return Status;
+            }
+        } else {
+            Status = truncate_file(fileref->fcb, 0, Irp, rollback);
+            if (!NT_SUCCESS(Status)) {
+                ERR("truncate_file returned %08x\n", Status);
+
+                IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+                free_fileref(fileref);
+
+                return Status;
+            }
+        }
+
+        if (Irp->Overlay.AllocationSize.QuadPart > 0) {
+            Status = extend_file(fileref->fcb, fileref, Irp->Overlay.AllocationSize.QuadPart, TRUE, NULL, rollback);
+
+            if (!NT_SUCCESS(Status)) {
+                ERR("extend_file returned %08x\n", Status);
+
+                IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+                free_fileref(fileref);
+
+                return Status;
+            }
+        }
+
+        if (!fileref->fcb->ads) {
+            LIST_ENTRY* le;
+
+            if (Irp->AssociatedIrp.SystemBuffer && IrpSp->Parameters.Create.EaLength > 0) {
+                ULONG offset;
+                FILE_FULL_EA_INFORMATION* eainfo;
+
+                Status = IoCheckEaBufferValidity(Irp->AssociatedIrp.SystemBuffer, IrpSp->Parameters.Create.EaLength, &offset);
+                if (!NT_SUCCESS(Status)) {
+                    ERR("IoCheckEaBufferValidity returned %08x (error at offset %u)\n", Status, offset);
+
+                    IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+                    free_fileref(fileref);
+
+                    return Status;
+                }
+
+                fileref->fcb->ealen = 4;
+
+                // capitalize EA name
+                eainfo = Irp->AssociatedIrp.SystemBuffer;
+                do {
+                    STRING s;
+
+                    s.Length = s.MaximumLength = eainfo->EaNameLength;
+                    s.Buffer = eainfo->EaName;
+
+                    RtlUpperString(&s, &s);
+
+                    fileref->fcb->ealen += 5 + eainfo->EaNameLength + eainfo->EaValueLength;
+
+                    if (eainfo->NextEntryOffset == 0)
+                        break;
+
+                    eainfo = (FILE_FULL_EA_INFORMATION*)(((UINT8*)eainfo) + eainfo->NextEntryOffset);
+                } while (TRUE);
+
+                if (fileref->fcb->ea_xattr.Buffer)
+                    ExFreePool(fileref->fcb->ea_xattr.Buffer);
+
+                fileref->fcb->ea_xattr.Buffer = ExAllocatePoolWithTag(pool_type, IrpSp->Parameters.Create.EaLength, ALLOC_TAG);
+                if (!fileref->fcb->ea_xattr.Buffer) {
+                    ERR("out of memory\n");
+
+                    IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+                    free_fileref(fileref);
+
+                    return STATUS_INSUFFICIENT_RESOURCES;
+                }
+
+                fileref->fcb->ea_xattr.Length = fileref->fcb->ea_xattr.MaximumLength = (USHORT)IrpSp->Parameters.Create.EaLength;
+                RtlCopyMemory(fileref->fcb->ea_xattr.Buffer, Irp->AssociatedIrp.SystemBuffer, fileref->fcb->ea_xattr.Length);
+            } else {
+                if (fileref->fcb->ea_xattr.Length > 0) {
+                    ExFreePool(fileref->fcb->ea_xattr.Buffer);
+                    fileref->fcb->ea_xattr.Buffer = NULL;
+                    fileref->fcb->ea_xattr.Length = fileref->fcb->ea_xattr.MaximumLength = 0;
+
+                    fileref->fcb->ea_changed = TRUE;
+                    fileref->fcb->ealen = 0;
+                }
+            }
+
+            // remove streams and send notifications
+            le = fileref->fcb->dir_children_index.Flink;
+            while (le != &fileref->fcb->dir_children_index) {
+                dir_child* dc = CONTAINING_RECORD(le, dir_child, list_entry_index);
+                LIST_ENTRY* le2 = le->Flink;
+
+                if (dc->index == 0) {
+                    if (!dc->fileref) {
+                        file_ref* fr2;
+
+                        Status = open_fileref_child(Vcb, fileref, &dc->name, TRUE, TRUE, TRUE, PagedPool, &fr2, NULL);
+                        if (!NT_SUCCESS(Status))
+                            WARN("open_fileref_child returned %08x\n", Status);
+                    }
+
+                    if (dc->fileref) {
+                        send_notification_fcb(fileref, FILE_NOTIFY_CHANGE_STREAM_NAME, FILE_ACTION_REMOVED_STREAM, &dc->name);
+
+                        Status = delete_fileref(dc->fileref, NULL, FALSE, NULL, rollback);
+                        if (!NT_SUCCESS(Status)) {
+                            ERR("delete_fileref returned %08x\n", Status);
+
+                            free_fileref(fileref);
+
+                            return Status;
+                        }
+                    }
+                } else
+                    break;
+
+                le = le2;
+            }
+        }
+
+        KeQuerySystemTime(&time);
+        win_time_to_unix(time, &now);
+
+        filter = FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE;
+
+        if (fileref->fcb->ads) {
+            fileref->parent->fcb->inode_item.st_mtime = now;
+            fileref->parent->fcb->inode_item_changed = TRUE;
+            mark_fcb_dirty(fileref->parent->fcb);
+
+            send_notification_fcb(fileref->parent, filter, FILE_ACTION_MODIFIED, &fileref->dc->name);
+        } else {
+            mark_fcb_dirty(fileref->fcb);
+
+            oldatts = fileref->fcb->atts;
+
+            defda = get_file_attributes(Vcb, fileref->fcb->subvol, fileref->fcb->inode, fileref->fcb->type,
+                                        fileref->dc && fileref->dc->name.Length >= sizeof(WCHAR) && fileref->dc->name.Buffer[0] == '.', TRUE, Irp);
+
+            if (RequestedDisposition == FILE_SUPERSEDE)
+                fileref->fcb->atts = IrpSp->Parameters.Create.FileAttributes | FILE_ATTRIBUTE_ARCHIVE;
+            else
+                fileref->fcb->atts |= IrpSp->Parameters.Create.FileAttributes | FILE_ATTRIBUTE_ARCHIVE;
+
+            if (fileref->fcb->atts != oldatts) {
+                fileref->fcb->atts_changed = TRUE;
+                fileref->fcb->atts_deleted = IrpSp->Parameters.Create.FileAttributes == defda;
+                filter |= FILE_NOTIFY_CHANGE_ATTRIBUTES;
+            }
+
+            fileref->fcb->inode_item.transid = Vcb->superblock.generation;
+            fileref->fcb->inode_item.sequence++;
+            fileref->fcb->inode_item.st_ctime = now;
+            fileref->fcb->inode_item.st_mtime = now;
+            fileref->fcb->inode_item_changed = TRUE;
+
+            send_notification_fcb(fileref, filter, FILE_ACTION_MODIFIED, NULL);
+        }
+    } else {
+        if (options & FILE_NO_EA_KNOWLEDGE && fileref->fcb->ea_xattr.Length > 0) {
+            FILE_FULL_EA_INFORMATION* ffei = (FILE_FULL_EA_INFORMATION*)fileref->fcb->ea_xattr.Buffer;
+
+            do {
+                if (ffei->Flags & FILE_NEED_EA) {
+                    WARN("returning STATUS_ACCESS_DENIED as no EA knowledge\n");
+
+                    IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+                    free_fileref(fileref);
+
+                    return STATUS_ACCESS_DENIED;
+                }
+
+                if (ffei->NextEntryOffset == 0)
+                    break;
+
+                ffei = (FILE_FULL_EA_INFORMATION*)(((UINT8*)ffei) + ffei->NextEntryOffset);
+            } while (TRUE);
+        }
+    }
+
+    FileObject->FsContext = fileref->fcb;
+
+    ccb = ExAllocatePoolWithTag(NonPagedPool, sizeof(*ccb), ALLOC_TAG);
+    if (!ccb) {
+        ERR("out of memory\n");
+
+        IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
+
+        free_fileref(fileref);
+
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(ccb, sizeof(*ccb));
+
+    ccb->NodeType = BTRFS_NODE_TYPE_CCB;
+    ccb->NodeSize = sizeof(*ccb);
+    ccb->disposition = RequestedDisposition;
+    ccb->options = options;
+    ccb->query_dir_offset = 0;
+    RtlInitUnicodeString(&ccb->query_string, NULL);
+    ccb->has_wildcard = FALSE;
+    ccb->specific_file = FALSE;
+    ccb->access = *granted_access;
+    ccb->case_sensitive = IrpSp->Flags & SL_CASE_SENSITIVE;
+    ccb->reserving = FALSE;
+    ccb->lxss = called_from_lxss();
+
+    ccb->fileref = fileref;
+
+    FileObject->FsContext2 = ccb;
+    FileObject->SectionObjectPointer = &fileref->fcb->nonpaged->segment_object;
+
+    if (NT_SUCCESS(Status)) {
+        switch (RequestedDisposition) {
+            case FILE_SUPERSEDE:
+                Irp->IoStatus.Information = FILE_SUPERSEDED;
+                break;
+
+            case FILE_OPEN:
+            case FILE_OPEN_IF:
+                Irp->IoStatus.Information = FILE_OPENED;
+                break;
+
+            case FILE_OVERWRITE:
+            case FILE_OVERWRITE_IF:
+                Irp->IoStatus.Information = FILE_OVERWRITTEN;
+                break;
+        }
+    }
+
+    // Make sure paging files don't have any extents marked as being prealloc,
+    // as this would mean we'd have to lock exclusively when writing.
+    if (IrpSp->Flags & SL_OPEN_PAGING_FILE) {
+        LIST_ENTRY* le;
+        BOOL changed = FALSE;
+
+        ExAcquireResourceExclusiveLite(fileref->fcb->Header.Resource, TRUE);
+
+        le = fileref->fcb->extents.Flink;
+
+        while (le != &fileref->fcb->extents) {
+            extent* ext = CONTAINING_RECORD(le, extent, list_entry);
+
+            if (ext->extent_data.type == EXTENT_TYPE_PREALLOC) {
+                ext->extent_data.type = EXTENT_TYPE_REGULAR;
+                changed = TRUE;
+            }
+
+            le = le->Flink;
+        }
+
+        ExReleaseResourceLite(fileref->fcb->Header.Resource);
+
+        if (changed) {
+            fileref->fcb->extents_changed = TRUE;
+            mark_fcb_dirty(fileref->fcb);
+        }
+
+        fileref->fcb->Header.Flags2 |= FSRTL_FLAG2_IS_PAGING_FILE;
+        Vcb->disallow_dismount = TRUE;
+    }
+
+#ifdef DEBUG_FCB_REFCOUNTS
+    LONG oc = InterlockedIncrement(&fileref->open_count);
+    ERR("fileref %p: open_count now %i\n", fileref, oc);
+#else
+    InterlockedIncrement(&fileref->open_count);
+#endif
+    InterlockedIncrement(&Vcb->open_files);
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS open_fileref_by_inode(_Requires_exclusive_lock_held_(_Curr_->fcb_lock) device_extension* Vcb,
+                               root* subvol, UINT64 inode, file_ref** pfr, PIRP Irp) {
+    NTSTATUS Status;
+    fcb* fcb;
+    UINT64 parent = 0;
+    UNICODE_STRING name;
+    BOOL hl_alloc = FALSE;
+    file_ref *parfr, *fr;
+
+    Status = open_fcb(Vcb, subvol, inode, 0, NULL, TRUE, NULL, &fcb, PagedPool, Irp);
+    if (!NT_SUCCESS(Status)) {
+        ERR("open_fcb returned %08x\n", Status);
+        return Status;
+    }
+
+    ExAcquireResourceSharedLite(fcb->Header.Resource, TRUE);
+
+    if (fcb->inode_item.st_nlink == 0 || fcb->deleted) {
+        ExReleaseResourceLite(fcb->Header.Resource);
+        free_fcb(fcb);
+        return STATUS_OBJECT_NAME_NOT_FOUND;
+    }
+
+    if (fcb->fileref) {
+        *pfr = fcb->fileref;
+        increase_fileref_refcount(fcb->fileref);
+        free_fcb(fcb);
+        ExReleaseResourceLite(fcb->Header.Resource);
+        return STATUS_SUCCESS;
+    }
+
+    if (IsListEmpty(&fcb->hardlinks)) {
+        ExReleaseResourceLite(fcb->Header.Resource);
+
+        ExAcquireResourceSharedLite(&Vcb->dirty_filerefs_lock, TRUE);
+
+        if (!IsListEmpty(&Vcb->dirty_filerefs)) {
+            LIST_ENTRY* le = Vcb->dirty_filerefs.Flink;
+            while (le != &Vcb->dirty_filerefs) {
+                file_ref* fr = CONTAINING_RECORD(le, file_ref, list_entry_dirty);
+
+                if (fr->fcb == fcb) {
+                    ExReleaseResourceLite(&Vcb->dirty_filerefs_lock);
+                    increase_fileref_refcount(fr);
+                    free_fcb(fcb);
+                    *pfr = fr;
+                    return STATUS_SUCCESS;
+                }
+
+                le = le->Flink;
+            }
+        }
+
+        ExReleaseResourceLite(&Vcb->dirty_filerefs_lock);
+
+        {
+            KEY searchkey;
+            traverse_ptr tp;
+
+            searchkey.obj_id = fcb->inode;
+            searchkey.obj_type = TYPE_INODE_REF;
+            searchkey.offset = 0;
+
+            Status = find_item(Vcb, subvol, &tp, &searchkey, FALSE, Irp);
+            if (!NT_SUCCESS(Status)) {
+                ERR("find_item returned %08x\n", Status);
+                free_fcb(fcb);
+                return Status;
+            }
+
+            do {
+                traverse_ptr next_tp;
+
+                if (tp.item->key.obj_id > fcb->inode || (tp.item->key.obj_id == fcb->inode && tp.item->key.obj_type > TYPE_INODE_EXTREF))
+                    break;
+
+                if (tp.item->key.obj_id == fcb->inode) {
+                    if (tp.item->key.obj_type == TYPE_INODE_REF) {
+                        INODE_REF* ir = (INODE_REF*)tp.item->data;
+#ifdef __REACTOS__
+                        ULONG stringlen;
+#endif
+
+                        if (tp.item->size < offsetof(INODE_REF, name[0]) || tp.item->size < offsetof(INODE_REF, name[0]) + ir->n) {
+                            ERR("INODE_REF was too short\n");
+                            free_fcb(fcb);
+                            return STATUS_INTERNAL_ERROR;
+                        }
+
+#ifndef __REACTOS__
+                        ULONG stringlen;
+#endif
+
+                        Status = RtlUTF8ToUnicodeN(NULL, 0, &stringlen, ir->name, ir->n);
+                        if (!NT_SUCCESS(Status)) {
+                            ERR("RtlUTF8ToUnicodeN 1 returned %08x\n", Status);
+                            free_fcb(fcb);
+                            return Status;
+                        }
+
+                        name.Length = name.MaximumLength = (UINT16)stringlen;
+
+                        if (stringlen == 0)
+                            name.Buffer = NULL;
+                        else {
+                            name.Buffer = ExAllocatePoolWithTag(PagedPool, name.MaximumLength, ALLOC_TAG);
+
+                            if (!name.Buffer) {
+                                ERR("out of memory\n");
+                                free_fcb(fcb);
+                                return STATUS_INSUFFICIENT_RESOURCES;
+                            }
+
+                            Status = RtlUTF8ToUnicodeN(name.Buffer, stringlen, &stringlen, ir->name, ir->n);
+                            if (!NT_SUCCESS(Status)) {
+                                ERR("RtlUTF8ToUnicodeN 2 returned %08x\n", Status);
+                                ExFreePool(name.Buffer);
+                                free_fcb(fcb);
+                                return Status;
+                            }
+
+                            hl_alloc = TRUE;
+                        }
+
+                        parent = tp.item->key.offset;
+
+                        break;
+                    } else if (tp.item->key.obj_type == TYPE_INODE_EXTREF) {
+                        INODE_EXTREF* ier = (INODE_EXTREF*)tp.item->data;
+#ifdef __REACTOS__
+                        ULONG stringlen;
+#endif
+
+                        if (tp.item->size < offsetof(INODE_EXTREF, name[0]) || tp.item->size < offsetof(INODE_EXTREF, name[0]) + ier->n) {
+                            ERR("INODE_EXTREF was too short\n");
+                            free_fcb(fcb);
+                            return STATUS_INTERNAL_ERROR;
+                        }
+
+#ifndef __REACTOS__
+                        ULONG stringlen;
+#endif
+
+                        Status = RtlUTF8ToUnicodeN(NULL, 0, &stringlen, ier->name, ier->n);
+                        if (!NT_SUCCESS(Status)) {
+                            ERR("RtlUTF8ToUnicodeN 1 returned %08x\n", Status);
+                            free_fcb(fcb);
+                            return Status;
+                        }
+
+                        name.Length = name.MaximumLength = (UINT16)stringlen;
+
+                        if (stringlen == 0)
+                            name.Buffer = NULL;
+                        else {
+                            name.Buffer = ExAllocatePoolWithTag(PagedPool, name.MaximumLength, ALLOC_TAG);
+
+                            if (!name.Buffer) {
+                                ERR("out of memory\n");
+                                free_fcb(fcb);
+                                return STATUS_INSUFFICIENT_RESOURCES;
+                            }
+
+                            Status = RtlUTF8ToUnicodeN(name.Buffer, stringlen, &stringlen, ier->name, ier->n);
+                            if (!NT_SUCCESS(Status)) {
+                                ERR("RtlUTF8ToUnicodeN 2 returned %08x\n", Status);
+                                ExFreePool(name.Buffer);
+                                free_fcb(fcb);
+                                return Status;
+                            }
+
+                            hl_alloc = TRUE;
+                        }
+
+                        parent = ier->dir;
+
+                        break;
+                    }
+                }
+
+                if (find_next_item(Vcb, &tp, &next_tp, FALSE, Irp))
+                    tp = next_tp;
+                else
+                    break;
+            } while (TRUE);
+        }
+
+        if (parent == 0) {
+            WARN("trying to open inode with no references\n");
+            free_fcb(fcb);
+            return STATUS_INVALID_PARAMETER;
+        }
+    } else {
+        hardlink* hl = CONTAINING_RECORD(fcb->hardlinks.Flink, hardlink, list_entry);
+
+        name = hl->name;
+        parent = hl->parent;
+
+        ExReleaseResourceLite(fcb->Header.Resource);
+    }
+
+    if (parent == inode) { // subvolume root
+        KEY searchkey;
+        traverse_ptr tp;
+
+        searchkey.obj_id = subvol->id;
+        searchkey.obj_type = TYPE_ROOT_BACKREF;
+        searchkey.offset = 0xffffffffffffffff;
+
+        Status = find_item(Vcb, Vcb->root_root, &tp, &searchkey, FALSE, Irp);
+        if (!NT_SUCCESS(Status)) {
+            ERR("find_item returned %08x\n", Status);
+            free_fcb(fcb);
+            return Status;
+        }
+
+        if (tp.item->key.obj_id == searchkey.obj_id && tp.item->key.obj_type == searchkey.obj_type) {
+            ROOT_REF* rr = (ROOT_REF*)tp.item->data;
+            LIST_ENTRY* le;
+            root* r = NULL;
+            ULONG stringlen;
+
+            if (tp.item->size < sizeof(ROOT_REF)) {
+                ERR("(%llx,%x,%llx) was %u bytes, expected at least %u\n", tp.item->key.obj_id, tp.item->key.obj_type, tp.item->key.offset, tp.item->size, sizeof(ROOT_REF));
+                free_fcb(fcb);
+                return STATUS_INTERNAL_ERROR;
+            }
+
+            if (tp.item->size < offsetof(ROOT_REF, name[0]) + rr->n) {
+                ERR("(%llx,%x,%llx) was %u bytes, expected %u\n", tp.item->key.obj_id, tp.item->key.obj_type, tp.item->key.offset, tp.item->size, offsetof(ROOT_REF, name[0]) + rr->n);
+                free_fcb(fcb);
+                return STATUS_INTERNAL_ERROR;
+            }
+
+            le = Vcb->roots.Flink;
+            while (le != &Vcb->roots) {
+                root* r2 = CONTAINING_RECORD(le, root, list_entry);
+
+                if (r2->id == tp.item->key.offset) {
+                    r = r2;
+                    break;
+                }
+
+                le = le->Flink;
+            }
+
+            if (!r) {
+                ERR("couldn't find subvol %llx\n", tp.item->key.offset);
+                free_fcb(fcb);
+                return STATUS_INTERNAL_ERROR;
+            }
+
+            Status = open_fileref_by_inode(Vcb, r, rr->dir, &parfr, Irp);
+            if (!NT_SUCCESS(Status)) {
+                ERR("open_fileref_by_inode returned %08x\n", Status);
+                free_fcb(fcb);
+                return Status;
+            }
+
+            Status = RtlUTF8ToUnicodeN(NULL, 0, &stringlen, rr->name, rr->n);
+            if (!NT_SUCCESS(Status)) {
+                ERR("RtlUTF8ToUnicodeN 1 returned %08x\n", Status);
+                free_fcb(fcb);
+                return Status;
+            }
+
+            name.Length = name.MaximumLength = (UINT16)stringlen;
+
+            if (stringlen == 0)
+                name.Buffer = NULL;
+            else {
+                if (hl_alloc)
+                    ExFreePool(name.Buffer);
+
+                name.Buffer = ExAllocatePoolWithTag(PagedPool, name.MaximumLength, ALLOC_TAG);
+
+                if (!name.Buffer) {
+                    ERR("out of memory\n");
+                    free_fcb(fcb);
+                    return STATUS_INSUFFICIENT_RESOURCES;
+                }
+
+                Status = RtlUTF8ToUnicodeN(name.Buffer, stringlen, &stringlen, rr->name, rr->n);
+                if (!NT_SUCCESS(Status)) {
+                    ERR("RtlUTF8ToUnicodeN 2 returned %08x\n", Status);
+                    ExFreePool(name.Buffer);
+                    free_fcb(fcb);
+                    return Status;
+                }
+
+                hl_alloc = TRUE;
+            }
+        } else {
+            ERR("couldn't find parent for subvol %llx\n", subvol->id);
+            free_fcb(fcb);
+            return STATUS_INTERNAL_ERROR;
+        }
+    } else {
+        Status = open_fileref_by_inode(Vcb, subvol, parent, &parfr, Irp);
+        if (!NT_SUCCESS(Status)) {
+            ERR("open_fileref_by_inode returned %08x\n", Status);
+            free_fcb(fcb);
+            return Status;
+        }
+    }
+
+    Status = open_fileref_child(Vcb, parfr, &name, TRUE, TRUE, FALSE, PagedPool, &fr, Irp);
+
+    if (hl_alloc)
+        ExFreePool(name.Buffer);
+
+    if (!NT_SUCCESS(Status)) {
+        ERR("open_fileref_child returned %08x\n", Status);
+
+        free_fcb(fcb);
+        free_fileref(parfr);
+
+        return Status;
+    }
+
+    *pfr = fr;
+
+    free_fcb(fcb);
+    free_fileref(parfr);
+
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS open_file(PDEVICE_OBJECT DeviceObject, _Requires_lock_held_(_Curr_->tree_lock) device_extension* Vcb, PIRP Irp, LIST_ENTRY* rollback) {
     PFILE_OBJECT FileObject = NULL;
     ULONG RequestedDisposition;
     ULONG options;
     NTSTATUS Status;
-    ccb* ccb;
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
     USHORT parsed;
     ULONG fn_offset = 0;
@@ -2759,9 +4302,6 @@ static NTSTATUS open_file(PDEVICE_OBJECT DeviceObject, _Requires_lock_held_(_Cur
     ACCESS_MASK granted_access;
     BOOL loaded_related = FALSE;
     UNICODE_STRING fn;
-#ifdef DEBUG_FCB_REFCOUNTS
-    LONG oc;
-#endif
 #ifdef DEBUG_STATS
     LARGE_INTEGER time1, time2;
     UINT8 open_type = 0;
@@ -2836,11 +4376,21 @@ static NTSTATUS open_file(PDEVICE_OBJECT DeviceObject, _Requires_lock_held_(_Cur
         goto exit;
     }
 
-    ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-
     if (options & FILE_OPEN_BY_FILE_ID) {
-        if (fn.Length == sizeof(UINT64) && related && RequestedDisposition == FILE_OPEN) {
+        if (RequestedDisposition != FILE_OPEN) {
+            WARN("FILE_OPEN_BY_FILE_ID not supported for anything other than FILE_OPEN\n");
+            Status = STATUS_INVALID_PARAMETER;
+            goto exit;
+        }
+
+        if (fn.Length == sizeof(UINT64)) {
             UINT64 inode;
+
+            if (!related) {
+                WARN("cannot open by short file ID unless related fileref also provided");
+                Status = STATUS_INVALID_PARAMETER;
+                goto exit;
+            }
 
             RtlCopyMemory(&inode, fn.Buffer, sizeof(UINT64));
 
@@ -2851,57 +4401,84 @@ static NTSTATUS open_file(PDEVICE_OBJECT DeviceObject, _Requires_lock_held_(_Cur
                 fileref = related->parent;
                 increase_fileref_refcount(fileref);
                 Status = STATUS_SUCCESS;
-            } else {
+            } else
                 Status = open_fileref_by_inode(Vcb, related->fcb->subvol, inode, &fileref, Irp);
-            }
-        } else {
-            WARN("FILE_OPEN_BY_FILE_ID only supported for inodes\n");
-            Status = STATUS_NOT_IMPLEMENTED;
-            ExReleaseResourceLite(&Vcb->fcb_lock);
-            goto exit;
-        }
-    } else {
-        if (related && fn.Length != 0 && fn.Buffer[0] == '\\') {
-            Status = STATUS_OBJECT_NAME_INVALID;
-            ExReleaseResourceLite(&Vcb->fcb_lock);
-            goto exit;
-        }
 
-        if (!related && RequestedDisposition != FILE_OPEN && !(IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY)) {
-            ULONG fnoff;
+            goto loaded;
+        } else if (fn.Length == sizeof(FILE_ID_128)) {
+            UINT64 inode, subvol_id;
+            root* subvol = NULL;
 
-            Status = open_fileref(Vcb, &related, &fn, NULL, TRUE, &parsed, &fnoff,
-                                  pool_type, IrpSp->Flags & SL_CASE_SENSITIVE, Irp);
+            RtlCopyMemory(&inode, fn.Buffer, sizeof(UINT64));
+            RtlCopyMemory(&subvol_id, (UINT8*)fn.Buffer + sizeof(UINT64), sizeof(UINT64));
 
-            if (Status == STATUS_OBJECT_NAME_NOT_FOUND)
-                Status = STATUS_OBJECT_PATH_NOT_FOUND;
-            else if (Status == STATUS_REPARSE)
-                fileref = related;
-            else if (NT_SUCCESS(Status)) {
-                fnoff *= sizeof(WCHAR);
-                fnoff += (related->dc ? related->dc->name.Length : 0) + sizeof(WCHAR);
+            if (subvol_id == BTRFS_ROOT_FSTREE || (subvol_id >= 0x100 && subvol_id < 0x8000000000000000)) {
+                LIST_ENTRY* le = Vcb->roots.Flink;
+                while (le != &Vcb->roots) {
+                    root* r = CONTAINING_RECORD(le, root, list_entry);
 
-                if (related->fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT) {
-                    Status = STATUS_REPARSE;
-                    fileref = related;
-                    parsed = (USHORT)fnoff - sizeof(WCHAR);
-                } else {
-                    fn.Buffer = &fn.Buffer[fnoff / sizeof(WCHAR)];
-                    fn.Length -= (USHORT)fnoff;
+                    if (r->id == subvol_id) {
+                        subvol = r;
+                        break;
+                    }
 
-                    Status = open_fileref(Vcb, &fileref, &fn, related, IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY, &parsed, &fn_offset,
-                                          pool_type, IrpSp->Flags & SL_CASE_SENSITIVE, Irp);
-
-                    loaded_related = TRUE;
+                    le = le->Flink;
                 }
-
             }
+
+            if (!subvol) {
+                WARN("subvol %llx not found\n", subvol_id);
+                Status = STATUS_OBJECT_NAME_NOT_FOUND;
+            } else
+                Status = open_fileref_by_inode(Vcb, subvol, inode, &fileref, Irp);
+
+            goto loaded;
         } else {
-            Status = open_fileref(Vcb, &fileref, &fn, related, IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY, &parsed, &fn_offset,
-                                  pool_type, IrpSp->Flags & SL_CASE_SENSITIVE, Irp);
+            WARN("invalid ID size for FILE_OPEN_BY_FILE_ID\n");
+            Status = STATUS_INVALID_PARAMETER;
+            goto exit;
         }
     }
 
+    if (related && fn.Length != 0 && fn.Buffer[0] == '\\') {
+        Status = STATUS_INVALID_PARAMETER;
+        goto exit;
+    }
+
+    if (!related && RequestedDisposition != FILE_OPEN && !(IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY)) {
+        ULONG fnoff;
+
+        Status = open_fileref(Vcb, &related, &fn, NULL, TRUE, &parsed, &fnoff,
+                              pool_type, IrpSp->Flags & SL_CASE_SENSITIVE, Irp);
+
+        if (Status == STATUS_OBJECT_NAME_NOT_FOUND)
+            Status = STATUS_OBJECT_PATH_NOT_FOUND;
+        else if (Status == STATUS_REPARSE)
+            fileref = related;
+        else if (NT_SUCCESS(Status)) {
+            fnoff *= sizeof(WCHAR);
+            fnoff += (related->dc ? related->dc->name.Length : 0) + sizeof(WCHAR);
+
+            if (related->fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT) {
+                Status = STATUS_REPARSE;
+                fileref = related;
+                parsed = (USHORT)fnoff - sizeof(WCHAR);
+            } else {
+                fn.Buffer = &fn.Buffer[fnoff / sizeof(WCHAR)];
+                fn.Length -= (USHORT)fnoff;
+
+                Status = open_fileref(Vcb, &fileref, &fn, related, IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY, &parsed, &fn_offset,
+                                      pool_type, IrpSp->Flags & SL_CASE_SENSITIVE, Irp);
+
+                loaded_related = TRUE;
+            }
+        }
+    } else {
+        Status = open_fileref(Vcb, &fileref, &fn, related, IrpSp->Flags & SL_OPEN_TARGET_DIRECTORY, &parsed, &fn_offset,
+                              pool_type, IrpSp->Flags & SL_CASE_SENSITIVE, Irp);
+    }
+
+loaded:
     if (Status == STATUS_REPARSE) {
         REPARSE_DATA_BUFFER* data;
 
@@ -2921,8 +4498,7 @@ static NTSTATUS open_file(PDEVICE_OBJECT DeviceObject, _Requires_lock_held_(_Cur
 
             Irp->Tail.Overlay.AuxiliaryBuffer = (void*)data;
 
-            free_fileref(Vcb, fileref);
-            ExReleaseResourceLite(&Vcb->fcb_lock);
+            free_fileref(fileref);
 
             goto exit;
         }
@@ -2936,552 +4512,53 @@ static NTSTATUS open_file(PDEVICE_OBJECT DeviceObject, _Requires_lock_held_(_Cur
             TRACE("file %S already exists, returning STATUS_OBJECT_NAME_COLLISION\n", file_desc_fileref(fileref));
             Status = STATUS_OBJECT_NAME_COLLISION;
 
-            free_fileref(Vcb, fileref);
-            ExReleaseResourceLite(&Vcb->fcb_lock);
+            free_fileref(fileref);
 
             goto exit;
         }
     } else if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
         if (RequestedDisposition == FILE_OPEN || RequestedDisposition == FILE_OVERWRITE) {
             TRACE("file doesn't exist, returning STATUS_OBJECT_NAME_NOT_FOUND\n");
-            ExReleaseResourceLite(&Vcb->fcb_lock);
             goto exit;
         }
     } else if (Status == STATUS_OBJECT_PATH_NOT_FOUND) {
         TRACE("open_fileref returned %08x\n", Status);
-        ExReleaseResourceLite(&Vcb->fcb_lock);
         goto exit;
     } else {
         ERR("open_fileref returned %08x\n", Status);
-        ExReleaseResourceLite(&Vcb->fcb_lock);
         goto exit;
     }
 
     if (NT_SUCCESS(Status)) { // file already exists
-        file_ref* sf;
-        BOOL readonly;
-
-        ExReleaseResourceLite(&Vcb->fcb_lock);
-
-        if (RequestedDisposition == FILE_SUPERSEDE || RequestedDisposition == FILE_OVERWRITE || RequestedDisposition == FILE_OVERWRITE_IF) {
-            LARGE_INTEGER zero;
-
-#ifdef DEBUG_STATS
-            open_type = 1;
-#endif
-            if (fileref->fcb->type == BTRFS_TYPE_DIRECTORY || is_subvol_readonly(fileref->fcb->subvol, Irp)) {
-                Status = STATUS_ACCESS_DENIED;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-
-            if (Vcb->readonly) {
-                Status = STATUS_MEDIA_WRITE_PROTECTED;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-
-            zero.QuadPart = 0;
-            if (!MmCanFileBeTruncated(&fileref->fcb->nonpaged->segment_object, &zero)) {
-                Status = STATUS_USER_MAPPED_FILE;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-        }
-
-        if (IrpSp->Parameters.Create.SecurityContext->DesiredAccess != 0) {
-            SeLockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
-
-            if (!SeAccessCheck((fileref->fcb->ads || fileref->fcb == Vcb->dummy_fcb) ? fileref->parent->fcb->sd : fileref->fcb->sd,
-                               &IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext,
-                               TRUE, IrpSp->Parameters.Create.SecurityContext->DesiredAccess, 0, NULL,
-                               IoGetFileObjectGenericMapping(), IrpSp->Flags & SL_FORCE_ACCESS_CHECK ? UserMode : Irp->RequestorMode,
-                               &granted_access, &Status)) {
-                SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
-                TRACE("SeAccessCheck failed, returning %08x\n", Status);
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-
-            SeUnlockSubjectContext(&IrpSp->Parameters.Create.SecurityContext->AccessState->SubjectSecurityContext);
-        } else
-            granted_access = 0;
-
-        TRACE("deleted = %s\n", fileref->deleted ? "TRUE" : "FALSE");
-
-        sf = fileref;
-        while (sf) {
-            if (sf->delete_on_close) {
-                TRACE("could not open as deletion pending\n");
-                Status = STATUS_DELETE_PENDING;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-            sf = sf->parent;
-        }
-
-        readonly = (!fileref->fcb->ads && fileref->fcb->atts & FILE_ATTRIBUTE_READONLY) || (fileref->fcb->ads && fileref->parent->fcb->atts & FILE_ATTRIBUTE_READONLY) ||
-                   is_subvol_readonly(fileref->fcb->subvol, Irp) || fileref->fcb == Vcb->dummy_fcb || Vcb->readonly;
-
-        if (readonly) {
-            ACCESS_MASK allowed;
-
-            allowed = READ_CONTROL | SYNCHRONIZE | ACCESS_SYSTEM_SECURITY | FILE_READ_DATA |
-                      FILE_READ_EA | FILE_READ_ATTRIBUTES | FILE_EXECUTE | FILE_LIST_DIRECTORY |
-                      FILE_TRAVERSE;
-
-            if (!Vcb->readonly && (fileref->fcb == Vcb->dummy_fcb || fileref->fcb->inode == SUBVOL_ROOT_INODE))
-                allowed |= DELETE;
-
-            if (fileref->fcb != Vcb->dummy_fcb && !is_subvol_readonly(fileref->fcb->subvol, Irp) && !Vcb->readonly) {
-                allowed |= WRITE_OWNER | WRITE_DAC | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES;
-
-                if (!fileref->fcb->ads && fileref->fcb->type == BTRFS_TYPE_DIRECTORY)
-                    allowed |= FILE_ADD_SUBDIRECTORY | FILE_ADD_FILE | FILE_DELETE_CHILD;
-            } else if (fileref->fcb->inode == SUBVOL_ROOT_INODE && is_subvol_readonly(fileref->fcb->subvol, Irp) && !Vcb->readonly) {
-                // We allow a subvolume root to be opened read-write even if its readonly flag is set, so it can be cleared
-
-                allowed |= FILE_WRITE_ATTRIBUTES;
-            }
-
-            if (IrpSp->Parameters.Create.SecurityContext->DesiredAccess & MAXIMUM_ALLOWED) {
-                granted_access &= allowed;
-                IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess &= allowed;
-            } else if (granted_access & ~allowed) {
-                Status = Vcb->readonly ? STATUS_MEDIA_WRITE_PROTECTED : STATUS_ACCESS_DENIED;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-        }
-
-        if (options & FILE_DELETE_ON_CLOSE && (fileref == Vcb->root_fileref || Vcb->readonly ||
-            is_subvol_readonly(fileref->fcb->subvol, Irp) || readonly)) {
-            Status = STATUS_CANNOT_DELETE;
-
-            ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-            free_fileref(Vcb, fileref);
-            ExReleaseResourceLite(&Vcb->fcb_lock);
-
+        Status = open_file2(Vcb, RequestedDisposition, pool_type, fileref, &granted_access, FileObject, &fn, options, Irp, rollback);
+        if (!NT_SUCCESS(Status))
             goto exit;
-        }
-
-        if ((fileref->fcb->type == BTRFS_TYPE_SYMLINK || fileref->fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT) && !(options & FILE_OPEN_REPARSE_POINT))  {
-            REPARSE_DATA_BUFFER* data;
-
-            /* How reparse points work from the point of view of the filesystem appears to
-             * undocumented. When returning STATUS_REPARSE, MSDN encourages us to return
-             * IO_REPARSE in Irp->IoStatus.Information, but that means we have to do our own
-             * translation. If we instead return the reparse tag in Information, and store
-             * a pointer to the reparse data buffer in Irp->Tail.Overlay.AuxiliaryBuffer,
-             * IopSymlinkProcessReparse will do the translation for us. */
-
-            Status = get_reparse_block(fileref->fcb, (UINT8**)&data);
-            if (!NT_SUCCESS(Status)) {
-                ERR("get_reparse_block returned %08x\n", Status);
-                Status = STATUS_SUCCESS;
-            } else {
-                Status = STATUS_REPARSE;
-                Irp->IoStatus.Information = data->ReparseTag;
-
-                if (fn.Buffer[(fn.Length / sizeof(WCHAR)) - 1] == '\\')
-                    data->Reserved = sizeof(WCHAR);
-
-                Irp->Tail.Overlay.AuxiliaryBuffer = (void*)data;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-        }
-
-        if (fileref->fcb->type == BTRFS_TYPE_DIRECTORY && !fileref->fcb->ads) {
-            if (options & FILE_NON_DIRECTORY_FILE && !(fileref->fcb->atts & FILE_ATTRIBUTE_REPARSE_POINT)) {
-                Status = STATUS_FILE_IS_A_DIRECTORY;
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-        } else if (options & FILE_DIRECTORY_FILE) {
-            TRACE("returning STATUS_NOT_A_DIRECTORY (type = %u, %S)\n", fileref->fcb->type, file_desc_fileref(fileref));
-            Status = STATUS_NOT_A_DIRECTORY;
-
-            ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-            free_fileref(Vcb, fileref);
-            ExReleaseResourceLite(&Vcb->fcb_lock);
-
-            goto exit;
-        }
-
-        if (fileref->open_count > 0) {
-            Status = IoCheckShareAccess(granted_access, IrpSp->Parameters.Create.ShareAccess, FileObject, &fileref->fcb->share_access, FALSE);
-
-            if (!NT_SUCCESS(Status)) {
-                if (Status == STATUS_SHARING_VIOLATION)
-                    TRACE("IoCheckShareAccess failed, returning %08x\n", Status);
-                else
-                    WARN("IoCheckShareAccess failed, returning %08x\n", Status);
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-
-            IoUpdateShareAccess(FileObject, &fileref->fcb->share_access);
-        } else
-            IoSetShareAccess(granted_access, IrpSp->Parameters.Create.ShareAccess, FileObject, &fileref->fcb->share_access);
-
-        if (granted_access & FILE_WRITE_DATA || options & FILE_DELETE_ON_CLOSE) {
-            if (!MmFlushImageSection(&fileref->fcb->nonpaged->segment_object, MmFlushForWrite)) {
-                Status = (options & FILE_DELETE_ON_CLOSE) ? STATUS_CANNOT_DELETE : STATUS_SHARING_VIOLATION;
-
-                IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-        }
-
-        if (RequestedDisposition == FILE_OVERWRITE || RequestedDisposition == FILE_OVERWRITE_IF || RequestedDisposition == FILE_SUPERSEDE) {
-            ULONG defda, oldatts, filter;
-            LARGE_INTEGER time;
-            BTRFS_TIME now;
-
-            if ((RequestedDisposition == FILE_OVERWRITE || RequestedDisposition == FILE_OVERWRITE_IF) && readonly) {
-                WARN("cannot overwrite readonly file\n");
-                Status = STATUS_ACCESS_DENIED;
-
-                IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                free_fileref(Vcb, fileref);
-                ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                goto exit;
-            }
-
-            if (fileref->fcb->ads) {
-                Status = stream_set_end_of_file_information(Vcb, 0, fileref->fcb, fileref, FALSE);
-                if (!NT_SUCCESS(Status)) {
-                    ERR("stream_set_end_of_file_information returned %08x\n", Status);
-
-                    IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                    ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                    free_fileref(Vcb, fileref);
-                    ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                    goto exit;
-                }
-            } else {
-                Status = truncate_file(fileref->fcb, 0, Irp, rollback);
-                if (!NT_SUCCESS(Status)) {
-                    ERR("truncate_file returned %08x\n", Status);
-
-                    IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                    ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                    free_fileref(Vcb, fileref);
-                    ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                    goto exit;
-                }
-            }
-
-            if (Irp->Overlay.AllocationSize.QuadPart > 0) {
-                Status = extend_file(fileref->fcb, fileref, Irp->Overlay.AllocationSize.QuadPart, TRUE, NULL, rollback);
-
-                if (!NT_SUCCESS(Status)) {
-                    ERR("extend_file returned %08x\n", Status);
-
-                    IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                    ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                    free_fileref(Vcb, fileref);
-                    ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                    goto exit;
-                }
-            }
-
-            if (!fileref->fcb->ads) {
-                if (Irp->AssociatedIrp.SystemBuffer && IrpSp->Parameters.Create.EaLength > 0) {
-                    ULONG offset;
-                    FILE_FULL_EA_INFORMATION* eainfo;
-
-                    Status = IoCheckEaBufferValidity(Irp->AssociatedIrp.SystemBuffer, IrpSp->Parameters.Create.EaLength, &offset);
-                    if (!NT_SUCCESS(Status)) {
-                        ERR("IoCheckEaBufferValidity returned %08x (error at offset %u)\n", Status, offset);
-
-                        IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                        ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                        free_fileref(Vcb, fileref);
-                        ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                        goto exit;
-                    }
-
-                    fileref->fcb->ealen = 4;
-
-                    // capitalize EA name
-                    eainfo = Irp->AssociatedIrp.SystemBuffer;
-                    do {
-                        STRING s;
-
-                        s.Length = s.MaximumLength = eainfo->EaNameLength;
-                        s.Buffer = eainfo->EaName;
-
-                        RtlUpperString(&s, &s);
-
-                        fileref->fcb->ealen += 5 + eainfo->EaNameLength + eainfo->EaValueLength;
-
-                        if (eainfo->NextEntryOffset == 0)
-                            break;
-
-                        eainfo = (FILE_FULL_EA_INFORMATION*)(((UINT8*)eainfo) + eainfo->NextEntryOffset);
-                    } while (TRUE);
-
-                    if (fileref->fcb->ea_xattr.Buffer)
-                        ExFreePool(fileref->fcb->ea_xattr.Buffer);
-
-                    fileref->fcb->ea_xattr.Buffer = ExAllocatePoolWithTag(pool_type, IrpSp->Parameters.Create.EaLength, ALLOC_TAG);
-                    if (!fileref->fcb->ea_xattr.Buffer) {
-                        ERR("out of memory\n");
-                        Status = STATUS_INSUFFICIENT_RESOURCES;
-
-                        IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                        ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                        free_fileref(Vcb, fileref);
-                        ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                        goto exit;
-                    }
-
-                    fileref->fcb->ea_xattr.Length = fileref->fcb->ea_xattr.MaximumLength = (USHORT)IrpSp->Parameters.Create.EaLength;
-                    RtlCopyMemory(fileref->fcb->ea_xattr.Buffer, Irp->AssociatedIrp.SystemBuffer, fileref->fcb->ea_xattr.Length);
-                } else {
-                    if (fileref->fcb->ea_xattr.Length > 0) {
-                        ExFreePool(fileref->fcb->ea_xattr.Buffer);
-                        fileref->fcb->ea_xattr.Buffer = NULL;
-                        fileref->fcb->ea_xattr.Length = fileref->fcb->ea_xattr.MaximumLength = 0;
-
-                        fileref->fcb->ea_changed = TRUE;
-                        fileref->fcb->ealen = 0;
-                    }
-                }
-            }
-
-            KeQuerySystemTime(&time);
-            win_time_to_unix(time, &now);
-
-            filter = FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE;
-
-            if (fileref->fcb->ads) {
-                fileref->parent->fcb->inode_item.st_mtime = now;
-                fileref->parent->fcb->inode_item_changed = TRUE;
-                mark_fcb_dirty(fileref->parent->fcb);
-
-                send_notification_fcb(fileref->parent, filter, FILE_ACTION_MODIFIED, &fileref->dc->name);
-            } else {
-                mark_fcb_dirty(fileref->fcb);
-
-                oldatts = fileref->fcb->atts;
-
-                defda = get_file_attributes(Vcb, fileref->fcb->subvol, fileref->fcb->inode, fileref->fcb->type,
-                                            fileref->dc && fileref->dc->name.Length >= sizeof(WCHAR) && fileref->dc->name.Buffer[0] == '.', TRUE, Irp);
-
-                if (RequestedDisposition == FILE_SUPERSEDE)
-                    fileref->fcb->atts = IrpSp->Parameters.Create.FileAttributes | FILE_ATTRIBUTE_ARCHIVE;
-                else
-                    fileref->fcb->atts |= IrpSp->Parameters.Create.FileAttributes | FILE_ATTRIBUTE_ARCHIVE;
-
-                if (fileref->fcb->atts != oldatts) {
-                    fileref->fcb->atts_changed = TRUE;
-                    fileref->fcb->atts_deleted = IrpSp->Parameters.Create.FileAttributes == defda;
-                    filter |= FILE_NOTIFY_CHANGE_ATTRIBUTES;
-                }
-
-                fileref->fcb->inode_item.transid = Vcb->superblock.generation;
-                fileref->fcb->inode_item.sequence++;
-                fileref->fcb->inode_item.st_ctime = now;
-                fileref->fcb->inode_item.st_mtime = now;
-                fileref->fcb->inode_item_changed = TRUE;
-
-                send_notification_fcb(fileref, filter, FILE_ACTION_MODIFIED, NULL);
-            }
-        } else {
-            if (options & FILE_NO_EA_KNOWLEDGE && fileref->fcb->ea_xattr.Length > 0) {
-                FILE_FULL_EA_INFORMATION* ffei = (FILE_FULL_EA_INFORMATION*)fileref->fcb->ea_xattr.Buffer;
-
-                do {
-                    if (ffei->Flags & FILE_NEED_EA) {
-                        WARN("returning STATUS_ACCESS_DENIED as no EA knowledge\n");
-                        Status = STATUS_ACCESS_DENIED;
-
-                        IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-                        ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-                        free_fileref(Vcb, fileref);
-                        ExReleaseResourceLite(&Vcb->fcb_lock);
-
-                        goto exit;
-                    }
-
-                    if (ffei->NextEntryOffset == 0)
-                        break;
-
-                    ffei = (FILE_FULL_EA_INFORMATION*)(((UINT8*)ffei) + ffei->NextEntryOffset);
-                } while (TRUE);
-            }
-        }
-
-        FileObject->FsContext = fileref->fcb;
-
-        ccb = ExAllocatePoolWithTag(NonPagedPool, sizeof(*ccb), ALLOC_TAG);
-        if (!ccb) {
-            ERR("out of memory\n");
-            Status = STATUS_INSUFFICIENT_RESOURCES;
-
-            IoRemoveShareAccess(FileObject, &fileref->fcb->share_access);
-
-            ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-            free_fileref(Vcb, fileref);
-            ExReleaseResourceLite(&Vcb->fcb_lock);
-
-            goto exit;
-        }
-
-        RtlZeroMemory(ccb, sizeof(*ccb));
-
-        ccb->NodeType = BTRFS_NODE_TYPE_CCB;
-        ccb->NodeSize = sizeof(*ccb);
-        ccb->disposition = RequestedDisposition;
-        ccb->options = options;
-        ccb->query_dir_offset = 0;
-        RtlInitUnicodeString(&ccb->query_string, NULL);
-        ccb->has_wildcard = FALSE;
-        ccb->specific_file = FALSE;
-        ccb->access = granted_access;
-        ccb->case_sensitive = IrpSp->Flags & SL_CASE_SENSITIVE;
-        ccb->reserving = FALSE;
-        ccb->lxss = called_from_lxss();
-
-        ccb->fileref = fileref;
-
-        FileObject->FsContext2 = ccb;
-        FileObject->SectionObjectPointer = &fileref->fcb->nonpaged->segment_object;
-
-        if (NT_SUCCESS(Status)) {
-            switch (RequestedDisposition) {
-                case FILE_SUPERSEDE:
-                    Irp->IoStatus.Information = FILE_SUPERSEDED;
-                    break;
-
-                case FILE_OPEN:
-                case FILE_OPEN_IF:
-                    Irp->IoStatus.Information = FILE_OPENED;
-                    break;
-
-                case FILE_OVERWRITE:
-                case FILE_OVERWRITE_IF:
-                    Irp->IoStatus.Information = FILE_OVERWRITTEN;
-                    break;
-            }
-        }
-
-        // Make sure paging files don't have any extents marked as being prealloc,
-        // as this would mean we'd have to lock exclusively when writing.
-        if (IrpSp->Flags & SL_OPEN_PAGING_FILE) {
-            LIST_ENTRY* le;
-            BOOL changed = FALSE;
-
-            ExAcquireResourceExclusiveLite(fileref->fcb->Header.Resource, TRUE);
-
-            le = fileref->fcb->extents.Flink;
-
-            while (le != &fileref->fcb->extents) {
-                extent* ext = CONTAINING_RECORD(le, extent, list_entry);
-
-                if (ext->extent_data.type == EXTENT_TYPE_PREALLOC) {
-                    ext->extent_data.type = EXTENT_TYPE_REGULAR;
-                    changed = TRUE;
-                }
-
-                le = le->Flink;
-            }
-
-            ExReleaseResourceLite(fileref->fcb->Header.Resource);
-
-            if (changed) {
-                fileref->fcb->extents_changed = TRUE;
-                mark_fcb_dirty(fileref->fcb);
-            }
-
-            fileref->fcb->Header.Flags2 |= FSRTL_FLAG2_IS_PAGING_FILE;
-            Vcb->disallow_dismount = TRUE;
-        }
-
-#ifdef DEBUG_FCB_REFCOUNTS
-        oc = InterlockedIncrement(&fileref->open_count);
-        ERR("fileref %p: open_count now %i\n", fileref, oc);
-#else
-        InterlockedIncrement(&fileref->open_count);
-#endif
-        InterlockedIncrement(&Vcb->open_files);
     } else {
+        file_ref* existing_file;
+
 #ifdef DEBUG_STATS
         open_type = 2;
 #endif
-        Status = file_create(Irp, DeviceObject->DeviceExtension, FileObject, related, loaded_related, &fn, RequestedDisposition, options, rollback);
-        ExReleaseResourceLite(&Vcb->fcb_lock);
+        Status = file_create(Irp, Vcb, FileObject, related, loaded_related, &fn, RequestedDisposition, options, &existing_file, rollback);
 
-        Irp->IoStatus.Information = NT_SUCCESS(Status) ? FILE_CREATED : 0;
+        if (Status == STATUS_OBJECT_NAME_COLLISION) { // already exists
+            fileref = existing_file;
+
+            Status = open_file2(Vcb, RequestedDisposition, pool_type, fileref, &granted_access, FileObject, &fn, options, Irp, rollback);
+            if (!NT_SUCCESS(Status))
+                goto exit;
+        } else {
+            Irp->IoStatus.Information = NT_SUCCESS(Status) ? FILE_CREATED : 0;
+            granted_access = IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
+        }
     }
 
     if (NT_SUCCESS(Status) && !(options & FILE_NO_INTERMEDIATE_BUFFERING))
         FileObject->Flags |= FO_CACHE_SUPPORTED;
 
 exit:
-    if (loaded_related) {
-        ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
-        free_fileref(Vcb, related);
-        ExReleaseResourceLite(&Vcb->fcb_lock);
-    }
+    if (loaded_related)
+        free_fileref(related);
 
     if (Status == STATUS_SUCCESS) {
         fcb* fcb2;
@@ -3599,7 +4676,7 @@ static BOOL has_manage_volume_privilege(ACCESS_STATE* access_state, KPROCESSOR_M
 
 _Dispatch_type_(IRP_MJ_CREATE)
 _Function_class_(DRIVER_DISPATCH)
-NTSTATUS drv_create(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
+NTSTATUS NTAPI drv_create(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
     NTSTATUS Status;
     PIO_STACK_LOCATION IrpSp;
     device_extension* Vcb = DeviceObject->DeviceExtension;
@@ -3775,12 +4852,16 @@ NTSTATUS drv_create(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
         if (!skip_lock)
             ExAcquireResourceSharedLite(&Vcb->tree_lock, TRUE);
 
+        ExAcquireResourceSharedLite(&Vcb->fileref_lock, TRUE);
+
         Status = open_file(DeviceObject, Vcb, Irp, &rollback);
 
         if (!NT_SUCCESS(Status))
             do_rollback(Vcb, &rollback);
         else
             clear_rollback(&rollback);
+
+        ExReleaseResourceLite(&Vcb->fileref_lock);
 
         if (!skip_lock)
             ExReleaseResourceLite(&Vcb->tree_lock);

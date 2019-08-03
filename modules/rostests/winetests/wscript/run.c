@@ -18,17 +18,16 @@
 
 #include <stdio.h>
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
 #define COBJMACROS
 #define CONST_VTABLE
 
-#include <windef.h>
-#include <winbase.h>
-#include <objbase.h>
+#define PSAPI_VERSION 1
+#include <initguid.h>
+#include <windows.h>
 #include <psapi.h>
+#include <oaidl.h>
 
-#include <wine/test.h>
+#include "wine/test.h"
 
 #define DEFINE_EXPECT(func) \
     static BOOL expect_ ## func = FALSE, called_ ## func = FALSE
@@ -78,7 +77,7 @@ static HANDLE wscript_process;
 static int strcmp_wa(LPCWSTR strw, const char *stra)
 {
     WCHAR buf[512];
-    MultiByteToWideChar(CP_ACP, 0, stra, -1, buf, sizeof(buf)/sizeof(WCHAR));
+    MultiByteToWideChar(CP_ACP, 0, stra, -1, buf, ARRAY_SIZE(buf));
     return lstrcmpW(strw, buf);
 }
 
@@ -221,7 +220,7 @@ static HRESULT WINAPI Dispatch_Invoke(IDispatch *iface, DISPID dispIdMember, REF
         ok(pdp->cArgs == 0, "cArgs = %d\n", pdp->cArgs);
         ok(!pdp->cNamedArgs, "cNamedArgs = %d\n", pdp->cNamedArgs);
         V_VT(pVarResult) = VT_BSTR;
-        res = GetModuleFileNameExW(wscript_process, NULL, fullName, sizeof(fullName)/sizeof(WCHAR));
+        res = GetModuleFileNameExW(wscript_process, NULL, fullName, ARRAY_SIZE(fullName));
         if(res == 0)
             return E_FAIL;
         if(!(V_BSTR(pVarResult) = SysAllocString(fullName)))
@@ -238,7 +237,7 @@ static HRESULT WINAPI Dispatch_Invoke(IDispatch *iface, DISPID dispIdMember, REF
         ok(pdp->cArgs == 0, "cArgs = %d\n", pdp->cArgs);
         ok(!pdp->cNamedArgs, "cNamedArgs = %d\n", pdp->cNamedArgs);
         V_VT(pVarResult) = VT_BSTR;
-        res = GetModuleFileNameExW(wscript_process, NULL, fullPath, sizeof(fullPath)/sizeof(WCHAR));
+        res = GetModuleFileNameExW(wscript_process, NULL, fullPath, ARRAY_SIZE(fullPath));
         if(res == 0)
             return E_FAIL;
         pos = mystrrchr(fullPath, '\\');

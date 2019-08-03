@@ -17,22 +17,17 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #define COBJMACROS
 #define CONST_VTABLE
 
-//#include <stdio.h>
-//#include <assert.h>
+#include <stdio.h>
+#include <assert.h>
 
-#include <wine/test.h>
+#include "windows.h"
+#include "ole2.h"
+#include "xmlparser.h"
+#include "wine/test.h"
 
-//#include "windows.h"
-#include <ole2.h>
-#include <xmlparser.h>
 
 static HRESULT WINAPI nodefact_QueryInterface(IXMLNodeFactory *iface,
         REFIID riid, void **ppvObject)

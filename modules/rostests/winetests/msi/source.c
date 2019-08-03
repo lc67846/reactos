@@ -28,6 +28,7 @@
 #include <msi.h>
 #include <sddl.h>
 #include <secext.h>
+#include <objbase.h>
 
 #include "wine/test.h"
 

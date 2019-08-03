@@ -18,7 +18,24 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define COBJMACROS
+#define NONAMELESSUNION
+
+#include <stdarg.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "winerror.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "winnls.h"
+#include "oledlg.h"
+
 #include "oledlg_private.h"
+#include "resource.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
@@ -165,14 +182,14 @@ static void get_descriptors(HWND hdlg, ps_struct_t *ps_struct)
     if(ps_struct->source_name == NULL && ps_struct->link_source_name == NULL)
     {
         WCHAR buf[200];
-        LoadStringW(OLEDLG_hInstance, IDS_PS_UNKNOWN_SRC, buf, sizeof(buf)/sizeof(WCHAR));
+        LoadStringW(OLEDLG_hInstance, IDS_PS_UNKNOWN_SRC, buf, ARRAY_SIZE(buf));
         ps_struct->source_name = strdupW(buf);
     }
 
     if(ps_struct->type_name == NULL && ps_struct->link_type_name == NULL)
     {
         WCHAR buf[200];
-        LoadStringW(OLEDLG_hInstance, IDS_PS_UNKNOWN_TYPE, buf, sizeof(buf)/sizeof(WCHAR));
+        LoadStringW(OLEDLG_hInstance, IDS_PS_UNKNOWN_TYPE, buf, ARRAY_SIZE(buf));
         ps_struct->type_name = strdupW(buf);
     }
 }
@@ -211,7 +228,7 @@ static DWORD init_pastelist(HWND hdlg, OLEUIPASTESPECIALW *ps)
     }
 
     /* The native version grabs only the first 20 fmts and we do the same */
-    hr = IEnumFORMATETC_Next(penum, sizeof(fmts)/sizeof(fmts[0]), fmts, &fetched);
+    hr = IEnumFORMATETC_Next(penum, ARRAY_SIZE(fmts), fmts, &fetched);
     TRACE("got %d formats hr %08x\n", fetched, hr);
 
     if(SUCCEEDED(hr))
@@ -414,7 +431,7 @@ static void update_result_text(HWND hdlg, const ps_struct_t *ps_struct)
             res_id = IDS_PS_PASTE_LINK_DATA;
     }
 
-    LoadStringW(OLEDLG_hInstance, res_id, resource_txt, sizeof(resource_txt)/sizeof(WCHAR));
+    LoadStringW(OLEDLG_hInstance, res_id, resource_txt, ARRAY_SIZE(resource_txt));
     if((ptr = strstrW(resource_txt, percent_s)))
     {
         /* FIXME handle %s in ResultText. Sub appname if IDS_PS_PASTE_OBJECT{_AS_ICON}.  Else sub appropriate type name */

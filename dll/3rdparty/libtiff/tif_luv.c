@@ -1,5 +1,3 @@
-/* $Id: tif_luv.c,v 1.47 2017-05-14 10:17:27 erouault Exp $ */
-
 /*
  * Copyright (c) 1997 Greg Ward Larson
  * Copyright (c) 1997 Silicon Graphics, Inc.
@@ -25,7 +23,6 @@
  */
 
 #include <precomp.h>
-
 #ifdef LOGLUV_SUPPORT
 
 /*
@@ -216,7 +213,7 @@ LogL16Decode(TIFF* tif, uint8* op, tmsize_t occ, uint16 s)
 	bp = (unsigned char*) tif->tif_rawcp;
 	cc = tif->tif_rawcc;
 	/* get each byte string */
-	for (shft = 2*8; (shft -= 8) >= 0; ) {
+	for (shft = 8; shft >= 0; shft -=8) {
 		for (i = 0; i < npixels && cc > 0; ) {
 			if (*bp >= 128) {		/* run */
 				if( cc < 2 )
@@ -350,7 +347,7 @@ LogLuvDecode32(TIFF* tif, uint8* op, tmsize_t occ, uint16 s)
 	bp = (unsigned char*) tif->tif_rawcp;
 	cc = tif->tif_rawcc;
 	/* get each byte string */
-	for (shft = 4*8; (shft -= 8) >= 0; ) {
+	for (shft = 24; shft >= 0; shft -=8) {
 		for (i = 0; i < npixels && cc > 0; ) {
 			if (*bp >= 128) {		/* run */
 				if( cc < 2 )
@@ -468,7 +465,7 @@ LogL16Encode(TIFF* tif, uint8* bp, tmsize_t cc, uint16 s)
 	/* compress each byte string */
 	op = tif->tif_rawcp;
 	occ = tif->tif_rawdatasize - tif->tif_rawcc;
-	for (shft = 2*8; (shft -= 8) >= 0; )
+	for (shft = 8; shft >= 0; shft -=8) {
 		for (i = 0; i < npixels; i += rc) {
 			if (occ < 4) {
 				tif->tif_rawcp = op;
@@ -523,6 +520,7 @@ LogL16Encode(TIFF* tif, uint8* bp, tmsize_t cc, uint16 s)
 			} else
 				rc = 0;
 		}
+	}
 	tif->tif_rawcp = op;
 	tif->tif_rawcc = tif->tif_rawdatasize - occ;
 
@@ -619,7 +617,7 @@ LogLuvEncode32(TIFF* tif, uint8* bp, tmsize_t cc, uint16 s)
 	/* compress each byte string */
 	op = tif->tif_rawcp;
 	occ = tif->tif_rawdatasize - tif->tif_rawcc;
-	for (shft = 4*8; (shft -= 8) >= 0; )
+	for (shft = 24; shft >= 0; shft -=8) {
 		for (i = 0; i < npixels; i += rc) {
 			if (occ < 4) {
 				tif->tif_rawcp = op;
@@ -674,6 +672,7 @@ LogLuvEncode32(TIFF* tif, uint8* bp, tmsize_t cc, uint16 s)
 			} else
 				rc = 0;
 		}
+	}
 	tif->tif_rawcp = op;
 	tif->tif_rawcc = tif->tif_rawdatasize - occ;
 
@@ -1315,7 +1314,7 @@ LogL16InitState(TIFF* tif)
 	}
         if( isTiled(tif) )
             sp->tbuflen = multiply_ms(td->td_tilewidth, td->td_tilelength);
-        else if( td->td_rowsperstrip != (uint32)-1 )
+        else if( td->td_rowsperstrip < td->td_imagelength )
             sp->tbuflen = multiply_ms(td->td_imagewidth, td->td_rowsperstrip);
         else
             sp->tbuflen = multiply_ms(td->td_imagewidth, td->td_imagelength);
@@ -1417,8 +1416,10 @@ LogLuvInitState(TIFF* tif)
 	}
         if( isTiled(tif) )
             sp->tbuflen = multiply_ms(td->td_tilewidth, td->td_tilelength);
-        else
+        else if( td->td_rowsperstrip < td->td_imagelength )
             sp->tbuflen = multiply_ms(td->td_imagewidth, td->td_rowsperstrip);
+        else
+            sp->tbuflen = multiply_ms(td->td_imagewidth, td->td_imagelength);
 	if (multiply_ms(sp->tbuflen, sizeof (uint32)) == 0 ||
 	    (sp->tbuf = (uint8*) _TIFFmalloc(sp->tbuflen * sizeof (uint32))) == NULL) {
 		TIFFErrorExt(tif->tif_clientdata, module, "No space for SGILog translation buffer");

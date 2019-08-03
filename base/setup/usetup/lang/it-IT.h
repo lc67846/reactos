@@ -1,10 +1,37 @@
 #pragma once
 
-MUI_LAYOUTS itITLayouts[] =
+static MUI_ENTRY itITSetupInitPageEntries[] =
 {
-    { L"0410", L"00000410" },
-    { L"0409", L"00000409" },
-    { NULL, NULL }
+    {
+        4,
+        3,
+        " Installazione di ReactOS " KERNEL_VERSION_STR " ",
+        TEXT_STYLE_UNDERLINE
+    },
+    {
+        0,
+        20,
+        "Please wait while the ReactOS Setup initializes itself",
+        TEXT_STYLE_NORMAL | TEXT_ALIGN_CENTER
+    },
+    {
+        0,
+        21,
+        "and discovers your devices...",
+        TEXT_STYLE_NORMAL | TEXT_ALIGN_CENTER
+    },
+    {
+        0,
+        0,
+        "Please wait...",
+        TEXT_TYPE_STATUS | TEXT_PADDING_BIG,
+    },
+    {
+        0,
+        0,
+        NULL,
+        0
+    }
 };
 
 static MUI_ENTRY itITLanguagePageEntries[] =
@@ -36,7 +63,7 @@ static MUI_ENTRY itITLanguagePageEntries[] =
     {
         8,
         13,
-        "\x07  Questa lingua sar… quella predefinita per il sistema finale.",
+        "\x07  Questa lingua sar\x85 quella predefinita per il sistema installato.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -56,7 +83,7 @@ static MUI_ENTRY itITLanguagePageEntries[] =
 static MUI_ENTRY itITWelcomePageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -82,7 +109,7 @@ static MUI_ENTRY itITWelcomePageEntries[] =
     {
         8,
         15,
-        "\x07  Premere INVIO per installare ReactOS.",
+        "\x07  Press ENTER to install or upgrade ReactOS.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -92,7 +119,7 @@ static MUI_ENTRY itITWelcomePageEntries[] =
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
+        8,
         19,
         "\x07  Premere L per vedere i termini e condizioni della licenza.",
         TEXT_STYLE_NORMAL
@@ -104,14 +131,14 @@ static MUI_ENTRY itITWelcomePageEntries[] =
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
+        6,
         23,
         "Per maggiori informazioni riguardo ReactOS, visitate il sito:",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
-        24, 
+        6,
+        24,
         "http://www.reactos.org",
         TEXT_STYLE_HIGHLIGHT
     },
@@ -132,64 +159,64 @@ static MUI_ENTRY itITWelcomePageEntries[] =
 static MUI_ENTRY itITIntroPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
     },
     {
-        4, 
-        3,
-        " Installazione di ReactOS " KERNEL_VERSION_STR " ",
-        TEXT_STYLE_UNDERLINE
+        6,
+        8,
+        "Status versione ReactOS",
+        TEXT_STYLE_HIGHLIGHT
     },
     {
-        6, 
-        8, 
-        "Il setup di ReactOS Š ancora in una fase preliminare.",
+        6,
+        11,
+        "ReactOS \x8A nello stadio di sviluppo Alpha, significa che non tutte le",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
-        9,
-        "Non ha ancora tutte le funzioni di installazione.",
-        TEXT_STYLE_NORMAL
-    },
-    {
-        6, 
+        6,
         12,
-        "Si applicano le seguenti limitazioni:",
+        "funzioni sono operative e cambia continuamente. \x90 adatto solamente per",
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
-        13, 
-        "- Il setup supporta solamente il sistema FAT.",
+        6,
+        13,
+        "scopi di valutazione, test ed \x8A inadatto per le attivit\x85 quotidiane.",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        6,
+        15,
+        "Eseguire un backup dei dati oppure installate il sistema in un computer",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        6,
+        16,
+        "senza sistema operativo e dati se volete eseguirlo su un hardware fisico.",
         TEXT_STYLE_NORMAL
     },
     {
         8,
-        14,
-        "- File system checks are not implemented yet.",
+        18,
+        "\x07  Premere INVIO per continuare l'installazione di ReactOS.",
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
-        23, 
-        "\x07  Premere INVIO per installare ReactOS.",
-        TEXT_STYLE_NORMAL
-    },
-    {
-        8, 
-        25, 
+        8,
+        20,
         "\x07  Premere F3 per uscire senza installare ReactOS.",
         TEXT_STYLE_NORMAL
     },
     {
         0,
-        0, 
-        "   INVIO = Continua   F3 = Termina",
-        TEXT_TYPE_STATUS
+        0,
+        "INVIO = Continua   F3 = Termina",
+        TEXT_TYPE_STATUS | TEXT_PADDING_BIG
     },
     {
         0,
@@ -202,7 +229,7 @@ static MUI_ENTRY itITIntroPageEntries[] =
 static MUI_ENTRY itITLicensePageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -279,43 +306,43 @@ static MUI_ENTRY itITLicensePageEntries[] =
         "della licenza GNU GPL con ReactOS, visiti il sito:",
         TEXT_STYLE_NORMAL
     },
-    {           
+    {
         8,
         20,
         "http://www.gnu.org/licenses/licenses.html",
         TEXT_STYLE_HIGHLIGHT
     },
-    {           
+    {
         8,
         22,
         "Garanzia:",
         TEXT_STYLE_HIGHLIGHT
     },
-    {           
+    {
         8,
         24,
-        "Questo software Š libero; vedere il codice per le condizioni di copia.",
+        "Questo software \x8A libero; vedere il codice per le condizioni di copia.",
         TEXT_STYLE_NORMAL
     },
-    {           
+    {
         8,
         25,
-        "NON esiste garanzia; n‚ di COMMERCIABILIT·",
+        "NON esiste garanzia; n\x8A di COMMERCIABILIT\x85",
         TEXT_STYLE_NORMAL
     },
-    {           
+    {
         8,
         26,
         "o adeguatezza ad un uso particolare",
         TEXT_STYLE_NORMAL
     },
-    {           
+    {
         0,
         0,
         "   INVIO = Ritorna",
         TEXT_TYPE_STATUS
     },
-    {           
+    {
         0,
         0,
         NULL,
@@ -326,13 +353,13 @@ static MUI_ENTRY itITLicensePageEntries[] =
 static MUI_ENTRY itITDevicePageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
     },
     {
-        6, 
+        6,
         8,
         "L'elenco che segue mostra le impostazioni correnti delle periferiche.",
         TEXT_STYLE_NORMAL
@@ -368,36 +395,36 @@ static MUI_ENTRY itITDevicePageEntries[] =
         TEXT_STYLE_NORMAL
     },
     {
-        25, 
+        25,
         16, "Accettare queste impostazioni",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         19,
-        "Pu• scegliere un elemento della configurazione con i tasti SU e GIë",
+        "Pu\x95 scegliere un elemento della configurazione con i tasti SU e GI\xEB",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
-        20, 
+        6,
+        20,
         "e modificarlo premendo INVIO per selezionare un valore alternativo.",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
+        6,
         21,
         " ",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
-        23, 
+        6,
+        23,
         "Quando le impostazioni saranno corrette, selezionare",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
+        6,
         24,
         "\"Accettare queste impostazioni\" e premere INVIO.",
         TEXT_STYLE_NORMAL
@@ -419,58 +446,128 @@ static MUI_ENTRY itITDevicePageEntries[] =
 static MUI_ENTRY itITRepairPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
     },
     {
-        6, 
+        6,
         8,
-        "Il setup di ReactOS Š ancora in una fase preliminare.",
+        "Il setup di ReactOS \x8A ancora in una fase preliminare.",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
+        6,
         9,
         "Non ha ancora tutte le funzioni di installazione.",
         TEXT_STYLE_NORMAL
     },
     {
-        6, 
+        6,
         12,
         "Le funzioni di ripristino non sono state ancora implementate.",
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
+        8,
         15,
         "\x07  Premere U per aggiornare il SO.",
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
+        8,
         17,
         "\x07  Premere R per la console di ripristino.",
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
+        8,
         19,
-        "\x07  Premere ESC tornare al men— principale.",
+        "\x07  Premere ESC tornare al men\x97 principale.",
         TEXT_STYLE_NORMAL
     },
     {
-        8, 
+        8,
         21,
         "\x07  Premere INVIO per riavviare il computer.",
         TEXT_STYLE_NORMAL
     },
     {
-        0, 
         0,
-        "ESC = Men— iniziale INVIO = Riavvio",
+        0,
+        "ESC = Men\x97 iniziale INVIO = Riavvio",
         TEXT_TYPE_STATUS
+    },
+    {
+        0,
+        0,
+        NULL,
+        0
+    }
+};
+
+static MUI_ENTRY itITUpgradePageEntries[] =
+{
+    {
+        4,
+        3,
+        " Installazione di ReactOS " KERNEL_VERSION_STR " ",
+        TEXT_STYLE_UNDERLINE
+    },
+    {
+        6,
+        8,
+        "The ReactOS Setup can upgrade one of the available ReactOS installations",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        6,
+        9,
+        "listed below, or, if a ReactOS installation is damaged, the Setup program",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        6,
+        10,
+        "can attempt to repair it.",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        6,
+        12,
+        "The repair functions are not all implemented yet.",
+        TEXT_STYLE_HIGHLIGHT
+    },
+    {
+        8,
+        15,
+        "\x07  Press UP or DOWN to select an OS installation.",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        8,
+        17,
+        "\x07  Press U for upgrading the selected OS installation.",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        8,
+        19,
+        "\x07  Press ESC to continue with a new installation.",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        8,
+        21,
+        "\x07  Press F3 to quit without installing ReactOS.",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        0,
+        0,
+        "U = Upgrade   ESC = Do not upgrade   F3 = Quit",
+        TEXT_TYPE_STATUS | TEXT_PADDING_BIG
     },
     {
         0,
@@ -483,7 +580,7 @@ static MUI_ENTRY itITRepairPageEntries[] =
 static MUI_ENTRY itITComputerPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -497,9 +594,9 @@ static MUI_ENTRY itITComputerPageEntries[] =
     {
         8,
         10,
-        "\x07  Premere i tasti SU e GIë per scegliere il tipo.",
+        "\x07  Premere i tasti SU e GI\xEB per scegliere il tipo.",
         TEXT_STYLE_NORMAL
-    },    
+    },
     {
         8,
         11,
@@ -535,7 +632,7 @@ static MUI_ENTRY itITComputerPageEntries[] =
 static MUI_ENTRY itITFlushPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -543,25 +640,25 @@ static MUI_ENTRY itITFlushPageEntries[] =
     {
         10,
         6,
-        "Il sistema si sta accertando che tutti i dati vengano salvati",
+        "Il sistema si sta accertando che tutti i dati vengano salvati.",
         TEXT_STYLE_NORMAL
     },
     {
         10,
         8,
-        "Questo potrebbe impiegare qualche minuto",
+        "Questo potrebbe impiegare qualche minuto.",
         TEXT_STYLE_NORMAL
     },
     {
         10,
         9,
-        "Al termine, il computer verr… riavviato automaticamente",
+        "Al termine, il computer verr\x85 riavviato automaticamente.",
         TEXT_STYLE_NORMAL
     },
     {
         0,
         0,
-        "Svuotamento della cache in corso",
+        "   Svuotamento della cache in corso",
         TEXT_TYPE_STATUS
     },
     {
@@ -575,7 +672,7 @@ static MUI_ENTRY itITFlushPageEntries[] =
 static MUI_ENTRY itITQuitPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -583,19 +680,19 @@ static MUI_ENTRY itITQuitPageEntries[] =
     {
         10,
         6,
-        "ReactOS non Š stato installato completamente",
+        "ReactOS non \x8A stato installato completamente.",
         TEXT_STYLE_NORMAL
     },
     {
         10,
         8,
-        "Rimuovere il disco floppy dall'unit… A: e",
+        "Rimuovere il disco floppy dall'unit\x85 A: e",
         TEXT_STYLE_NORMAL
     },
     {
         10,
         9,
-        "Tutti i CD-ROMs dalle unità.",
+        "Tutti i CD-ROMs dalle unit\x85.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -621,7 +718,7 @@ static MUI_ENTRY itITQuitPageEntries[] =
 static MUI_ENTRY itITDisplayPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -634,7 +731,7 @@ static MUI_ENTRY itITDisplayPageEntries[] =
     },
     {   8,
         10,
-         "\x07  Premere i tasti SU e GIë per modificare il tipo.",
+         "\x07  Premere i tasti SU e GI\xEB per modificare il tipo.",
          TEXT_STYLE_NORMAL
     },
     {
@@ -672,7 +769,7 @@ static MUI_ENTRY itITDisplayPageEntries[] =
 static MUI_ENTRY itITSuccessPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -686,13 +783,13 @@ static MUI_ENTRY itITSuccessPageEntries[] =
     {
         10,
         8,
-        "Rimuovere il disco dall'unit… A: e",
+        "Rimuovere il disco dall'unit\x85 A: e",
         TEXT_STYLE_NORMAL
     },
     {
         10,
         9,
-        "tutti i CD-ROMs dalle unit….",
+        "tutti i CD-ROMs dalle unit\x85.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -718,7 +815,7 @@ static MUI_ENTRY itITSuccessPageEntries[] =
 static MUI_ENTRY itITBootPageEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -738,7 +835,7 @@ static MUI_ENTRY itITBootPageEntries[] =
     {
         6,
         13,
-        "Inserire un disco floppy formattato nell'unit… A: e",
+        "Inserire un disco floppy formattato nell'unit\x85 A: e",
         TEXT_STYLE_NORMAL
     },
     {
@@ -765,7 +862,7 @@ static MUI_ENTRY itITBootPageEntries[] =
 static MUI_ENTRY itITSelectPartitionEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -785,7 +882,7 @@ static MUI_ENTRY itITSelectPartitionEntries[] =
     {
         8,
         11,
-        "\x07  Premere SU o GIë per selezionare un elemento della lista.",
+        "\x07  Premere SU o GI\xEB per selezionare un elemento della lista.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -835,7 +932,7 @@ static MUI_ENTRY itITSelectPartitionEntries[] =
 static MUI_ENTRY itITConfirmDeleteSystemPartitionEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -849,67 +946,73 @@ static MUI_ENTRY itITConfirmDeleteSystemPartitionEntries[] =
     {
         6,
         10,
-        "Le partizioni di sistema possono contenere i programmi diagnostici, configurazione hardware",
+        "Le partizioni di sistema possono contenere i programmi diagnostici,",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         11,
-        "Programmi utilizzati per l'avvio di un sistema operativo (come ReactOS) o altri.",
+        "configurazione hardware, programmi utilizzati per l'avvio di un",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         12,
-        "Programmi forniti dal produttore dell'hardware.",
+        "sistema operativo (come ReactOS o altri), programmi forniti",
         TEXT_STYLE_NORMAL
     },
     {
         6,
-        14,
-        "Elimina una partizione di sistema solo quando sei sicuro che non ci siano",
+        13,
+        "dal produttore dell'hardware.",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         15,
-        "programmi sulla partizione, o quando sei sicuro di eliminarla.",
+        "Elimina una partizione di sistema solo quando sei sicuro che non ci",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         16,
-        "Cancellando una partizione, non sarÃ  piÃ¹ possibile avviare",
+        "siano programmi sulla partizione, o quando sei sicuro di eliminarla.",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         17,
-        "il computer dall'harddisk fino al termine del setup di ReactOS.",
+        "Cancellando una partizione, non sar\x85 pi\x97 possibile avviare",
         TEXT_STYLE_NORMAL
     },
     {
-        8,
-        20,
-        "\x07  Primere INVIO per eliminare una partizione di sistema. Ti sarÃ  chiesto",
+        6,
+        18,
+        "il computer dall'harddisk fino al termine dell'installazione di ReactOS.",
         TEXT_STYLE_NORMAL
     },
     {
         8,
         21,
-        "   di confermare ancora l'eliminazione della partizione.",
+        "\x07  Primere INVIO per eliminare una partizione di sistema. Ti sar\x85",
         TEXT_STYLE_NORMAL
     },
     {
         8,
-        24,
-        "\x07  Premere ESC per ritornare alla pagina precedente. La partizione",
+        22,
+        "   chiesto di confermare ancora l'eliminazione della partizione.",
         TEXT_STYLE_NORMAL
     },
     {
         8,
         25,
-        "   non verrÃ  cancellata.",
+        "\x07  Premere ESC per ritornare alla pagina precedente. La partizione",
+        TEXT_STYLE_NORMAL
+    },
+    {
+        8,
+        26,
+        "   non verr\x85 cancellata.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -929,7 +1032,7 @@ static MUI_ENTRY itITConfirmDeleteSystemPartitionEntries[] =
 static MUI_ENTRY itITFormatPartitionEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -943,7 +1046,7 @@ static MUI_ENTRY itITFormatPartitionEntries[] =
     {
         6,
         10,
-        "Setup formatter… la partizione. Premere INVIO per continuare.",
+        "Setup formatter\x85 la partizione. Premere INVIO per continuare.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -963,7 +1066,7 @@ static MUI_ENTRY itITFormatPartitionEntries[] =
 static MUI_ENTRY itITInstallDirectoryEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -971,13 +1074,13 @@ static MUI_ENTRY itITInstallDirectoryEntries[] =
     {
         6,
         8,
-        "Setup installer… i file di ReactOS nella partizione selezionata.",
+        "Il setup installer\x85 i file di ReactOS nella partizione selezionata.",
         TEXT_STYLE_NORMAL
     },
     {
         6,
         9,
-        "Scegliere una cartella dove volete che ReactOS sia installato:",
+        "Scegliere una cartella dove si vuole che ReactOS venga installato:",
         TEXT_STYLE_NORMAL
     },
     {
@@ -989,7 +1092,7 @@ static MUI_ENTRY itITInstallDirectoryEntries[] =
     {
         6,
         15,
-        "la cartella dove volete che ReactOS sia installato.",
+        "la cartella desiderata per l'installazione di ReactOS.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1015,7 +1118,7 @@ static MUI_ENTRY itITInstallDirectoryEntries[] =
 static MUI_ENTRY itITFileCopyEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1055,7 +1158,7 @@ static MUI_ENTRY itITFileCopyEntries[] =
 static MUI_ENTRY itITBootLoaderEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1107,7 +1210,7 @@ static MUI_ENTRY itITBootLoaderEntries[] =
 static MUI_ENTRY itITKeyboardSettingsEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1121,7 +1224,7 @@ static MUI_ENTRY itITKeyboardSettingsEntries[] =
     {
         8,
         10,
-        "\x07  Premere SU o GIë per selezionare il tipo di tastiera desiderato.",
+        "\x07  Premere SU o GI\xEB per selezionare il tipo di tastiera desiderato.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1159,7 +1262,7 @@ static MUI_ENTRY itITKeyboardSettingsEntries[] =
 static MUI_ENTRY itITLayoutSettingsEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1167,13 +1270,13 @@ static MUI_ENTRY itITLayoutSettingsEntries[] =
     {
         6,
         8,
-        "Selezionare la nazionalit… predefinita della tastiera.",
+        "Selezionare la nazionalit\x85 predefinita della tastiera.",
         TEXT_STYLE_NORMAL
     },
     {
         8,
         10,
-        "\x07  Premere SU o GIë per selezionare il tipo di tastiera",
+        "\x07  Premere SU o GI\xEB per selezionare il tipo di tastiera",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1191,7 +1294,7 @@ static MUI_ENTRY itITLayoutSettingsEntries[] =
     {
         8,
         14,
-        "   la nazionalit… della tastiera.",
+        "   la nazionalit\x85 della tastiera.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1212,7 +1315,7 @@ static MUI_ENTRY itITLayoutSettingsEntries[] =
 static MUI_ENTRY itITPrepareCopyEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1220,7 +1323,7 @@ static MUI_ENTRY itITPrepareCopyEntries[] =
     {
         6,
         8,
-        "Setup sta preparando il computer per la copia dei file di ReactOS. ",
+        "Setup sta preparando il computer per la copia dei file di ReactOS.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1241,7 +1344,7 @@ static MUI_ENTRY itITPrepareCopyEntries[] =
 static MUI_ENTRY itITSelectFSEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1255,7 +1358,7 @@ static MUI_ENTRY itITSelectFSEntries[] =
     {
         8,
         19,
-        "\x07  Premere SU o GIë per selezionare un filesystem.",
+        "\x07  Premere SU o GI\xEB per selezionare un filesystem.",
         0
     },
     {
@@ -1288,7 +1391,7 @@ static MUI_ENTRY itITSelectFSEntries[] =
 static MUI_ENTRY itITDeletePartitionEntries[] =
 {
     {
-        4, 
+        4,
         3,
         " Installazione di ReactOS " KERNEL_VERSION_STR " ",
         TEXT_STYLE_UNDERLINE
@@ -1302,7 +1405,7 @@ static MUI_ENTRY itITDeletePartitionEntries[] =
     {
         8,
         18,
-        "\x07  Premere D per cancellare la partizione.",
+        "\x07  Premere L per cancellare la partizione.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1320,7 +1423,7 @@ static MUI_ENTRY itITDeletePartitionEntries[] =
     {
         0,
         0,
-        "   D = Cancella la partizione   ESC = Annulla   F3 = Termina",
+        "   L = Cancella la partizione   ESC = Annulla   F3 = Termina",
         TEXT_TYPE_STATUS
     },
     {
@@ -1342,7 +1445,7 @@ static MUI_ENTRY itITRegistryEntries[] =
     {
         6,
         8,
-        "Setup sta aggiornando la configurazione del sistema. ",
+        "Setup sta aggiornando la configurazione del sistema.",
         TEXT_STYLE_NORMAL
     },
     {
@@ -1367,217 +1470,211 @@ MUI_ERROR itITErrorEntries[] =
         "Successo\n"
     },
     {
-        //ERROR_NOT_INSTALLED
-        "ReactOS non Š installato completamente nel vostro\n"
-        "computer. Se esce adesso, dovr… eseguire il Setup\n"
-        "nuovamente per installare ReactOS.\n"
+        // ERROR_NOT_INSTALLED
+        "ReactOS non \x8A stato installato completamente nel \n"
+        "vostro computer. Se esce adesso, dovr\x85 eseguire il \n"
+        "Setup nuovamente per installare ReactOS.\n"
         "\n"
         "  \x07  Premere INVIO per continuare il setup.\n"
         "  \x07  Premere F3 per uscire.",
         "F3 = Uscire INVIO = Continuare"
     },
     {
-        //ERROR_NO_HDD
+        // ERROR_NO_HDD
         "Setup non ha trovato un disco fisso.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_NO_SOURCE_DRIVE
-        "Setup non ha trovato l'unit… di origine.\n",
+        // ERROR_NO_SOURCE_DRIVE
+        "Setup non ha trovato l'unit\x85 di origine.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_LOAD_TXTSETUPSIF
+        // ERROR_LOAD_TXTSETUPSIF
         "Setup non ha potuto caricare il file TXTSETUP.SIF.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CORRUPT_TXTSETUPSIF
+        // ERROR_CORRUPT_TXTSETUPSIF
         "Setup ha trovato un file TXTSETUP.SIF corrotto.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_SIGNATURE_TXTSETUPSIF,
+        // ERROR_SIGNATURE_TXTSETUPSIF,
         "Setup ha trovato una firma invalida in TXTSETUP.SIF.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_DRIVE_INFORMATION
-        "Setup non ha potuto recuperare le informazioni dell'unit… di sistema.\n",
+        // ERROR_DRIVE_INFORMATION
+        "Setup non ha potuto recuperare le informazioni dell'unit\x85 di sistema.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_WRITE_BOOT,
-        "Impossibile installare il bootcode FAT nella partizione di sistema.",
+        // ERROR_WRITE_BOOT,
+        "Impossibile installare il bootcode %S nella partizione di sistema.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_LOAD_COMPUTER,
+        // ERROR_LOAD_COMPUTER,
         "Setup non ha potuto caricare l'elenco di tipi di computer.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_LOAD_DISPLAY,
+        // ERROR_LOAD_DISPLAY,
         "Setup non ha potuto caricare l'elenco di tipi di schermo.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_LOAD_KEYBOARD,
+        // ERROR_LOAD_KEYBOARD,
         "Setup non ha potuto caricare l'elenco di tipi di tastiera.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_LOAD_KBLAYOUT,
-        "Setup non ha potuto caricare l'elenco delle nazionalit… di tastiera.\n",
+        // ERROR_LOAD_KBLAYOUT,
+        "Setup non ha potuto caricare l'elenco delle nazionalit\x85 di tastiera.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_WARN_PARTITION,
+        // ERROR_WARN_PARTITION,
         "Setup ha trovato che almeno un disco fisso contiene una tabella delle\n"
-        "partizioni incompatibile che non pu• essere gestita correttamente!\n"
+        "partizioni incompatibile che non pu\x95 essere gestita correttamente!\n"
         "\n"
-        "Il creare o cancellare partizioni pu• distruggere la tabella delle partizioni.\n"
+        "Il creare o cancellare partizioni pu\x95 distruggere la tabella delle partizioni.\n"
         "\n"
         "  \x07  Premere F3 per uscire dal Setup.\n"
         "  \x07  Premere INVIO per continuare.",
         "F3 = Uscire  INVIO = Continuare"
     },
     {
-        //ERROR_NEW_PARTITION,
-        "Non si pu• creare una nuova partizione all'interno\n"
-        "di una partizione gi… esistente!\n"
+        // ERROR_NEW_PARTITION,
+        "Non si pu\x95 creare una nuova partizione all'interno\n"
+        "di una partizione gi\x85 esistente!\n"
         "\n"
         "  * Premere un tasto qualsiasi per continuare.",
         NULL
     },
     {
-        //ERROR_DELETE_SPACE,
-        "Non si pu• cancellare spazio in un disco non partizionato!\n"
+        // ERROR_DELETE_SPACE,
+        "Non si pu\x95 cancellare spazio in un disco non partizionato!\n"
         "\n"
         "  * Premere un tasto qualsiasi per continuare.",
         NULL
     },
     {
-        //ERROR_INSTALL_BOOTCODE,
-        "Impossibile installare il bootcode FAT nella partizione di sistema.",
+        // ERROR_INSTALL_BOOTCODE,
+        "Impossibile installare il bootcode %S nella partizione di sistema.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_NO_FLOPPY,
-        "Non c'Š un disco nell'unit… A:.",
+        // ERROR_NO_FLOPPY,
+        "Non c'\x8A un disco nell'unit\x85 A:.",
         "ENTER = Continue"
     },
     {
-        //ERROR_UPDATE_KBSETTINGS,
-        "Setup non ha potuto aggiornare la nazionalit… della tastiera.",
+        // ERROR_UPDATE_KBSETTINGS,
+        "Setup non ha potuto aggiornare la nazionalit\x85 della tastiera.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_UPDATE_DISPLAY_SETTINGS,
+        // ERROR_UPDATE_DISPLAY_SETTINGS,
         "Setup non ha potuto aggiornare la configurazione di registro dello schermo.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_IMPORT_HIVE,
+        // ERROR_IMPORT_HIVE,
         "Setup non ha potuto importare un file hive.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_FIND_REGISTRY
+        // ERROR_FIND_REGISTRY
         "Setup non ha potuto trovare i file di dati del registro.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CREATE_HIVE,
+        // ERROR_CREATE_HIVE,
         "Setup non ha potuto creare gli hive del registro.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_INITIALIZE_REGISTRY,
+        // ERROR_INITIALIZE_REGISTRY,
         "Setup non ha potuto inizializzare il registro.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_INVALID_CABINET_INF,
+        // ERROR_INVALID_CABINET_INF,
         "Il Cabinet non ha un file inf valido.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CABINET_MISSING,
+        // ERROR_CABINET_MISSING,
         "Cabinet non trovato.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CABINET_SCRIPT,
+        // ERROR_CABINET_SCRIPT,
         "Il Cabinet non ha uno script di setup.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_COPY_QUEUE,
+        // ERROR_COPY_QUEUE,
         "Setup non ha potuto aprire la coda di copia di file.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CREATE_DIR,
+        // ERROR_CREATE_DIR,
         "Setup non ha potuto creare le cartelle d'installazione.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_TXTSETUP_SECTION,
-        "Setup non ha potuto trovare le sezioni 'Cartelle'\n"
+        // ERROR_TXTSETUP_SECTION,
+        "Setup non ha potuto trovare le sezioni '%S'\n"
         "in TXTSETUP.SIF.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CABINET_SECTION,
-        "Setup non ha potuto trovare le sezioni 'Cartelle'\n"
+        // ERROR_CABINET_SECTION,
+        "Setup non ha potuto trovare le sezioni '%S'\n"
         "nel cabinet.\n",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_CREATE_INSTALL_DIR
+        // ERROR_CREATE_INSTALL_DIR
         "Setup non ha potuto creare la cartella d'installazione.",
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_FIND_SETUPDATA,
-        "Setup non ha trovato la sezione 'SetupData'\n"
-        "in TXTSETUP.SIF.\n",
-        "INVIO = Riavviare il computer"
-    },
-    {
-        //ERROR_WRITE_PTABLE,
+        // ERROR_WRITE_PTABLE,
         "Setup non ha potuto scrivere le tabelle delle partizioni.\n"
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_ADDING_CODEPAGE,
+        // ERROR_ADDING_CODEPAGE,
         "Setup non ha potuto aggiungere la codepage al registro.\n"
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_UPDATE_LOCALESETTINGS,
+        // ERROR_UPDATE_LOCALESETTINGS,
         "Setup non ha potuto impostare la regionalizzazione del sistema.\n"
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_ADDING_KBLAYOUTS,
-        "Impossibile aggiungere le nazionalit… di tastiera al registro.\n"
+        // ERROR_ADDING_KBLAYOUTS,
+        "Impossibile aggiungere le nazionalit\x85 di tastiera al registro.\n"
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_UPDATE_GEOID,
+        // ERROR_UPDATE_GEOID,
         "Setup non ha potuto impostare l'id geografico.\n"
         "INVIO = Riavviare il computer"
     },
     {
-        //ERROR_DIRECTORY_NAME,
+        // ERROR_DIRECTORY_NAME,
         "Nome della cartella non valido.\n"
         "\n"
         "  * Premere un tasto qualsiasi per continuare."
     },
     {
-        //ERROR_INSUFFICIENT_PARTITION_SIZE,
+        // ERROR_INSUFFICIENT_PARTITION_SIZE,
         "Spazio nella partizione insufficiente per installare ReactOS.\n"
         "La partizione deve avere una dimensione di almeno %lu MB.\n"
         "\n"
@@ -1585,21 +1682,21 @@ MUI_ERROR itITErrorEntries[] =
         NULL
     },
     {
-        //ERROR_PARTITION_TABLE_FULL,
-        "Non Ã¨ possibile creare una partizione primaria o secondaria nella\n"
-        "tabella delle partizioni del disco perchÃ¨ questa Ã¨ piena.\n"
+        // ERROR_PARTITION_TABLE_FULL,
+        "Non \x8A possibile creare una partizione primaria o secondaria nella\n"
+        "tabella delle partizioni del disco perch\x8A questa \x8A piena.\n"
         "\n"
         "  * Premere un tasto qualsiasi per continuare."
     },
     {
-        //ERROR_ONLY_ONE_EXTENDED,
-        "Impossibile creare piÃ¹ di una partizione primaria per disco.\n"
+        // ERROR_ONLY_ONE_EXTENDED,
+        "Impossibile creare pi\x97 di una partizione primaria per disco.\n"
         "\n"
         "  * Premere un tasto qualsiasi per continuare."
     },
     {
-        //ERROR_FORMATTING_PARTITION,
-        "Setup non Ã¨ riuscito a formattare la partizione:\n"
+        // ERROR_FORMATTING_PARTITION,
+        "Setup non \x8A riuscito a formattare la partizione:\n"
         " %S\n"
         "\n"
         "ENTER = Riavvia il computer"
@@ -1613,11 +1710,15 @@ MUI_ERROR itITErrorEntries[] =
 MUI_PAGE itITPages[] =
 {
     {
+        SETUP_INIT_PAGE,
+        itITSetupInitPageEntries
+    },
+    {
         LANGUAGE_PAGE,
         itITLanguagePageEntries
     },
     {
-        START_PAGE,
+        WELCOME_PAGE,
         itITWelcomePageEntries
     },
     {
@@ -1635,6 +1736,10 @@ MUI_PAGE itITPages[] =
     {
         REPAIR_INTRO_PAGE,
         itITRepairPageEntries
+    },
+    {
+        UPGRADE_REPAIR_PAGE,
+        itITUpgradePageEntries
     },
     {
         COMPUTER_SETTINGS_PAGE,
@@ -1727,27 +1832,27 @@ MUI_STRING itITStrings[] =
     {STRING_DELETEPARTITION,
      "   D = Elimina Partizione   F3 = Esci"},
     {STRING_PARTITIONSIZE,
-     "Dimensione della nuova partizione:"},
+     "Dimensione nuova partizione:"},
     {STRING_CHOOSENEWPARTITION,
-     "Si Ã¨ scelto di creare una nuova partizione primaria su"},
+     "Si \x8A scelto di creare una nuova partizione primaria su"},
     {STRING_CHOOSE_NEW_EXTENDED_PARTITION,
-     "Si Ã¨ scelto di creare una nuova partizione estesa su"},
+     "Si \x8A scelto di creare una nuova partizione estesa su"},
     {STRING_CHOOSE_NEW_LOGICAL_PARTITION,
-     "Si Ã¨ scelto di creare una nuova partizione logica su"},
+     "Si \x8A scelto di creare una nuova partizione logica su"},
     {STRING_HDDSIZE,
     "Indicare la dimensione della nuova partizione in megabyte."},
     {STRING_CREATEPARTITION,
      "   INVIO = Creare la partizione   ESC = Annulla   F3 = Esci"},
     {STRING_PARTFORMAT,
-    "Questa partizione sar… formattata successivamente."},
+    "Questa partizione sar\x85 formattata successivamente."},
     {STRING_NONFORMATTEDPART,
     "Avete scelto di installare ReactOS su una partizione nuova o non formattata."},
     {STRING_NONFORMATTEDSYSTEMPART,
-    "La partizione di sistema non Ã¨ stata ancora formattata."},
+    "La partizione di sistema non \x8A stata ancora formattata."},
     {STRING_NONFORMATTEDOTHERPART,
-    "La nuova partizione non Ã¨ stata ancora formattata."},
+    "La nuova partizione non \x8A stata ancora formattata."},
     {STRING_INSTALLONPART,
-    "Setup installer… ReactOS sulla partitione"},
+    "Il setup installer\x85 ReactOS sulla partitione"},
     {STRING_CHECKINGPART,
     "Setup sta controllando la partizione selezionata."},
     {STRING_CONTINUE,
@@ -1756,8 +1861,12 @@ MUI_STRING itITStrings[] =
     "F3 = Esci  INVIO = Continua"},
     {STRING_REBOOTCOMPUTER,
     "INVIO = Riavvia il computer"},
-    {STRING_TXTSETUPFAILED,
-    "Setup non ha trovato la sezione '%S' \nin TXTSETUP.SIF.\n"},
+    {STRING_DELETING,
+     "   Deleting file: %S"},
+    {STRING_MOVING,
+     "   Moving file: %S to: %S"},
+    {STRING_RENAMING,
+     "   Renaming file: %S to: %S"},
     {STRING_COPYING,
      "   Copia di: %S"},
     {STRING_SETUPCOPYINGFILES,
@@ -1766,7 +1875,7 @@ MUI_STRING itITStrings[] =
     "   Aggiornamento degli hives del registro..."},
     {STRING_IMPORTFILE,
     "   Importazione di %S..."},
-    {STRING_DISPLAYETTINGSUPDATE,
+    {STRING_DISPLAYSETTINGSUPDATE,
     "   Aggiornamento delle impostazioni dello schermo nel registro..."},
     {STRING_LOCALESETTINGSUPDATE,
     "   Aggiornamento delle impostazioni di regionalizzazione..."},
@@ -1778,10 +1887,12 @@ MUI_STRING itITStrings[] =
     "   Fatto..."},
     {STRING_REBOOTCOMPUTER2,
     "   INVIO = Riavvia il computer"},
+    {STRING_REBOOTPROGRESSBAR,
+    " Il computer si riavvier\x85 in %li secondi... "},
     {STRING_CONSOLEFAIL1,
     "Impossibile aprire la console\r\n\r\n"},
     {STRING_CONSOLEFAIL2,
-    "La causa pi— frequente di questo Š l'uso di una tastiera USB\r\n"},
+    "La causa pi\x97 frequente di questo \x8A l'uso di una tastiera USB\r\n"},
     {STRING_CONSOLEFAIL3,
     "le tastiere USB non sono ancora completamente supportate\r\n"},
     {STRING_FORMATTINGDISK,
@@ -1794,28 +1905,28 @@ MUI_STRING itITStrings[] =
     " Formatta la partizione con file system %S "},
     {STRING_KEEPFORMAT,
     " Mantieni il file system attuale (nessuna modifica) "},
-    {STRING_HDINFOPARTCREATE,
-    "%I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) su %wZ."},
-    {STRING_HDDINFOUNK1,
-    "%I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu)."},
+    {STRING_HDINFOPARTCREATE_1,
+    "%I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) su %wZ [%s]."},
+    {STRING_HDINFOPARTCREATE_2,
+    "%I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) [%s]."},
     {STRING_HDDINFOUNK2,
     "   %c%c  Tipo 0x%02X    %I64u %s"},
-    {STRING_HDINFOPARTDELETE,
-    "su %I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) su %wZ."},
-    {STRING_HDDINFOUNK3,
-    "su %I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu)."},
-    {STRING_HDINFOPARTZEROED,
-    "Harddisk %lu (%I64u %s), Port=%hu, Bus=%hu, Id=%hu (%wZ)."},
+    {STRING_HDINFOPARTDELETE_1,
+    "su %I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) su %wZ [%s]."},
+    {STRING_HDINFOPARTDELETE_2,
+    "su %I64u %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) [%s]."},
+    {STRING_HDINFOPARTZEROED_1,
+    "Harddisk %lu (%I64u %s), Port=%hu, Bus=%hu, Id=%hu (%wZ) [%s]."},
     {STRING_HDDINFOUNK4,
     "%c%c  Tipo 0x%02X    %I64u %s"},
-    {STRING_HDINFOPARTEXISTS,
-    "su Harddisk %lu (%I64u %s), Port=%hu, Bus=%hu, Id=%hu (%wZ)."},
+    {STRING_HDINFOPARTEXISTS_1,
+    "su Harddisk %lu (%I64u %s), Port=%hu, Bus=%hu, Id=%hu (%wZ) [%s]."},
     {STRING_HDDINFOUNK5,
     "%c%c %c %sTipo %-3u%s                       %6lu %s"},
-    {STRING_HDINFOPARTSELECT,
-    "%6lu %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) su %S"},
-    {STRING_HDDINFOUNK6,
-    "%6lu %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu)"},
+    {STRING_HDINFOPARTSELECT_1,
+    "%6lu %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) su %wZ [%s]"},
+    {STRING_HDINFOPARTSELECT_2,
+    "%6lu %s  Harddisk %lu  (Port=%hu, Bus=%hu, Id=%hu) [%s]"},
     {STRING_NEWPARTITION,
     "Setup ha creato una nuova partizione su"},
     {STRING_UNPSPACE,
@@ -1837,6 +1948,6 @@ MUI_STRING itITStrings[] =
     {STRING_GB,
     "GB"},
     {STRING_ADDKBLAYOUTS,
-    "Aggiunta delle nazionalit… di tastiera"},
+    "Aggiunta delle nazionalit\x85 di tastiera"},
     {0, 0}
 };

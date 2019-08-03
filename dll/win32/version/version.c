@@ -707,7 +707,7 @@ DWORD WINAPI GetFileVersionInfoSizeExW( DWORD flags, LPCWSTR filename, LPDWORD h
     default:
         if (lzfd == HFILE_ERROR)
             SetLastError(ofs.nErrCode);
-        else if (GetVersion() & 0x80000000)
+        else if (GetVersion() & 0x80000000) /* Windows 95/98 */
             SetLastError(ERROR_FILE_NOT_FOUND);
         else
             SetLastError(ERROR_RESOURCE_DATA_NOT_FOUND);
@@ -1015,6 +1015,7 @@ BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
         BOOL ret, isText;
         INT len;
         LPWSTR lpSubBlockW;
+        UINT value_len;
 
         len  = MultiByteToWideChar(CP_ACP, 0, lpSubBlock, -1, NULL, 0);
         lpSubBlockW = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
@@ -1024,7 +1025,8 @@ BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
 
         MultiByteToWideChar(CP_ACP, 0, lpSubBlock, -1, lpSubBlockW, len);
 
-        ret = VersionInfo32_QueryValue(pBlock, lpSubBlockW, lplpBuffer, puLen, &isText);
+        ret = VersionInfo32_QueryValue(pBlock, lpSubBlockW, lplpBuffer, &value_len, &isText);
+        if (puLen) *puLen = value_len;
 
         HeapFree(GetProcessHeap(), 0, lpSubBlockW);
 
@@ -1035,8 +1037,7 @@ BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
              */
             LPSTR lpBufferA = (LPSTR)pBlock + info->wLength + 4;
             DWORD pos = (LPCSTR)*lplpBuffer - (LPCSTR)pBlock;
-
-            len = WideCharToMultiByte(CP_ACP, 0, *lplpBuffer, -1,
+            len = WideCharToMultiByte(CP_ACP, 0, *lplpBuffer, value_len,
                                       lpBufferA + pos, info->wLength - pos, NULL, NULL);
             *lplpBuffer = lpBufferA + pos;
             if (puLen) *puLen = len;
@@ -1053,7 +1054,6 @@ BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
 BOOL WINAPI VerQueryValueW( LPCVOID pBlock, LPCWSTR lpSubBlock,
                                LPVOID *lplpBuffer, PUINT puLen )
 {
-    static const WCHAR nullW[] = { 0 };
     static const WCHAR rootW[] = { '\\', 0 };
     static const WCHAR varfileinfoW[] = { '\\','V','a','r','F','i','l','e','I','n','f','o',
                                           '\\','T','r','a','n','s','l','a','t','i','o','n', 0 };
@@ -1066,7 +1066,7 @@ BOOL WINAPI VerQueryValueW( LPCVOID pBlock, LPCWSTR lpSubBlock,
     if (!pBlock)
         return FALSE;
 
-    if (lpSubBlock == NULL || lpSubBlock[0] == nullW[0])
+    if (!lpSubBlock || !lpSubBlock[0])
         lpSubBlock = rootW;
 
     if ( VersionInfoIs16( info ) )
@@ -1320,7 +1320,7 @@ DWORD WINAPI VerFindFileW( DWORD flags,LPCWSTR lpszFilename,LPCWSTR lpszWinDir,
     /* Figure out where the file should go; shared files default to the
        system directory */
 
-    GetSystemDirectoryW(systemDir, sizeof(systemDir)/sizeof(WCHAR));
+    GetSystemDirectoryW(systemDir, ARRAY_SIZE(systemDir));
     curDir = &emptyW;
 
     if(flags & VFFF_ISSHAREDFILE)

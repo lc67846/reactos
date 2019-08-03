@@ -17,11 +17,12 @@ BOOLEAN KdDebuggerEnabled = FALSE;
 BOOLEAN KdEnteredDebugger = FALSE;
 BOOLEAN KdDebuggerNotPresent = TRUE;
 BOOLEAN KdBreakAfterSymbolLoad = FALSE;
-BOOLEAN KdpBreakPending = FALSE;
 BOOLEAN KdPitchDebugger = TRUE;
 BOOLEAN KdIgnoreUmExceptions = FALSE;
 KD_CONTEXT KdpContext;
 ULONG Kd_WIN2000_Mask;
+LONG KdpTimeSlipPending;
+KDDEBUGGER_DATA64 KdDebuggerDataBlock;
 VOID NTAPI PspDumpThreads(BOOLEAN SystemThreads);
 
 typedef struct
@@ -30,7 +31,7 @@ typedef struct
     ULONG Level;
 } KD_COMPONENT_DATA;
 #define MAX_KD_COMPONENT_TABLE_ENTRIES 128
-KD_COMPONENT_DATA KdComponentTable[MAX_KD_COMPONENT_TABLE_ENTRIES];
+KD_COMPONENT_DATA KdpComponentTable[MAX_KD_COMPONENT_TABLE_ENTRIES];
 ULONG KdComponentTableEntries = 0;
 
 ULONG Kd_DEFAULT_MASK = 1 << DPFLTR_ERROR_LEVEL;
@@ -41,14 +42,15 @@ ULONG
 NTAPI
 KdpServiceDispatcher(ULONG Service,
                      PVOID Buffer1,
-                     ULONG Buffer1Length)
+                     ULONG Buffer1Length,
+                     KPROCESSOR_MODE PreviousMode)
 {
     ULONG Result = 0;
 
     switch (Service)
     {
         case BREAKPOINT_PRINT: /* DbgPrint */
-            Result = KdpPrintString(Buffer1, Buffer1Length);
+            Result = KdpPrintString(Buffer1, Buffer1Length, PreviousMode);
             break;
 
 #if DBG
@@ -145,7 +147,8 @@ KdpEnterDebuggerException(IN PKTRAP_FRAME TrapFrame,
             /* Print the string */
             KdpServiceDispatcher(BREAKPOINT_PRINT,
                                  (PVOID)ExceptionRecord->ExceptionInformation[1],
-                                 ExceptionRecord->ExceptionInformation[2]);
+                                 ExceptionRecord->ExceptionInformation[2],
+                                 PreviousMode);
 
             /* Return success */
             KeSetContextReturnRegister(Context, STATUS_SUCCESS);
@@ -153,11 +156,38 @@ KdpEnterDebuggerException(IN PKTRAP_FRAME TrapFrame,
 #ifdef KDBG
         else if (ExceptionCommand == BREAKPOINT_LOAD_SYMBOLS)
         {
+            PKD_SYMBOLS_INFO SymbolsInfo;
+            KD_SYMBOLS_INFO CapturedSymbolsInfo;
             PLDR_DATA_TABLE_ENTRY LdrEntry;
 
-            /* Load symbols. Currently implemented only for KDBG! */
-            if(KdbpSymFindModule(((PKD_SYMBOLS_INFO)ExceptionRecord->ExceptionInformation[2])->BaseOfDll, NULL, -1, &LdrEntry))
-                KdbSymProcessSymbols(LdrEntry);
+            SymbolsInfo = (PKD_SYMBOLS_INFO)ExceptionRecord->ExceptionInformation[2];
+            if (PreviousMode != KernelMode)
+            {
+                _SEH2_TRY
+                {
+                    ProbeForRead(SymbolsInfo,
+                                 sizeof(*SymbolsInfo),
+                                 1);
+                    RtlCopyMemory(&CapturedSymbolsInfo,
+                                  SymbolsInfo,
+                                  sizeof(*SymbolsInfo));
+                    SymbolsInfo = &CapturedSymbolsInfo;
+                }
+                _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+                {
+                    SymbolsInfo = NULL;
+                }
+                _SEH2_END;
+            }
+
+            if (SymbolsInfo != NULL)
+            {
+                /* Load symbols. Currently implemented only for KDBG! */
+                if (KdbpSymFindModule(SymbolsInfo->BaseOfDll, NULL, -1, &LdrEntry))
+                {
+                    KdbSymProcessSymbols(LdrEntry);
+                }
+            }
         }
         else if (ExceptionCommand == BREAKPOINT_PROMPT)
         {
@@ -175,7 +205,10 @@ KdpEnterDebuggerException(IN PKTRAP_FRAME TrapFrame,
                                     (USHORT)ExceptionRecord->
                                     ExceptionInformation[2],
                                     OutString,
-                                    OutStringLength);
+                                    OutStringLength,
+                                    PreviousMode,
+                                    TrapFrame,
+                                    ExceptionFrame);
 
             /* Return the number of characters that we received */
             Context->Eax = ReturnValue;
@@ -225,37 +258,6 @@ KdpEnterDebuggerException(IN PKTRAP_FRAME TrapFrame,
 
 BOOLEAN
 NTAPI
-KdpCallGdb(IN PKTRAP_FRAME TrapFrame,
-           IN PEXCEPTION_RECORD ExceptionRecord,
-           IN PCONTEXT Context)
-{
-    KD_CONTINUE_TYPE Return = kdDoNotHandleException;
-
-    /* Get out of here if the Debugger isn't connected */
-    if (KdDebuggerNotPresent) return FALSE;
-
-    /* FIXME:
-     * Right now, the GDB wrapper seems to handle exceptions differntly
-     * from KDGB and both are called at different times, while the GDB
-     * one is only called once and that's it. I don't really have the knowledge
-     * to fix the GDB stub, so until then, we'll be using this hack
-     */
-    if (WrapperInitRoutine)
-    {
-        Return = WrapperTable.KdpExceptionRoutine(ExceptionRecord,
-                                                  Context,
-                                                  TrapFrame);
-    }
-
-    /* Debugger didn't handle it, please handle! */
-    if (Return == kdHandleException) return FALSE;
-
-    /* Debugger handled it */
-    return TRUE;
-}
-
-BOOLEAN
-NTAPI
 KdIsThisAKdTrap(IN PEXCEPTION_RECORD ExceptionRecord,
                 IN PCONTEXT Context,
                 IN KPROCESSOR_MODE PreviousMode)
@@ -265,6 +267,12 @@ KdIsThisAKdTrap(IN PEXCEPTION_RECORD ExceptionRecord,
 }
 
 /* PUBLIC FUNCTIONS *********************************************************/
+
+VOID
+NTAPI
+KdUpdateDataBlock(VOID)
+{
+}
 
 /*
  * @implemented
@@ -304,6 +312,13 @@ KdDisableDebugger(VOID)
     return STATUS_SUCCESS;
 }
 
+NTSTATUS
+NTAPI
+KdEnableDebuggerWithLock(IN BOOLEAN NeedLock)
+{
+    return STATUS_ACCESS_DENIED;
+}
+
 /*
  * @implemented
  */
@@ -336,7 +351,7 @@ BOOLEAN
 NTAPI
 KdPollBreakIn(VOID)
 {
-    return KdpBreakPending;
+    return FALSE;
 }
 
 /*
@@ -385,10 +400,10 @@ NtQueryDebugFilterState(IN ULONG ComponentId,
         for (i = 0; i < KdComponentTableEntries; i++)
         {
             /* Check if it is the right component */
-            if (ComponentId == KdComponentTable[i].ComponentId)
+            if (ComponentId == KdpComponentTable[i].ComponentId)
             {
                 /* Check if mask are matching */
-                return (Level & KdComponentTable[i].Level) ? TRUE : FALSE;
+                return (Level & KdpComponentTable[i].Level) ? TRUE : FALSE;
             }
         }
     }
@@ -425,7 +440,7 @@ NtSetDebugFilterState(IN ULONG ComponentId,
     /* Search for an existing entry */
     for (i = 0; i < KdComponentTableEntries; i++ )
     {
-        if (ComponentId == KdComponentTable[i].ComponentId)
+        if (ComponentId == KdpComponentTable[i].ComponentId)
             break;
     }
 
@@ -438,15 +453,15 @@ NtSetDebugFilterState(IN ULONG ComponentId,
 
         /* Add a new entry */
         ++KdComponentTableEntries;
-        KdComponentTable[i].ComponentId = ComponentId;
-        KdComponentTable[i].Level = Kd_DEFAULT_MASK;
+        KdpComponentTable[i].ComponentId = ComponentId;
+        KdpComponentTable[i].Level = Kd_DEFAULT_MASK;
     }
 
     /* Update entry table */
     if (State)
-        KdComponentTable[i].Level |= Level;
+        KdpComponentTable[i].Level |= Level;
     else
-        KdComponentTable[i].Level &= ~Level;
+        KdpComponentTable[i].Level &= ~Level;
 
     return STATUS_SUCCESS;
 }
@@ -465,7 +480,10 @@ KdSystemDebugControl(IN SYSDBG_COMMAND Command,
                      IN KPROCESSOR_MODE PreviousMode)
 {
     /* HACK */
-    return KdpServiceDispatcher(Command, InputBuffer, InputBufferLength);
+    return KdpServiceDispatcher(Command,
+                                InputBuffer,
+                                InputBufferLength,
+                                PreviousMode);
 }
 
 PKDEBUG_ROUTINE KiDebugRoutine = KdpEnterDebuggerException;

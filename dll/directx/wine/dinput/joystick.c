@@ -26,11 +26,13 @@
  *	force feedback
  */
 
-#include "dinput_private.h"
-
 #include <stdio.h>
 
 #include "joystick_private.h"
+#include "wine/debug.h"
+#include "winreg.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(dinput);
 
 static inline JoystickGenericImpl *impl_from_IDirectInputDevice8A(IDirectInputDevice8A *iface)
 {
@@ -90,7 +92,7 @@ static void _dump_DIEFFECT_flags(DWORD dwFlags)
             FE(DIEFF_SPHERICAL)
 #undef FE
         };
-        for (i = 0; i < (sizeof(flags) / sizeof(flags[0])); i++)
+        for (i = 0; i < ARRAY_SIZE(flags); i++)
             if (flags[i].mask & dwFlags)
                 TRACE("%s ", flags[i].name);
         TRACE("\n");
@@ -764,11 +766,11 @@ HRESULT WINAPI JoystickWGenericImpl_BuildActionMap(LPDIRECTINPUTDEVICE8W iface,
                                                    LPCWSTR lpszUserName,
                                                    DWORD dwFlags)
 {
+    static const DWORD object_types[] = { DIDFT_AXIS, DIDFT_BUTTON };
+    static const DWORD type_map[] = { DIDFT_RELAXIS, DIDFT_PSHBUTTON };
     JoystickGenericImpl *This = impl_from_IDirectInputDevice8W(iface);
     unsigned int i, j;
     BOOL has_actions = FALSE;
-    DWORD object_types[] = { DIDFT_AXIS, DIDFT_BUTTON };
-    DWORD type_map[] = { DIDFT_RELAXIS, DIDFT_PSHBUTTON };
 
     FIXME("(%p)->(%p,%s,%08x): semi-stub !\n", iface, lpdiaf, debugstr_w(lpszUserName), dwFlags);
 
@@ -784,7 +786,7 @@ HRESULT WINAPI JoystickWGenericImpl_BuildActionMap(LPDIRECTINPUTDEVICE8W iface,
         /* Only consider actions of the right genre */
         if (lpdiaf->dwGenre != genre && genre != DIGENRE_ANY) continue;
 
-        for (j=0; j < sizeof(object_types)/sizeof(object_types[0]); j++)
+        for (j = 0; j < ARRAY_SIZE(object_types); j++)
         {
             if (type & object_types[j])
             {
@@ -977,7 +979,7 @@ HRESULT setup_dinput_options(JoystickGenericImpl *This, const int *default_axis_
             {
                 int i;
 
-                for (i = 0; i < sizeof(axis_names) / sizeof(axis_names[0]); i++)
+                for (i = 0; i < ARRAY_SIZE(axis_names); i++)
                 {
                     if (!strcmp(ptr, axis_names[i]))
                     {
@@ -1009,7 +1011,7 @@ HRESULT setup_dinput_options(JoystickGenericImpl *This, const int *default_axis_
                     }
                 }
 
-                if (i == sizeof(axis_names) / sizeof(axis_names[0]))
+                if (i == ARRAY_SIZE(axis_names))
                 {
                     ERR("invalid joystick axis type: \"%s\"\n", ptr);
                     i = -1;

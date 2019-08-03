@@ -5,11 +5,7 @@
 * PROGRAMMERS:     Peter Hater 
 */
 
-#include <apitest.h>
-
-#include <stdio.h>
-#include <windows.h>
-#include <winsock2.h>
+#include "ws2_32.h"
 
 #define SVR_PORT 5000
 #define WAIT_TIMEOUT_ 10000
@@ -62,14 +58,14 @@ START_TEST(nonblocking)
     server_addr_in.sin_addr.s_addr = INADDR_ANY;
     server_addr_in.sin_port   = htons(SVR_PORT);
 
-    // server inialialization
+    // Server initialization.
     trace("Initializing server and client connections ...\n");
     err = bind(ServerSocket, (struct sockaddr*)&server_addr_in, sizeof(server_addr_in));
     ok(err == 0, "ERROR: server bind failed\n");
     err = ioctlsocket(ServerSocket, FIONBIO, &ulValue);
     ok(err == 0, "ERROR: server ioctlsocket FIONBIO failed\n");
 
-    // client inialialization
+    // Client initialization.
     err = ioctlsocket(ClientSocket, FIONBIO, &ulValue);
     ok(err == 0, "ERROR: client ioctlsocket FIONBIO failed\n");
 

@@ -20,30 +20,25 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
-//#include <stdarg.h>
-//#include <stdio.h>
-//#include <math.h>
-//#include <float.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <math.h>
+#include <float.h>
 
 #define COBJMACROS
 
 #include <wine/test.h>
-//#include <windef.h>
-//#include <winbase.h>
-//#include <winuser.h>
+#include <windef.h>
+#include <winbase.h>
+#include <winuser.h>
 #include <wingdi.h>
-//#include <winnls.h>
-//#include <winerror.h>
-//#include <winnt.h>
-//#include <initguid.h>
-//#include <wtypes.h>
-#include <ole2.h>
+#include <winnls.h>
+#include <winerror.h>
+#include <winnt.h>
+#include <initguid.h>
+#include <wtypes.h>
 #include <olectl.h>
-//#include <ocidl.h>
+#include <ocidl.h>
 
 DEFINE_GUID(GUID_NULL,0,0,0,0,0,0,0,0,0,0,0);
 
@@ -425,7 +420,7 @@ static void test_font_events_disp(void)
     hr = IFont_QueryInterface(pFont, &IID_IFontDisp, (void **)&pFontDisp);
     EXPECT_HR(hr, S_OK);
 
-    for (i = 0; i < sizeof(font_dispids)/sizeof(font_dispids[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(font_dispids); i++)
     {
         switch (font_dispids[i].dispid)
         {

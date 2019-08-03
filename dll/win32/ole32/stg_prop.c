@@ -36,8 +36,28 @@
  *   PropertyStorage_ReadFromStream
  */
 
-#include "precomp.h"
+#include "config.h"
+#include "wine/port.h"
+
+#include <assert.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define COBJMACROS
+#define NONAMELESSUNION
+
+#include "windef.h"
+#include "winbase.h"
+#include "winnls.h"
+#include "winuser.h"
+#include "wine/unicode.h"
+#include "wine/debug.h"
+#include "dictionary.h"
 #include "storage32.h"
+#include "enumx.h"
+#include "oleauto.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(storage);
 
@@ -1038,11 +1058,13 @@ static HRESULT PropertyStorage_ReadProperty(PROPVARIANT *prop, const BYTE *data,
     UINT codepage, void* (__thiscall_wrapper *allocate)(void *this, ULONG size), void *allocate_data)
 {
     HRESULT hr = S_OK;
+    DWORD vt;
 
     assert(prop);
     assert(data);
-    StorageUtl_ReadDWord(data, 0, (DWORD *)&prop->vt);
+    StorageUtl_ReadDWord(data, 0, &vt);
     data += sizeof(DWORD);
+    prop->vt = vt;
     switch (prop->vt)
     {
     case VT_EMPTY:

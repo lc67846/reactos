@@ -23,7 +23,7 @@
 #ifndef __SYSSETUP_H_INCLUDED__
 #define __SYSSETUP_H_INCLUDED__
 
-
+// See also dll/cpl/timedate/timezone.c
 typedef struct _TZ_INFO
 {
     LONG Bias;
@@ -44,15 +44,19 @@ typedef struct _TIMEZONE_ENTRY
     ULONG Index;
 } TIMEZONE_ENTRY, *PTIMEZONE_ENTRY;
 
+/* Private Setup data shared between syssetup.dll and netshell.dll */
 typedef struct _SETUPDATA
 {
     HFONT hTitleFont;
     HFONT hBoldFont;
 
+    WCHAR SourcePath[MAX_PATH];   // PCWSTR
+    WCHAR UnattendFile[MAX_PATH]; // PCWSTR
+
     WCHAR OwnerName[51];
     WCHAR OwnerOrganization[51];
     WCHAR ComputerName[MAX_COMPUTERNAME_LENGTH + 1];  /* max. 15 characters */
-    WCHAR AdminPassword[128];              /* max. 127 characters */
+    WCHAR AdminPassword[128];                         /* max. 127 characters */
     BOOL  UnattendSetup;
     BOOL  DisableGeckoInst;
 
@@ -63,7 +67,7 @@ typedef struct _SETUPDATA
     DWORD DisableAutoDaylightTimeSet;
     LCID LocaleID;
 
-    HINF hUnattendedInf;
+    HINF hSetupInf;
 
     UINT uFirstNetworkWizardPage;
     UINT uPostNetworkWizardPage;

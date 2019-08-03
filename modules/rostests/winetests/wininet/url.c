@@ -21,16 +21,16 @@
  */
 
 #include <stdarg.h>
-//#include <stdio.h>
-//#include <stdlib.h>
-//#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include <windef.h>
-#include <winbase.h>
-#include <winnls.h>
-#include <wininet.h>
+#include "windef.h"
+#include "winbase.h"
+#include "winnls.h"
+#include "wininet.h"
 
-#include <wine/test.h>
+#include "wine/test.h"
 
 #define TEST_URL "http://www.winehq.org/site/about#hi"
 #define TEST_URL3 "file:///C:/Program%20Files/Atmel/AVR%20Tools/STK500/STK500.xml"

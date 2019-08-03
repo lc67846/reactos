@@ -9,8 +9,10 @@
 #ifndef __ASM_INC__
 #define __ASM_INC__
 
-/* Common definitions for FPO macro
-   see http://msdn.microsoft.com/en-us/library/ms679352%28VS.85%29.aspx */
+/*
+ * Common definitions for the FPO macro.
+ * See https://docs.microsoft.com/en-us/windows/desktop/api/winnt/ns-winnt-_fpo_data
+ */
 #define FRAME_FPO    0
 #define FRAME_TRAP   1
 #define FRAME_TSS    2
@@ -65,8 +67,10 @@ GLOBAL_LABEL MACRO label
     %label::
 ENDM
 
-/* check http://msdn.microsoft.com/en-us/library/9c9k076y%28VS.80%29.aspx
-   and http://msdn.microsoft.com/en-us/library/ms679352%28VS.85%29.aspx */
+/*
+ * See https://docs.microsoft.com/en-us/cpp/assembler/masm/dot-fpo
+ * and https://docs.microsoft.com/en-us/windows/desktop/api/winnt/ns-winnt-_fpo_data
+ */
 FPO MACRO cdwLocals, cdwParams, cbProlog, cbRegs, fUseBP, cbFrame
     .FPO (cdwLocals, cdwParams, cbProlog, cbRegs, fUseBP, cbFrame)
 ENDM
@@ -100,7 +104,7 @@ ENDM
 
 .code16 MACRO
     ASSUME nothing
-    .text SEGMENT use16
+    .text SEGMENT use16 PUBLIC 'CODE'
     .586P
 ENDM
 
@@ -136,8 +140,12 @@ ENDM
     dd args
 ENDM
 
-.double MACRO args:VARARG
+.quad MACRO args:VARARG
     dq args
+ENDM
+
+.double MACRO args:VARARG
+    real8 args
 ENDM
 
 .org MACRO value
@@ -309,8 +317,14 @@ ENDM
     .text
 .endm
 
-/* check http://msdn.microsoft.com/en-us/library/9c9k076y%28VS.80%29.aspx
-   and http://msdn.microsoft.com/en-us/library/ms679352%28VS.85%29.aspx */
+.macro .const
+    .section .rdata
+.endm
+
+/*
+ * See https://docs.microsoft.com/en-us/cpp/assembler/masm/dot-fpo
+ * and https://docs.microsoft.com/en-us/windows/desktop/api/winnt/ns-winnt-_fpo_data
+ */
 .macro FPO cdwLocals, cdwParams, cbProlog, cbRegs, fUseBP, cbFrame
     .if (cbFrame == FRAME_TRAP)
         .cfi_signal_frame

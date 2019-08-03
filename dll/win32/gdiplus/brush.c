@@ -17,7 +17,23 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdarg.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "wingdi.h"
+
+#define COBJMACROS
+#include "objbase.h"
+#include "olectl.h"
+#include "ole2.h"
+
+#include "gdiplus.h"
 #include "gdiplus_private.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(gdiplus);
 
 #ifdef __REACTOS__
 /*
@@ -243,9 +259,9 @@ static const char HatchBrushes[][8] = {
     { 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff }, /* HatchStyleDarkHorizontal */
 };
 
-GpStatus get_hatch_data(HatchStyle hatchstyle, const char **result)
+GpStatus get_hatch_data(GpHatchStyle hatchstyle, const char **result)
 {
-    if (hatchstyle < sizeof(HatchBrushes) / sizeof(HatchBrushes[0]))
+    if (hatchstyle < ARRAY_SIZE(HatchBrushes))
     {
         *result = HatchBrushes[hatchstyle];
         return Ok;
@@ -257,11 +273,14 @@ GpStatus get_hatch_data(HatchStyle hatchstyle, const char **result)
 /******************************************************************************
  * GdipCreateHatchBrush [GDIPLUS.@]
  */
-GpStatus WINGDIPAPI GdipCreateHatchBrush(HatchStyle hatchstyle, ARGB forecol, ARGB backcol, GpHatch **brush)
+GpStatus WINGDIPAPI GdipCreateHatchBrush(GpHatchStyle hatchstyle, ARGB forecol, ARGB backcol, GpHatch **brush)
 {
     TRACE("(%d, %d, %d, %p)\n", hatchstyle, forecol, backcol, brush);
 
     if(!brush)  return InvalidParameter;
+
+    if(hatchstyle < HatchStyleMin || hatchstyle > HatchStyleMax)
+        return InvalidParameter;
 
     *brush = heap_alloc_zero(sizeof(GpHatch));
     if (!*brush) return OutOfMemory;
@@ -275,12 +294,49 @@ GpStatus WINGDIPAPI GdipCreateHatchBrush(HatchStyle hatchstyle, ARGB forecol, AR
     return Ok;
 }
 
-static void linegradient_init_transform(GpLineGradient *line)
+static GpStatus create_line_brush(const GpRectF *rect, ARGB startcolor, ARGB endcolor,
+    GpWrapMode wrap, GpLineGradient **line)
+{
+    *line = heap_alloc_zero(sizeof(GpLineGradient));
+    if(!*line)  return OutOfMemory;
+
+    (*line)->brush.bt = BrushTypeLinearGradient;
+    (*line)->startcolor = startcolor;
+    (*line)->endcolor = endcolor;
+    (*line)->wrap = wrap;
+    (*line)->gamma = FALSE;
+    (*line)->rect = *rect;
+    (*line)->blendcount = 1;
+    (*line)->blendfac = heap_alloc_zero(sizeof(REAL));
+    (*line)->blendpos = heap_alloc_zero(sizeof(REAL));
+
+    if (!(*line)->blendfac || !(*line)->blendpos)
+    {
+        heap_free((*line)->blendfac);
+        heap_free((*line)->blendpos);
+        heap_free(*line);
+        *line = NULL;
+        return OutOfMemory;
+    }
+
+    (*line)->blendfac[0] = 1.0f;
+    (*line)->blendpos[0] = 1.0f;
+
+    (*line)->pblendcolor = NULL;
+    (*line)->pblendpos = NULL;
+    (*line)->pblendcount = 0;
+
+    GdipSetMatrixElements(&(*line)->transform, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+
+    return Ok;
+}
+
+static void linegradient_init_transform(const GpPointF *startpoint, const GpPointF *endpoint, GpLineGradient *line)
 {
     float trans_x = line->rect.X + (line->rect.Width / 2.f);
     float trans_y = line->rect.Y + (line->rect.Height / 2.f);
-    float dx = line->endpoint.X - line->startpoint.X;
-    float dy = line->endpoint.Y - line->startpoint.Y;
+    float dx = endpoint->X - startpoint->X;
+    float dy = endpoint->Y - startpoint->Y;
     float t_cos, t_sin, w_ratio, h_ratio;
     float h;
     GpMatrix rot;
@@ -317,6 +373,9 @@ GpStatus WINGDIPAPI GdipCreateLineBrush(GDIPCONST GpPointF* startpoint,
     GDIPCONST GpPointF* endpoint, ARGB startcolor, ARGB endcolor,
     GpWrapMode wrap, GpLineGradient **line)
 {
+    GpStatus stat;
+    GpRectF rect;
+
     TRACE("(%s, %s, %x, %x, %d, %p)\n", debugstr_pointf(startpoint),
           debugstr_pointf(endpoint), startcolor, endcolor, wrap, line);
 
@@ -326,57 +385,27 @@ GpStatus WINGDIPAPI GdipCreateLineBrush(GDIPCONST GpPointF* startpoint,
     if (startpoint->X == endpoint->X && startpoint->Y == endpoint->Y)
         return OutOfMemory;
 
-    *line = heap_alloc_zero(sizeof(GpLineGradient));
-    if(!*line)  return OutOfMemory;
+    rect.X = startpoint->X < endpoint->X ? startpoint->X : endpoint->X;
+    rect.Y = startpoint->Y < endpoint->Y ? startpoint->Y : endpoint->Y;
+    rect.Width = fabs(startpoint->X - endpoint->X);
+    rect.Height = fabs(startpoint->Y - endpoint->Y);
 
-    (*line)->brush.bt = BrushTypeLinearGradient;
-
-    (*line)->startpoint.X = startpoint->X;
-    (*line)->startpoint.Y = startpoint->Y;
-    (*line)->endpoint.X = endpoint->X;
-    (*line)->endpoint.Y = endpoint->Y;
-    (*line)->startcolor = startcolor;
-    (*line)->endcolor = endcolor;
-    (*line)->wrap = wrap;
-    (*line)->gamma = FALSE;
-
-    (*line)->rect.X = (startpoint->X < endpoint->X ? startpoint->X: endpoint->X);
-    (*line)->rect.Y = (startpoint->Y < endpoint->Y ? startpoint->Y: endpoint->Y);
-    (*line)->rect.Width  = fabs(startpoint->X - endpoint->X);
-    (*line)->rect.Height = fabs(startpoint->Y - endpoint->Y);
-
-    if ((*line)->rect.Width == 0)
+    if (rect.Width == 0.0f)
     {
-        (*line)->rect.X -= (*line)->rect.Height / 2.0f;
-        (*line)->rect.Width = (*line)->rect.Height;
+        rect.X -= rect.Height / 2.0f;
+        rect.Width = rect.Height;
     }
-    else if ((*line)->rect.Height == 0)
+    else if (rect.Height == 0.0f)
     {
-        (*line)->rect.Y -= (*line)->rect.Width / 2.0f;
-        (*line)->rect.Height = (*line)->rect.Width;
+        rect.Y -= rect.Width / 2.0f;
+        rect.Height = rect.Width;
     }
 
-    (*line)->blendcount = 1;
-    (*line)->blendfac = heap_alloc_zero(sizeof(REAL));
-    (*line)->blendpos = heap_alloc_zero(sizeof(REAL));
+    stat = create_line_brush(&rect, startcolor, endcolor, wrap, line);
+    if (stat != Ok)
+        return stat;
 
-    if (!(*line)->blendfac || !(*line)->blendpos)
-    {
-        heap_free((*line)->blendfac);
-        heap_free((*line)->blendpos);
-        heap_free(*line);
-        *line = NULL;
-        return OutOfMemory;
-    }
-
-    (*line)->blendfac[0] = 1.0f;
-    (*line)->blendpos[0] = 1.0f;
-
-    (*line)->pblendcolor = NULL;
-    (*line)->pblendpos = NULL;
-    (*line)->pblendcount = 0;
-
-    linegradient_init_transform(*line);
+    linegradient_init_transform(startpoint, endpoint, *line);
 
     TRACE("<-- %p\n", *line);
 
@@ -408,9 +437,7 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRect(GDIPCONST GpRectF* rect,
     ARGB startcolor, ARGB endcolor, LinearGradientMode mode, GpWrapMode wrap,
     GpLineGradient **line)
 {
-    GpPointF start, end;
-    GpStatus stat;
-    float far_x, far_y;
+    float angle;
 
     TRACE("(%p, %x, %x, %d, %d, %p)\n", rect, startcolor, endcolor, mode,
           wrap, line);
@@ -418,45 +445,25 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRect(GDIPCONST GpRectF* rect,
     if(!line || !rect)
         return InvalidParameter;
 
-    far_x = rect->X + rect->Width;
-    far_y = rect->Y + rect->Height;
-
     switch (mode)
     {
     case LinearGradientModeHorizontal:
-        start.X = min(rect->X, far_x);
-        start.Y = rect->Y;
-        end.X = max(rect->X, far_x);
-        end.Y = rect->Y;
+        angle = 0.0f;
         break;
     case LinearGradientModeVertical:
-        start.X = rect->X;
-        start.Y = min(rect->Y, far_y);
-        end.X = rect->X;
-        end.Y = max(rect->Y, far_y);
+        angle = 90.0f;
         break;
     case LinearGradientModeForwardDiagonal:
-        start.X = min(rect->X, far_x);
-        start.Y = min(rect->Y, far_y);
-        end.X = max(rect->X, far_x);
-        end.Y = max(rect->Y, far_y);
+        angle = 45.0f;
         break;
     case LinearGradientModeBackwardDiagonal:
-        start.X = max(rect->X, far_x);
-        start.Y = min(rect->Y, far_y);
-        end.X = min(rect->X, far_x);
-        end.Y = max(rect->Y, far_y);
+        angle = 135.0f;
         break;
     default:
         return InvalidParameter;
     }
 
-    stat = GdipCreateLineBrush(&start, &end, startcolor, endcolor, wrap, line);
-
-    if (stat == Ok)
-        (*line)->rect = *rect;
-
-    return stat;
+    return GdipCreateLineBrushFromRectWithAngle(rect, startcolor, endcolor, angle, TRUE, wrap, line);
 }
 
 GpStatus WINGDIPAPI GdipCreateLineBrushFromRectI(GDIPCONST GpRect* rect,
@@ -484,15 +491,18 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRectWithAngle(GDIPCONST GpRectF* rect
     GpLineGradient **line)
 {
     GpStatus stat;
-    LinearGradientMode mode;
-    REAL exofs, eyofs;
+    REAL exofs, eyofs, far_x, far_y;
     REAL sin_angle, cos_angle, sin_cos_angle;
+    GpPointF start, end;
 
     TRACE("(%p, %x, %x, %.2f, %d, %d, %p)\n", rect, startcolor, endcolor, angle, isAngleScalable,
           wrap, line);
 
-    if (!rect || !rect->Width || !rect->Height)
+    if (!rect || !line || wrap == WrapModeClamp)
         return InvalidParameter;
+
+    if (!rect->Width || !rect->Height)
+        return OutOfMemory;
 
     angle = fmodf(angle, 360);
     if (angle < 0)
@@ -522,41 +532,60 @@ GpStatus WINGDIPAPI GdipCreateLineBrushFromRectWithAngle(GDIPCONST GpRectF* rect
     cos_angle = cosf(angle);
     sin_cos_angle = sin_angle * cos_angle;
 
-    if (sin_cos_angle >= 0)
-        mode = LinearGradientModeForwardDiagonal;
-    else
-        mode = LinearGradientModeBackwardDiagonal;
+    far_x = rect->X + rect->Width;
+    far_y = rect->Y + rect->Height;
 
-    stat = GdipCreateLineBrushFromRect(rect, startcolor, endcolor, mode, wrap, line);
-
-    if (stat == Ok)
+    if (angle == 0.0f)
     {
-        if (sin_cos_angle >= 0)
-        {
-            exofs = rect->Height * sin_cos_angle + rect->Width * cos_angle * cos_angle;
-            eyofs = rect->Height * sin_angle * sin_angle + rect->Width * sin_cos_angle;
-        }
-        else
-        {
-            exofs = rect->Width * sin_angle * sin_angle + rect->Height * sin_cos_angle;
-            eyofs = -rect->Width * sin_cos_angle + rect->Height * sin_angle * sin_angle;
-        }
-
-        if (sin_angle >= 0)
-        {
-            (*line)->endpoint.X = rect->X + exofs;
-            (*line)->endpoint.Y = rect->Y + eyofs;
-        }
-        else
-        {
-            (*line)->endpoint.X = (*line)->startpoint.X;
-            (*line)->endpoint.Y = (*line)->startpoint.Y;
-            (*line)->startpoint.X = rect->X + exofs;
-            (*line)->startpoint.Y = rect->Y + eyofs;
-        }
-
-        linegradient_init_transform(*line);
+        start.X = min(rect->X, far_x);
+        start.Y = rect->Y;
+        end.X = max(rect->X, far_x);
+        end.Y = rect->Y;
     }
+    else if (sin_cos_angle >= 0)
+    {
+        start.X = min(rect->X, far_x);
+        start.Y = min(rect->Y, far_y);
+        end.X = max(rect->X, far_x);
+        end.Y = max(rect->Y, far_y);
+    }
+    else
+    {
+        start.X = max(rect->X, far_x);
+        start.Y = min(rect->Y, far_y);
+        end.X = min(rect->X, far_x);
+        end.Y = max(rect->Y, far_y);
+    }
+
+    stat = create_line_brush(rect, startcolor, endcolor, wrap, line);
+    if (stat != Ok || angle == 0.0f)
+        return stat;
+
+    if (sin_cos_angle >= 0)
+    {
+        exofs = rect->Height * sin_cos_angle + rect->Width * cos_angle * cos_angle;
+        eyofs = rect->Height * sin_angle * sin_angle + rect->Width * sin_cos_angle;
+    }
+    else
+    {
+        exofs = rect->Width * sin_angle * sin_angle + rect->Height * sin_cos_angle;
+        eyofs = -rect->Width * sin_cos_angle + rect->Height * sin_angle * sin_angle;
+    }
+
+    if (sin_angle >= 0)
+    {
+        end.X = rect->X + exofs;
+        end.Y = rect->Y + eyofs;
+    }
+    else
+    {
+        end.X = start.X;
+        end.Y = start.Y;
+        start.X = rect->X + exofs;
+        start.Y = rect->Y + eyofs;
+    }
+
+    linegradient_init_transform(&start, &end, *line);
 
     return stat;
 }
@@ -951,7 +980,7 @@ GpStatus WINGDIPAPI GdipGetHatchForegroundColor(GpHatch *brush, ARGB *forecol)
     return Ok;
 }
 
-GpStatus WINGDIPAPI GdipGetHatchStyle(GpHatch *brush, HatchStyle *hatchstyle)
+GpStatus WINGDIPAPI GdipGetHatchStyle(GpHatch *brush, GpHatchStyle *hatchstyle)
 {
     TRACE("(%p, %p)\n", brush, hatchstyle);
 
@@ -1691,6 +1720,18 @@ GpStatus WINGDIPAPI GdipSetPathGradientGammaCorrection(GpPathGradient *grad,
     grad->gamma = gamma;
 
     return Ok;
+}
+
+GpStatus WINGDIPAPI GdipSetPathGradientPath(GpPathGradient *grad, GDIPCONST GpPath *path)
+{
+    static int calls;
+
+    TRACE("(%p, %p)\n", grad, path);
+
+    if (!(calls++))
+        FIXME("not implemented\n");
+
+    return NotImplemented;
 }
 
 GpStatus WINGDIPAPI GdipSetPathGradientSigmaBlend(GpPathGradient *grad,

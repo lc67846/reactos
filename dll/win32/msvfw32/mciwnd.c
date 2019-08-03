@@ -21,12 +21,19 @@
  * Add support for MCIWNDF_RECORD.
  */
 
-#include "msvideo_private.h"
+#include <stdarg.h>
 
-#include <winternl.h>
-#include <digitalv.h>
-#include <commctrl.h>
-#include <wine/unicode.h>
+#include "windef.h"
+#include "winbase.h"
+#include "winnls.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "winternl.h"
+#include "vfw.h"
+#include "digitalv.h"
+#include "commctrl.h"
+#include "wine/unicode.h"
+#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mci);
 
@@ -999,8 +1006,7 @@ end_of_mci_open:
                 cmdW = (LPWSTR)lParam;
 
             mwi->lasterror = mciSendStringW(cmdW, mwi->return_string,
-                                            sizeof(mwi->return_string)/sizeof(mwi->return_string[0]),
-                                            0);
+                                            ARRAY_SIZE(mwi->return_string), 0);
             if (mwi->lasterror)
                 MCIWND_notify_error(mwi);
 

@@ -20,7 +20,6 @@
 #ifndef _M_ARM
 #include <freeldr.h>
 
-#define NDEBUG
 #include <debug.h>
 
 DBG_DEFAULT_CHANNEL(DISK);
@@ -105,6 +104,9 @@ BOOLEAN DiskGetBootPath(OUT PCHAR BootPath, IN ULONG Size)
     if (*FrldrBootPath)
         goto Done;
 
+    if (Size)
+        BootPath[0] = ANSI_NULL;
+
     /* 0x49 is our magic ramdisk drive, so try to detect it first */
     if (FrldrBootDrive == 0x49)
     {
@@ -128,9 +130,9 @@ BOOLEAN DiskGetBootPath(OUT PCHAR BootPath, IN ULONG Size)
         PARTITION_TABLE_ENTRY PartitionEntry;
 
         /* This is a hard disk */
-        if (!DiskGetActivePartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
+        if (!DiskGetBootPartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
         {
-            ERR("Invalid active partition information\n");
+            ERR("Failed to get boot partition entry\n");
             return FALSE;
         }
 

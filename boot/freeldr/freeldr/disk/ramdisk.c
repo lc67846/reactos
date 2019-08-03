@@ -10,7 +10,7 @@
 /* INCLUDES *******************************************************************/
 
 #include <freeldr.h>
-#define NDEBUG
+
 #include <debug.h>
 
 /* GLOBALS ********************************************************************/
@@ -34,7 +34,7 @@ static ARC_STATUS RamDiskGetFileInformation(ULONG FileId, FILEINFORMATION* Infor
     //
     // Give current seek offset and ram disk size to caller
     //
-    RtlZeroMemory(Information, sizeof(FILEINFORMATION));
+    RtlZeroMemory(Information, sizeof(*Information));
     Information->EndingAddress.LowPart = gRamDiskSize;
     Information->CurrentAddress.LowPart = gRamDiskOffset;
 
@@ -112,7 +112,7 @@ VOID
 NTAPI
 RamDiskInitialize(VOID)
 {
-    /* Setup the RAMDISK device */
+    /* Register the RAMDISK device */
     FsRegisterDevice("ramdisk(0)", &RamDiskVtbl);
 }
 
@@ -131,6 +131,7 @@ RamDiskLoadVirtualFile(IN PCHAR FileName)
     //
     // Display progress
     //
+    UiDrawBackdrop();
     UiDrawProgressBarCenter(1, 100, MsgBuffer);
 
     //
@@ -229,8 +230,8 @@ RamDiskLoadVirtualFile(IN PCHAR FileName)
 
     FsCloseFile(RamFile);
 
-    // Register a new device for the ramdisk
-    FsRegisterDevice("ramdisk(0)", &RamDiskVtbl);
+    /* Setup the RAMDISK device */
+    RamDiskInitialize();
 
     return TRUE;
 }

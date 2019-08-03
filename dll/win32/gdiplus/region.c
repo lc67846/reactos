@@ -17,7 +17,19 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdarg.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "wingdi.h"
+
+#include "objbase.h"
+
+#include "gdiplus.h"
 #include "gdiplus_private.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(gdiplus);
 
 /**********************************************************
  *
@@ -63,12 +75,6 @@
  */
 
 #define FLAGS_INTPATH   0x4000
-
-struct memory_buffer
-{
-    const BYTE *buffer;
-    INT size, pos;
-};
 
 struct region_header
 {
@@ -766,24 +772,6 @@ GpStatus WINGDIPAPI GdipGetRegionData(GpRegion *region, BYTE *buffer, UINT size,
     return Ok;
 }
 
-static inline void init_memory_buffer(struct memory_buffer *mbuf, const BYTE *buffer, INT size)
-{
-    mbuf->buffer = buffer;
-    mbuf->size = size;
-    mbuf->pos = 0;
-}
-
-static inline const void *buffer_read(struct memory_buffer *mbuf, INT size)
-{
-    if (mbuf->size - mbuf->pos >= size)
-    {
-        const void *data = mbuf->buffer + mbuf->pos;
-        mbuf->pos += size;
-        return data;
-    }
-    return NULL;
-}
-
 static GpStatus read_element(struct memory_buffer *mbuf, GpRegion *region, region_element *node, INT *count)
 {
     GpStatus status;
@@ -1410,10 +1398,46 @@ static GpStatus transform_region_element(region_element* element, GpMatrix *matr
             return Ok;
         case RegionDataRect:
         {
-            /* We can't transform a rectangle, so convert it to a path. */
             GpRegion *new_region;
             GpPath *path;
 
+            if (matrix->matrix[1] == 0.0 && matrix->matrix[2] == 0.0)
+            {
+                GpPointF points[2];
+
+                points[0].X = element->elementdata.rect.X;
+                points[0].Y = element->elementdata.rect.Y;
+                points[1].X = element->elementdata.rect.X + element->elementdata.rect.Width;
+                points[1].Y = element->elementdata.rect.Y + element->elementdata.rect.Height;
+
+                stat = GdipTransformMatrixPoints(matrix, points, 2);
+                if (stat != Ok)
+                    return stat;
+
+                if (points[0].X > points[1].X)
+                {
+                    REAL temp;
+                    temp = points[0].X;
+                    points[0].X = points[1].X;
+                    points[1].X = temp;
+                }
+
+                if (points[0].Y > points[1].Y)
+                {
+                    REAL temp;
+                    temp = points[0].Y;
+                    points[0].Y = points[1].Y;
+                    points[1].Y = temp;
+                }
+
+                element->elementdata.rect.X = points[0].X;
+                element->elementdata.rect.Y = points[0].Y;
+                element->elementdata.rect.Width = points[1].X - points[0].X;
+                element->elementdata.rect.Height = points[1].Y - points[0].Y;
+                return Ok;
+            }
+
+            /* We can't rotate/shear a rectangle, so convert it to a path. */
             stat = GdipCreatePath(FillModeAlternate, &path);
             if (stat == Ok)
             {

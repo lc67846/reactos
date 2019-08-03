@@ -2,8 +2,8 @@ string(TIMESTAMP KERNEL_VERSION_BUILD %Y%m%d UTC)
 
 set(KERNEL_VERSION_MAJOR "0")
 set(KERNEL_VERSION_MINOR "4")
-set(KERNEL_VERSION_PATCH_LEVEL "7")
-set(COPYRIGHT_YEAR "2017")
+set(KERNEL_VERSION_PATCH_LEVEL "13")
+set(COPYRIGHT_YEAR "2019")
 
 # KERNEL_VERSION_BUILD_TYPE is "dev" for Git builds
 # or "RC1", "RC2", "" for releases.
@@ -39,7 +39,7 @@ if(EXISTS "${REACTOS_SOURCE_DIR}/.git")
         endif()
 
         execute_process(
-            COMMAND "${GIT_EXECUTABLE}" describe --abbrev=7
+            COMMAND "${GIT_EXECUTABLE}" describe --abbrev=7 --long --always
             WORKING_DIRECTORY ${REACTOS_SOURCE_DIR}
             OUTPUT_VARIABLE GIT_DESCRIBE_REVISION
             RESULT_VARIABLE GIT_CALL_RESULT
@@ -53,4 +53,3 @@ endif()
 
 configure_file(sdk/include/reactos/version.h.cmake ${REACTOS_BINARY_DIR}/sdk/include/reactos/version.h)
 configure_file(sdk/include/reactos/buildno.h.cmake ${REACTOS_BINARY_DIR}/sdk/include/reactos/buildno.h)
-configure_file(sdk/include/reactos/builddir.h.cmake ${REACTOS_BINARY_DIR}/sdk/include/reactos/builddir.h)

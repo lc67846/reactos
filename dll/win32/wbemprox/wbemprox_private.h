@@ -16,39 +16,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _WBEMPROX_PRIVATE_H_
-#define _WBEMPROX_PRIVATE_H_
+#pragma once
 
-#include <config.h>
-
-#include <stdarg.h>
-
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
-#define COBJMACROS
-#define NONAMELESSUNION
-#define NONAMELESSSTRUCT
-
-#include <ntstatus.h>
-#define WIN32_NO_STATUS
-#include <windef.h>
-#include <winbase.h>
-#include <winsvc.h>
-#include <objbase.h>
-#include <oleauto.h>
-#include <wbemcli.h>
-
-#include <wine/debug.h>
-#include <wine/list.h>
-#include <wine/unicode.h>
-
-WINE_DEFAULT_DEBUG_CHANNEL(wbemprox);
+#include "wine/debug.h"
+#include "wine/heap.h"
+#include "wine/list.h"
+#include "wine/unicode.h"
 
 IClientSecurity client_security DECLSPEC_HIDDEN;
 struct list *table_list DECLSPEC_HIDDEN;
-
-#define SIZEOF(array) (sizeof(array)/sizeof((array)[0]))
 
 enum param_direction
 {
@@ -242,6 +218,7 @@ HRESULT EnumWbemClassObject_create(struct query *, LPVOID *) DECLSPEC_HIDDEN;
 HRESULT WbemQualifierSet_create(const WCHAR *, const WCHAR *, LPVOID *) DECLSPEC_HIDDEN;
 
 HRESULT process_get_owner(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
+HRESULT reg_create_key(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
 HRESULT reg_enum_key(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
 HRESULT reg_enum_values(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
 HRESULT reg_get_stringvalue(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
@@ -251,26 +228,6 @@ HRESULT service_start_service(IWbemClassObject *, IWbemClassObject *, IWbemClass
 HRESULT service_stop_service(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
 HRESULT security_get_sd(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
 HRESULT security_set_sd(IWbemClassObject *, IWbemClassObject *, IWbemClassObject **) DECLSPEC_HIDDEN;
-
-static inline void* __WINE_ALLOC_SIZE(1) heap_alloc(size_t size)
-{
-    return HeapAlloc(GetProcessHeap(), 0, size);
-}
-
-static inline void* __WINE_ALLOC_SIZE(1) heap_alloc_zero(size_t size)
-{
-    return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
-}
-
-static inline void* __WINE_ALLOC_SIZE(2) heap_realloc(void *mem, size_t size)
-{
-    return HeapReAlloc(GetProcessHeap(), 0, mem, size);
-}
-
-static inline BOOL heap_free(void *mem)
-{
-    return HeapFree(GetProcessHeap(), 0, mem);
-}
 
 static inline WCHAR *heap_strdupW( const WCHAR *src )
 {
@@ -287,6 +244,7 @@ static const WCHAR class_systemsecurityW[] = {'_','_','S','y','s','t','e','m','S
 
 static const WCHAR prop_nameW[] = {'N','a','m','e',0};
 
+static const WCHAR method_createkeyW[] = {'C','r','e','a','t','e','K','e','y',0};
 static const WCHAR method_enumkeyW[] = {'E','n','u','m','K','e','y',0};
 static const WCHAR method_enumvaluesW[] = {'E','n','u','m','V','a','l','u','e','s',0};
 static const WCHAR method_getownerW[] = {'G','e','t','O','w','n','e','r',0};
@@ -308,5 +266,3 @@ static const WCHAR param_typesW[] = {'T','y','p','e','s',0};
 static const WCHAR param_userW[] = {'U','s','e','r',0};
 static const WCHAR param_valueW[] = {'s','V','a','l','u','e',0};
 static const WCHAR param_valuenameW[] = {'s','V','a','l','u','e','N','a','m','e',0};
-
-#endif /* _WBEMPROX_PRIVATE_H_ */

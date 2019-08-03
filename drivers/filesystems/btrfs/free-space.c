@@ -25,7 +25,7 @@ static NTSTATUS remove_free_space_inode(device_extension* Vcb, UINT64 inode, LIS
     NTSTATUS Status;
     fcb* fcb;
 
-    Status = open_fcb(Vcb, Vcb->root_root, inode, BTRFS_TYPE_FILE, NULL, NULL, &fcb, PagedPool, Irp);
+    Status = open_fcb(Vcb, Vcb->root_root, inode, BTRFS_TYPE_FILE, NULL, FALSE, NULL, &fcb, PagedPool, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("open_fcb returned %08x\n", Status);
         return Status;
@@ -46,11 +46,11 @@ static NTSTATUS remove_free_space_inode(device_extension* Vcb, UINT64 inode, LIS
     Status = flush_fcb(fcb, FALSE, batchlist, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("flush_fcb returned %08x\n", Status);
-        free_fcb(Vcb, fcb);
+        free_fcb(fcb);
         return Status;
     }
 
-    free_fcb(Vcb, fcb);
+    free_fcb(fcb);
 
     return STATUS_SUCCESS;
 }
@@ -103,7 +103,7 @@ NTSTATUS clear_free_space_cache(device_extension* Vcb, LIST_ENTRY* batchlist, PI
                         chunk* c = CONTAINING_RECORD(le, chunk, list_entry);
 
                         if (c->offset == tp.item->key.offset && c->cache) {
-                            free_fcb(Vcb, c->cache);
+                            reap_fcb(c->cache);
                             c->cache = NULL;
                         }
 
@@ -161,12 +161,12 @@ NTSTATUS clear_free_space_cache(device_extension* Vcb, LIST_ENTRY* batchlist, PI
             chunk* c = CONTAINING_RECORD(le, chunk, list_entry);
 
             if (!c->cache_loaded) {
-                ExAcquireResourceExclusiveLite(&c->lock, TRUE);
+                acquire_chunk_lock(c, Vcb);
 
                 Status = load_cache_chunk(Vcb, c, NULL);
                 if (!NT_SUCCESS(Status)) {
                     ERR("load_cache_chunk(%llx) returned %08x\n", c->offset, Status);
-                    ExReleaseResourceLite(&c->lock);
+                    release_chunk_lock(c, Vcb);
                     ExReleaseResourceLite(&Vcb->chunk_lock);
                     return Status;
                 }
@@ -174,7 +174,7 @@ NTSTATUS clear_free_space_cache(device_extension* Vcb, LIST_ENTRY* batchlist, PI
                 c->changed = TRUE;
                 c->space_changed = TRUE;
 
-                ExReleaseResourceLite(&c->lock);
+                release_chunk_lock(c, Vcb);
             }
 
             le = le->Flink;
@@ -497,7 +497,7 @@ NTSTATUS load_stored_free_space_cache(device_extension* Vcb, chunk* c, BOOL load
     num_entries = fsi->num_entries;
     num_bitmaps = fsi->num_bitmaps;
 
-    Status = open_fcb(Vcb, Vcb->root_root, inode, BTRFS_TYPE_FILE, NULL, NULL, &c->cache, PagedPool, Irp);
+    Status = open_fcb(Vcb, Vcb->root_root, inode, BTRFS_TYPE_FILE, NULL, FALSE, NULL, &c->cache, PagedPool, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("open_fcb returned %08x\n", Status);
         return STATUS_NOT_FOUND;
@@ -508,7 +508,7 @@ NTSTATUS load_stored_free_space_cache(device_extension* Vcb, chunk* c, BOOL load
 
     if (c->cache->inode_item.st_size == 0) {
         WARN("cache had zero length\n");
-        free_fcb(Vcb, c->cache);
+        free_fcb(c->cache);
         c->cache = NULL;
         return STATUS_NOT_FOUND;
     }
@@ -524,9 +524,14 @@ NTSTATUS load_stored_free_space_cache(device_extension* Vcb, chunk* c, BOOL load
 
     if (!data) {
         ERR("out of memory\n");
-        free_fcb(Vcb, c->cache);
+        free_fcb(c->cache);
         c->cache = NULL;
         return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    if (c->chunk_item->size < 0x6400000) { // 100 MB
+        WARN("deleting free space cache for chunk smaller than 100MB\n");
+        goto clearcache;
     }
 
     Status = read_file(c->cache, data, 0, c->cache->inode_item.st_size, NULL, NULL);
@@ -537,7 +542,7 @@ NTSTATUS load_stored_free_space_cache(device_extension* Vcb, chunk* c, BOOL load
         c->cache->deleted = TRUE;
         mark_fcb_dirty(c->cache);
 
-        free_fcb(Vcb, c->cache);
+        free_fcb(c->cache);
         c->cache = NULL;
         return STATUS_NOT_FOUND;
     }
@@ -975,14 +980,14 @@ static NTSTATUS insert_cache_extent(fcb* fcb, UINT64 start, UINT64 length, LIST_
         c = CONTAINING_RECORD(le, chunk, list_entry);
 
         if (!c->readonly && !c->reloc) {
-            ExAcquireResourceExclusiveLite(&c->lock, TRUE);
+            acquire_chunk_lock(c, fcb->Vcb);
 
             if (c->chunk_item->type == flags && (c->chunk_item->size - c->used) >= length) {
                 if (insert_extent_chunk(fcb->Vcb, fcb, c, start, length, FALSE, NULL, NULL, rollback, BTRFS_COMPRESSION_NONE, length, FALSE, 0))
                     return STATUS_SUCCESS;
             }
 
-            ExReleaseResourceLite(&c->lock);
+            release_chunk_lock(c, fcb->Vcb);
         }
 
         le = le->Flink;
@@ -995,14 +1000,14 @@ static NTSTATUS insert_cache_extent(fcb* fcb, UINT64 start, UINT64 length, LIST_
         return Status;
     }
 
-    ExAcquireResourceExclusiveLite(&c->lock, TRUE);
+    acquire_chunk_lock(c, fcb->Vcb);
 
     if (c->chunk_item->type == flags && (c->chunk_item->size - c->used) >= length) {
         if (insert_extent_chunk(fcb->Vcb, fcb, c, start, length, FALSE, NULL, NULL, rollback, BTRFS_COMPRESSION_NONE, length, FALSE, 0))
             return STATUS_SUCCESS;
     }
 
-    ExReleaseResourceLite(&c->lock);
+    release_chunk_lock(c, fcb->Vcb);
 
     return STATUS_DISK_FULL;
 }
@@ -1126,7 +1131,7 @@ static NTSTATUS allocate_cache_chunk(device_extension* Vcb, chunk* c, BOOL* chan
         fsi = ExAllocatePoolWithTag(PagedPool, sizeof(FREE_SPACE_ITEM), ALLOC_TAG);
         if (!fsi) {
             ERR("out of memory\n");
-            free_fcb(Vcb, c->cache);
+            reap_fcb(c->cache);
             c->cache = NULL;
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -1139,7 +1144,7 @@ static NTSTATUS allocate_cache_chunk(device_extension* Vcb, chunk* c, BOOL* chan
         if (!NT_SUCCESS(Status)) {
             ERR("error - find_item returned %08x\n", Status);
             ExFreePool(fsi);
-            free_fcb(Vcb, c->cache);
+            reap_fcb(c->cache);
             c->cache = NULL;
             return Status;
         }
@@ -1149,7 +1154,7 @@ static NTSTATUS allocate_cache_chunk(device_extension* Vcb, chunk* c, BOOL* chan
             if (!NT_SUCCESS(Status)) {
                 ERR("delete_tree_item returned %08x\n", Status);
                 ExFreePool(fsi);
-                free_fcb(Vcb, c->cache);
+                reap_fcb(c->cache);
                 c->cache = NULL;
                 return Status;
             }
@@ -1163,7 +1168,7 @@ static NTSTATUS allocate_cache_chunk(device_extension* Vcb, chunk* c, BOOL* chan
         if (!NT_SUCCESS(Status)) {
             ERR("insert_tree_item returned %08x\n", Status);
             ExFreePool(fsi);
-            free_fcb(Vcb, c->cache);
+            reap_fcb(c->cache);
             c->cache = NULL;
             return Status;
         }
@@ -1173,7 +1178,7 @@ static NTSTATUS allocate_cache_chunk(device_extension* Vcb, chunk* c, BOOL* chan
         Status = insert_cache_extent(c->cache, 0, new_cache_size, rollback);
         if (!NT_SUCCESS(Status)) {
             ERR("insert_cache_extent returned %08x\n", Status);
-            free_fcb(Vcb, c->cache);
+            reap_fcb(c->cache);
             c->cache = NULL;
             return Status;
         }
@@ -1184,7 +1189,7 @@ static NTSTATUS allocate_cache_chunk(device_extension* Vcb, chunk* c, BOOL* chan
         Status = flush_fcb(c->cache, TRUE, batchlist, Irp);
         if (!NT_SUCCESS(Status)) {
             ERR("flush_fcb returned %08x\n", Status);
-            free_fcb(Vcb, c->cache);
+            free_fcb(c->cache);
             c->cache = NULL;
             return Status;
         }
@@ -1357,12 +1362,12 @@ NTSTATUS allocate_cache(device_extension* Vcb, BOOL* changed, PIRP Irp, LIST_ENT
     while (le != &Vcb->chunks) {
         chunk* c = CONTAINING_RECORD(le, chunk, list_entry);
 
-        if (c->space_changed) {
+        if (c->space_changed && c->chunk_item->size >= 0x6400000) { // 100MB
             BOOL b;
 
-            ExAcquireResourceExclusiveLite(&c->lock, TRUE);
+            acquire_chunk_lock(c, Vcb);
             Status = allocate_cache_chunk(Vcb, c, &b, &batchlist, Irp, rollback);
-            ExReleaseResourceLite(&c->lock);
+            release_chunk_lock(c, Vcb);
 
             if (b)
                 *changed = TRUE;
@@ -1827,10 +1832,10 @@ NTSTATUS update_chunk_caches(device_extension* Vcb, PIRP Irp, LIST_ENTRY* rollba
     while (le != &Vcb->chunks) {
         c = CONTAINING_RECORD(le, chunk, list_entry);
 
-        if (c->space_changed) {
-            ExAcquireResourceExclusiveLite(&c->lock, TRUE);
+        if (c->space_changed && c->chunk_item->size >= 0x6400000) { // 100MB
+            acquire_chunk_lock(c, Vcb);
             Status = update_chunk_cache(Vcb, c, &now, &batchlist, Irp, rollback);
-            ExReleaseResourceLite(&c->lock);
+            release_chunk_lock(c, Vcb);
 
             if (!NT_SUCCESS(Status)) {
                 ERR("update_chunk_cache(%llx) returned %08x\n", c->offset, Status);
@@ -1897,9 +1902,9 @@ NTSTATUS update_chunk_caches_tree(device_extension* Vcb, PIRP Irp) {
         c = CONTAINING_RECORD(le, chunk, list_entry);
 
         if (c->space_changed) {
-            ExAcquireResourceExclusiveLite(&c->lock, TRUE);
+            acquire_chunk_lock(c, Vcb);
             Status = update_chunk_cache_tree(Vcb, c, &batchlist);
-            ExReleaseResourceLite(&c->lock);
+            release_chunk_lock(c, Vcb);
 
             if (!NT_SUCCESS(Status)) {
                 ERR("update_chunk_cache_tree(%llx) returned %08x\n", c->offset, Status);

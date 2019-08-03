@@ -18,7 +18,20 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "fusionpriv.h"
+#include <stdarg.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "ole2.h"
+#include "fusion.h"
+#include "wine/debug.h"
+#include "wine/unicode.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(fusion);
+
 
 /******************************************************************
  *  InitializeFusion   (FUSION.@)
@@ -26,7 +39,7 @@
 HRESULT WINAPI InitializeFusion(void)
 {
     FIXME("\n");
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 /******************************************************************
@@ -131,9 +144,9 @@ HRESULT WINAPI GetCachePath(ASM_CACHE_FLAGS dwCacheFlags, LPWSTR pwzCachePath,
         case ASM_CACHE_GAC:
         {
             strcpyW(path + len, assembly);
-            len += sizeof(assembly)/sizeof(WCHAR) - 1;
+            len += ARRAY_SIZE(assembly) - 1;
             strcpyW(path + len, gac);
-            len += sizeof(gac)/sizeof(WCHAR) - 1;
+            len += ARRAY_SIZE(gac) - 1;
             break;
         }
         case ASM_CACHE_DOWNLOAD:
@@ -143,13 +156,13 @@ HRESULT WINAPI GetCachePath(ASM_CACHE_FLAGS dwCacheFlags, LPWSTR pwzCachePath,
         }
         case ASM_CACHE_ROOT:
             strcpyW(path + len, assembly);
-            len += sizeof(assembly)/sizeof(WCHAR) - 1;
+            len += ARRAY_SIZE(assembly) - 1;
             break;
         case ASM_CACHE_ROOT_EX:
             strcpyW(path + len, dotnet);
-            len += sizeof(dotnet)/sizeof(WCHAR) - 1;
+            len += ARRAY_SIZE(dotnet) - 1;
             strcpyW(path + len, assembly);
-            len += sizeof(assembly)/sizeof(WCHAR) - 1;
+            len += ARRAY_SIZE(assembly) - 1;
             break;
         default:
             return E_INVALIDARG;

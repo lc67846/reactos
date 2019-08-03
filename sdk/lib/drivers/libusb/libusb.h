@@ -24,6 +24,14 @@ extern "C"
 #include <portcls.h>
 #include <kcom.h>
 
+PVOID
+__cdecl
+operator new(
+    size_t iSize,
+    POOL_TYPE poolType,
+    ULONG tag);
+
+
 #include "common_interfaces.h"
 
 //

@@ -30,9 +30,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#undef WINVER
-#define WINVER 0x0600
-
 #include "wine/test.h"
 #include "windef.h"
 #include "winbase.h"
@@ -2483,7 +2480,7 @@ static void test_lcmapstring_unicode(lcmapstring_wrapper func_ptr, const char *f
     ok(ret == ret2, "%s ret %d, expected value %d\n", func_name, ret2, ret);
 
     /* test LCMAP_FULLWIDTH | LCMAP_HIRAGANA
-       (half-width katakana is converted into full-wdith hiragana) */
+       (half-width katakana is converted into full-width hiragana) */
     ret = func_ptr(LCMAP_FULLWIDTH | LCMAP_HIRAGANA,
                    halfwidth_text, -1, buf, sizeof(buf)/sizeof(WCHAR));
     ok(ret == lstrlenW(hiragana_text) + 1, "%s ret %d, error %d, expected value %d\n", func_name,
@@ -2782,42 +2779,51 @@ static void test_LocaleNameToLCID(void)
             ptr++;
         }
 
-        /* zh-Hant */
+        /* zh-Hant has LCID 0x7c04, but LocaleNameToLCID actually returns 0x0c04, which is the LCID of zh-HK */
         lcid = pLocaleNameToLCID(zhHantW, 0);
-        todo_wine ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_HONGKONG), SORT_DEFAULT),
+        ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_HONGKONG), SORT_DEFAULT),
            "%s: got wrong lcid 0x%04x\n", wine_dbgstr_w(zhHantW), lcid);
         ret = pLCIDToLocaleName(lcid, buffer, sizeof(buffer)/sizeof(WCHAR), 0);
         ok(ret > 0, "%s: got %d\n", wine_dbgstr_w(zhHantW), ret);
-        todo_wine ok(!lstrcmpW(zhhkW, buffer), "%s: got wrong locale name %s\n",
+        ok(!lstrcmpW(zhhkW, buffer), "%s: got wrong locale name %s\n",
+           wine_dbgstr_w(zhHantW), wine_dbgstr_w(buffer));
+        /* check that 0x7c04 also works and is mapped to zh-HK */
+        ret = pLCIDToLocaleName(MAKELANGID(LANG_CHINESE_TRADITIONAL, SUBLANG_CHINESE_TRADITIONAL), buffer, sizeof(buffer)/sizeof(WCHAR), 0);
+        todo_wine ok(ret > 0, "%s: got %d\n", wine_dbgstr_w(zhHantW), ret);
+        ok(!lstrcmpW(zhhkW, buffer), "%s: got wrong locale name %s\n",
            wine_dbgstr_w(zhHantW), wine_dbgstr_w(buffer));
 
         /* zh-hant */
         lcid = pLocaleNameToLCID(zhhantW, 0);
-        todo_wine ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_HONGKONG), SORT_DEFAULT),
-           "%s: got wrong lcid 0x%04x\n", wine_dbgstr_w(zhhantW),
-           MAKELCID(MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_HONGKONG), SORT_DEFAULT));
+        ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_HONGKONG), SORT_DEFAULT),
+           "%s: got wrong lcid 0x%04x\n", wine_dbgstr_w(zhhantW), lcid);
         ret = pLCIDToLocaleName(lcid, buffer, sizeof(buffer)/sizeof(WCHAR), 0);
         ok(ret > 0, "%s: got %d\n", wine_dbgstr_w(zhhantW), ret);
-        todo_wine ok(!lstrcmpW(zhhkW, buffer), "%s: got wrong locale name %s\n",
+        ok(!lstrcmpW(zhhkW, buffer), "%s: got wrong locale name %s\n",
            wine_dbgstr_w(zhhantW), wine_dbgstr_w(buffer));
 
-        /* zh-Hans */
+        /* zh-Hans has LCID 0x0004, but LocaleNameToLCID actually returns 0x0804, which is the LCID of zh-CN */
         lcid = pLocaleNameToLCID(zhHansW, 0);
-        todo_wine ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE_SIMPLIFIED, SUBLANG_CHINESE_SIMPLIFIED), SORT_DEFAULT),
+        /* check that LocaleNameToLCID actually returns 0x0804 */
+        ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE_SIMPLIFIED, SUBLANG_CHINESE_SIMPLIFIED), SORT_DEFAULT),
            "%s: got wrong lcid 0x%04x\n", wine_dbgstr_w(zhHansW), lcid);
         ret = pLCIDToLocaleName(lcid, buffer, sizeof(buffer)/sizeof(WCHAR), 0);
         ok(ret > 0, "%s: got %d\n", wine_dbgstr_w(zhHansW), ret);
-        todo_wine ok(!lstrcmpW(zhcnW, buffer), "%s: got wrong locale name %s\n",
+        ok(!lstrcmpW(zhcnW, buffer), "%s: got wrong locale name %s\n",
+           wine_dbgstr_w(zhHansW), wine_dbgstr_w(buffer));
+        /* check that 0x0004 also works and is mapped to zh-CN */
+        ret = pLCIDToLocaleName(MAKELANGID(LANG_CHINESE, SUBLANG_NEUTRAL), buffer, sizeof(buffer)/sizeof(WCHAR), 0);
+        ok(ret > 0, "%s: got %d\n", wine_dbgstr_w(zhHansW), ret);
+        ok(!lstrcmpW(zhcnW, buffer), "%s: got wrong locale name %s\n",
            wine_dbgstr_w(zhHansW), wine_dbgstr_w(buffer));
 
         /* zh-hans */
         lcid = pLocaleNameToLCID(zhhansW, 0);
-        todo_wine ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE_SIMPLIFIED, SUBLANG_CHINESE_SIMPLIFIED), SORT_DEFAULT),
-           "%s: got wrong lcid 0x%04x\n", wine_dbgstr_w(zhhansW),
-           MAKELCID(MAKELANGID(LANG_CHINESE_SIMPLIFIED, SUBLANG_CHINESE_SIMPLIFIED), SORT_DEFAULT));
+        ok(lcid == MAKELCID(MAKELANGID(LANG_CHINESE_SIMPLIFIED, SUBLANG_CHINESE_SIMPLIFIED), SORT_DEFAULT),
+           "%s: got wrong lcid 0x%04x\n", wine_dbgstr_w(zhhansW), lcid);
         ret = pLCIDToLocaleName(lcid, buffer, sizeof(buffer)/sizeof(WCHAR), 0);
         ok(ret > 0, "%s: got %d\n", wine_dbgstr_w(zhhansW), ret);
-        todo_wine ok(!lstrcmpW(zhcnW, buffer), "%s: got wrong locale name %s\n",
+        ok(!lstrcmpW(zhcnW, buffer), "%s: got wrong locale name %s\n",
            wine_dbgstr_w(zhhansW), wine_dbgstr_w(buffer));
     }
 }
@@ -4476,6 +4482,14 @@ static void test_GetLocaleInfoEx(void)
         ret = pGetLocaleInfoEx(enW, LOCALE_SABBREVLANGNAME, bufferW, sizeof(bufferW)/sizeof(WCHAR));
         ok(ret == lstrlenW(bufferW)+1, "got %d\n", ret);
         ok(!lstrcmpW(bufferW, enuW), "got %s\n", wine_dbgstr_w(bufferW));
+
+        ret = pGetLocaleInfoEx(enusW, LOCALE_SPARENT, bufferW, sizeof(bufferW)/sizeof(WCHAR));
+        ok(ret == lstrlenW(bufferW)+1, "got %d\n", ret);
+        ok(!lstrcmpW(bufferW, enW), "got %s\n", wine_dbgstr_w(bufferW));
+
+        ret = pGetLocaleInfoEx(enW, LOCALE_SPARENT, bufferW, sizeof(bufferW)/sizeof(WCHAR));
+        ok(ret == 1, "got %d\n", ret);
+        ok(!bufferW[0], "got %s\n", wine_dbgstr_w(bufferW));
 
         ret = pGetLocaleInfoEx(enW, LOCALE_SCOUNTRY, bufferW, sizeof(bufferW)/sizeof(WCHAR));
         ok(ret == lstrlenW(bufferW)+1, "got %d\n", ret);

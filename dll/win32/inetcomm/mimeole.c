@@ -19,10 +19,31 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define COBJMACROS
+#define NONAMELESSUNION
+
+#include <stdarg.h>
+#include <stdio.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "objbase.h"
+#include "ole2.h"
+#include "mimeole.h"
+#ifdef __REACTOS__
+#include <winreg.h>
+#endif
+#include "propvarutil.h"
+
+#include "wine/heap.h"
+#include "wine/list.h"
+#include "wine/debug.h"
+#include "wine/unicode.h"
+
 #include "inetcomm_private.h"
 
-#include <winreg.h>
-#include <propvarutil.h>
+WINE_DEFAULT_DEBUG_CHANNEL(inetcomm);
 
 typedef struct
 {
@@ -801,16 +822,21 @@ static void empty_param_list(struct list *list)
     }
 }
 
+static void free_header(header_t *header)
+{
+    list_remove(&header->entry);
+    PropVariantClear(&header->value);
+    empty_param_list(&header->params);
+    heap_free(header);
+}
+
 static void empty_header_list(struct list *list)
 {
     header_t *header, *cursor2;
 
     LIST_FOR_EACH_ENTRY_SAFE(header, cursor2, list, header_t, entry)
     {
-        list_remove(&header->entry);
-        PropVariantClear(&header->value);
-        empty_param_list(&header->params);
-        HeapFree(GetProcessHeap(), 0, header);
+        free_header(header);
     }
 }
 
@@ -1214,8 +1240,7 @@ static HRESULT WINAPI MimeBody_DeleteProp(
 
         if(found)
         {
-             list_remove(&cursor->entry);
-             HeapFree(GetProcessHeap(), 0, cursor);
+             free_header(cursor);
              return S_OK;
         }
     }
@@ -1563,9 +1588,8 @@ static HRESULT decode_base64(IStream *input, IStream **ret_stream)
 
         while(1) {
             /* skip invalid chars */
-            while(ptr < end &&
-                  (*ptr >= sizeof(base64_decode_table)/sizeof(*base64_decode_table)
-                   || base64_decode_table[*ptr] == -1))
+            while(ptr < end && (*ptr >= ARRAY_SIZE(base64_decode_table)
+                                || base64_decode_table[*ptr] == -1))
                 ptr++;
             if(ptr == end)
                 break;
@@ -3697,7 +3721,7 @@ HRESULT WINAPI MimeOleObjectFromMoniker(BINDF bindf, IMoniker *moniker, IBindCtx
         return E_OUTOFMEMORY;
 
     memcpy(mhtml_url, mhtml_prefixW, sizeof(mhtml_prefixW));
-    strcpyW(mhtml_url + sizeof(mhtml_prefixW)/sizeof(WCHAR), display_name);
+    strcpyW(mhtml_url + ARRAY_SIZE(mhtml_prefixW), display_name);
     HeapFree(GetProcessHeap(), 0, display_name);
 
     hres = CreateURLMoniker(NULL, mhtml_url, moniker_new);

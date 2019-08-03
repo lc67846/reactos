@@ -483,8 +483,6 @@ void remove_volume_child(_Inout_ _Requires_exclusive_lock_held_(_Curr_->child_lo
         }
 
         if (remove) {
-            PDEVICE_OBJECT pdo;
-
             if (vde->name.Buffer)
                 ExFreePool(vde->name.Buffer);
 
@@ -493,11 +491,7 @@ void remove_volume_child(_Inout_ _Requires_exclusive_lock_held_(_Curr_->child_lo
 
             ExDeleteResourceLite(&pdode->child_lock);
 
-            pdo = vde->pdo;
             IoDeleteDevice(vde->device);
-
-            if (no_pnp)
-                IoDeleteDevice(pdo);
         }
     } else
         ExReleaseResourceLite(&pdode->child_lock);
@@ -540,7 +534,7 @@ void volume_arrival(PDRIVER_OBJECT DriverObject, PUNICODE_STRING devpath) {
         TRACE("DeviceType = %u, DeviceNumber = %u, PartitionNumber = %u\n", sdn.DeviceType, sdn.DeviceNumber, sdn.PartitionNumber);
 
     // If we've just added a partition to a whole-disk filesystem, unmount it
-    if (sdn.DeviceNumber != 0xffffffff) {
+    if (sdn.DeviceNumber != 0xffffffff && sdn.PartitionNumber != 0) {
         LIST_ENTRY* le;
 
         ExAcquireResourceExclusiveLite(&pdo_list_lock, TRUE);
@@ -823,7 +817,7 @@ static void mountmgr_process_drive(PDEVICE_OBJECT mountmgr, PUNICODE_STRING devi
 static void mountmgr_updated(PDEVICE_OBJECT mountmgr, MOUNTMGR_MOUNT_POINTS* mmps) {
     ULONG i;
 
-    static WCHAR pref[] = L"\\DosDevices\\";
+    static const WCHAR pref[] = L"\\DosDevices\\";
 
     for (i = 0; i < mmps->NumberOfMountPoints; i++) {
         UNICODE_STRING symlink, device_name;
@@ -844,8 +838,8 @@ static void mountmgr_updated(PDEVICE_OBJECT mountmgr, MOUNTMGR_MOUNT_POINTS* mmp
             device_name.Length = device_name.MaximumLength = 0;
         }
 
-        if (symlink.Length > wcslen(pref) * sizeof(WCHAR) &&
-            RtlCompareMemory(symlink.Buffer, pref, wcslen(pref) * sizeof(WCHAR)) == wcslen(pref) * sizeof(WCHAR))
+        if (symlink.Length > sizeof(pref) - sizeof(WCHAR) &&
+            RtlCompareMemory(symlink.Buffer, pref, sizeof(pref) - sizeof(WCHAR)) == sizeof(pref) - sizeof(WCHAR))
             mountmgr_process_drive(mountmgr, &device_name);
     }
 }
@@ -913,8 +907,7 @@ void mountmgr_thread(_In_ void* context) {
 
         if (!NT_SUCCESS(Status) && Status != STATUS_BUFFER_OVERFLOW)
             ERR("IOCTL_MOUNTMGR_QUERY_POINTS 1 returned %08x\n", Status);
-
-        if (mmps.Size > 0) {
+        else if (mmps.Size > 0) {
             MOUNTMGR_MOUNT_POINTS* mmps2;
 
             mmps2 = ExAllocatePoolWithTag(NonPagedPool, mmps.Size, ALLOC_TAG);

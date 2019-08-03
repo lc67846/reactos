@@ -20,6 +20,14 @@
 #ifndef __WINE_DLLS_DINPUT_DINPUTDEVICE_PRIVATE_H
 #define __WINE_DLLS_DINPUT_DINPUTDEVICE_PRIVATE_H
 
+#include <stdarg.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "dinput.h"
+#include "wine/list.h"
+#include "dinput_private.h"
+
 typedef struct
 {
     int size;
@@ -105,9 +113,6 @@ typedef struct
     struct list entry;
     LPDIRECTINPUTEFFECT ref;
 } effect_list_item;
-
-extern const GUID DInput_Wine_Keyboard_GUID DECLSPEC_HIDDEN;
-extern const GUID DInput_Wine_Mouse_GUID DECLSPEC_HIDDEN;
 
 /* Various debug tools */
 extern void _dump_DIPROPHEADER(LPCDIPROPHEADER diph)  DECLSPEC_HIDDEN;

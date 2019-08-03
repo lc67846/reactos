@@ -48,6 +48,9 @@ tmp = 07777777777777777777777;
 ok(typeof(tmp) === "number" && tmp > 0xffffffff, "tmp = " + tmp);
 tmp = 07777777779777777777777;
 ok(typeof(tmp) === "number" && tmp > 0xffffffff, "tmp = " + tmp);
+ok(0xffffffff === 4294967295, "0xffffffff = " + 0xffffffff);
+tmp = 0x10000000000000000000000000000000000000000000000000000000000000000;
+ok(tmp === Math.pow(2, 256), "0x1000...00 != 2^256");
 
 ok(1 !== 2, "1 !== 2 is false");
 ok(null !== undefined, "null !== undefined is false");
@@ -477,6 +480,20 @@ ok(obj3.prop1 === 1, "obj3.prop1 is not 1");
 ok(obj3.prop2 === "boolean", "obj3.prop2 is not \"boolean\"");
 ok(obj3.constructor === Object, "unexpected obj3.constructor");
 
+if(invokeVersion >= 2) {
+    eval("tmp = {prop: 'value',}");
+    ok(tmp.prop === "value", "tmp.prop = " + tmp.prop);
+    eval("tmp = {prop: 'value',second:2,}");
+    ok(tmp.prop === "value", "tmp.prop = " + tmp.prop);
+}else {
+    try {
+        eval("tmp = {prop: 'value',}");
+    }catch(e) {
+        tmp = true;
+    }
+    ok(tmp === true, "exception not fired");
+}
+
 {
     var blockVar = 1;
     blockVar = 2;
@@ -631,6 +648,12 @@ ok(tmp === 0, "0 | NaN = " + tmp);
 tmp = 10;
 ok((tmp |= 0x10) === 26, "tmp(10) |= 0x10 !== 26");
 ok(getVT(tmp) === "VT_I4", "getVT(tmp |= 10) = " + getVT(tmp));
+
+tmp = (123 * Math.pow(2,32) + 2) | 0;
+ok(tmp === 2, "123*2^32+2 | 0 = " + tmp);
+
+tmp = (-123 * Math.pow(2,32) + 2) | 0;
+ok(tmp === 2, "123*2^32+2 | 0 = " + tmp);
 
 tmp = 3 & 5;
 ok(tmp === 1, "3 & 5 !== 1");
@@ -1137,6 +1160,27 @@ case 3:
     })();
     expect(ret, "ret");
     expect(x, "try,try2,finally2,finally,ret");
+
+    ret = (function() {
+        try {
+            return "try";
+            unreachable();
+        }catch(e) {
+            unreachable();
+        }finally {
+            new Object();
+            var tmp = (function() {
+                var s = new String();
+                try {
+                    s.length;
+                }finally {
+                    return 1;
+                }
+            })();
+        }
+        unreachable();
+    })();
+    expect(ret, "try");
 })();
 
 tmp = eval("1");
@@ -1171,6 +1215,10 @@ ok(tmp["0"] === undefined, "tmp[0] is not undefined");
 ok(tmp["3"] === 2, "tmp[3] !== 2");
 ok(tmp["6"] === true, "tmp[6] !== true");
 ok(tmp[2] === 1, "tmp[2] !== 1");
+ok(!("0" in tmp), "0 found in array");
+ok(!("1" in tmp), "1 found in array");
+ok("2" in tmp, "2 not found in array");
+ok(!("2" in [1,,,,]), "2 found in [1,,,,]");
 
 ok([1,].length === 2, "[1,].length !== 2");
 ok([,,].length === 3, "[,,].length !== 3");
@@ -1783,6 +1831,8 @@ ok(tmp, "tmp = " + tmp);
     }
     ok(x === undefined, "x = " + x);
 })();
+
+var get, set;
 
 /* NoNewline rule parser tests */
 while(true) {

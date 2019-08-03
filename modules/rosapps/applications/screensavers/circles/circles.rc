@@ -30,8 +30,14 @@ IDI_ICON  ICON  DISCARDABLE  "res/icon_circles.ico"
 #ifdef LANGUAGE_FR_FR
     #include "lang/fr-FR.rc"
 #endif
+#ifdef LANGUAGE_IT_IT
+    #include "lang/it-IT.rc"
+#endif
 #ifdef LANGUAGE_NO_NO
     #include "lang/no-NO.rc"
+#endif
+#ifdef LANGUAGE_PL_PL
+    #include "lang/pl-PL.rc"
 #endif
 #ifdef LANGUAGE_RO_RO
     #include "lang/ro-RO.rc"

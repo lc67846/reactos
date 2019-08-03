@@ -26,6 +26,7 @@ PDEVICE_NODE PopSystemPowerDeviceNode = NULL;
 BOOLEAN PopAcpiPresent = FALSE;
 POP_POWER_ACTION PopAction;
 WORK_QUEUE_ITEM PopShutdownWorkItem;
+SYSTEM_POWER_CAPABILITIES PopCapabilities;
 
 /* PRIVATE FUNCTIONS *********************************************************/
 
@@ -289,9 +290,9 @@ PopSetSystemPowerState(SYSTEM_POWER_STATE PowerState, POWER_ACTION PowerAction)
     return Status;
 }
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 PoInitSystem(IN ULONG BootPhase)
 {
     PVOID NotificationEntry;
@@ -323,6 +324,9 @@ PoInitSystem(IN ULONG BootPhase)
         return TRUE;
     }
 
+    /* Initialize the power capabilities */
+    RtlZeroMemory(&PopCapabilities, sizeof(SYSTEM_POWER_CAPABILITIES));
+
     /* Get the Command Line */
     CommandLine = KeLoaderBlock->LoadOptions;
 
@@ -343,6 +347,9 @@ PoInitSystem(IN ULONG BootPhase)
         PopAcpiPresent = KeLoaderBlock->Extension->AcpiTable != NULL ? TRUE : FALSE;
     }
 
+    /* Enable shutdown by power button */
+    if (PopAcpiPresent)
+        PopCapabilities.SystemS5 = TRUE;
 
     /* Initialize volume support */
     InitializeListHead(&PopVolumeDevices);
@@ -383,9 +390,9 @@ PopIdle0(IN PPROCESSOR_POWER_STATE PowerState)
     HalProcessorIdle();
 }
 
+INIT_FUNCTION
 VOID
 NTAPI
-INIT_FUNCTION
 PoInitializePrcb(IN PKPRCB Prcb)
 {
     /* Initialize the Power State */
@@ -697,6 +704,7 @@ NtPowerInformation(IN POWER_INFORMATION_LEVEL PowerInformationLevel,
                 /* Just zero the struct (and thus set BatteryState->BatteryPresent = FALSE) */
                 RtlZeroMemory(BatteryState, sizeof(SYSTEM_BATTERY_STATE));
                 BatteryState->EstimatedTime = MAXULONG;
+//                BatteryState->AcOnLine = TRUE;
 
                 Status = STATUS_SUCCESS;
             }
@@ -720,9 +728,9 @@ NtPowerInformation(IN POWER_INFORMATION_LEVEL PowerInformationLevel,
 
             _SEH2_TRY
             {
-                /* Just zero the struct (and thus set PowerCapabilities->SystemBatteriesPresent = FALSE) */
-                RtlZeroMemory(PowerCapabilities, sizeof(SYSTEM_POWER_CAPABILITIES));
-                //PowerCapabilities->SystemBatteriesPresent = 0;
+                RtlCopyMemory(PowerCapabilities,
+                              &PopCapabilities,
+                              sizeof(SYSTEM_POWER_CAPABILITIES));
 
                 Status = STATUS_SUCCESS;
             }
@@ -952,7 +960,8 @@ NtSetSystemPowerState(IN POWER_ACTION SystemAction,
 
 #ifndef NEWCC
         /* Flush dirty cache pages */
-        CcRosFlushDirtyPages(-1, &Dummy, FALSE); //HACK: We really should wait here!
+        /* XXX: Is that still mandatory? As now we'll wait on lazy writer to complete? */
+        CcRosFlushDirtyPages(-1, &Dummy, FALSE, FALSE); //HACK: We really should wait here!
 #else
         Dummy = 0;
 #endif
@@ -990,7 +999,7 @@ NtSetSystemPowerState(IN POWER_ACTION SystemAction,
         }
 
         /* You should not have made it this far */
-        // ASSERTMSG("System is still up and running?!", FALSE);
+        // ASSERTMSG("System is still up and running?!\n", FALSE);
         DPRINT1("System is still up and running, you may not have chosen a yet supported power option: %u\n", PopAction.Action);
         break;
     }

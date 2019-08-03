@@ -5,10 +5,7 @@
  * PROGRAMMER:      Hermès BÉLUSCA - MAÏTO
  */
 
-#include <apitest.h>
-
-#include <winsvc.h>
-#include <strsafe.h>
+#include "precomp.h"
 
 #define TESTING_SERVICE     L"Spooler"
 
@@ -27,7 +24,7 @@ static void Test_LockUnlockServiceDatabase(void)
     ok_err(ERROR_INVALID_HANDLE);
 
     SetLastError(0xdeadbeef);
-    hScm  = (SC_HANDLE)0xdeadbeef;
+    hScm  = (SC_HANDLE)(ULONG_PTR)0xdeadbeefdeadbeefull;
     hLock = LockServiceDatabase(hScm);
     ok(hLock == NULL, "hLock = 0x%p, expected 0\n", hLock);
     ok_err(ERROR_INVALID_HANDLE);
@@ -41,7 +38,7 @@ static void Test_LockUnlockServiceDatabase(void)
 /*****************************************************************************************/
 
     SetLastError(0xdeadbeef);
-    hLock = (SC_LOCK)0xdeadbeef;
+    hLock = (SC_LOCK)(ULONG_PTR)0xdeadbeefdeadbeefull;
     bError = UnlockServiceDatabase(hLock);
     ok(bError == FALSE, "bError = %u, expected FALSE\n", bError);
     ok_err(ERROR_INVALID_SERVICE_LOCK);
@@ -80,8 +77,8 @@ static void Test_LockUnlockServiceDatabase(void)
 
     SetLastError(0xdeadbeef);
     hLock = LockServiceDatabase(hScm);
-    ok(hLock != NULL, "hLock = 0x%p, expected non-zero\n", hLock);
     ok_err(ERROR_SUCCESS);
+    ok(hLock != NULL, "hLock = 0x%p, expected non-zero\n", hLock);
 
     /* Now unlock it */
     if (hLock)

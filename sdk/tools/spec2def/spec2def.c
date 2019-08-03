@@ -4,7 +4,8 @@
 #include <string.h>
 
 #ifdef _MSC_VER
-#define strcasecmp _stricmp
+#define strcasecmp(_String1, _String2) _stricmp(_String1, _String2)
+#define strncasecmp(_String1, _String2, _MaxCount) _strnicmp(_String1, _String2, _MaxCount)
 #endif
 
 #define ARRAYSIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -49,6 +50,7 @@ char *pszSourceFileName = NULL;
 char *pszDllName = NULL;
 char *gpszUnderscore = "";
 int gbDebug;
+unsigned guOsVersion = 0x502;
 #define DbgPrint(...) (!gbDebug || fprintf(stderr, __VA_ARGS__))
 
 enum
@@ -93,7 +95,12 @@ const char* astrCallingConventions[] =
     "EXTERN"
 };
 
-static const char* astrShouldBePrivate[] =
+/*
+ * List of OLE exports that should be PRIVATE and not be assigned an ordinal.
+ * In case these conditions are not met when linking with MS LINK.EXE, warnings
+ * LNK4104 and LNK4222 respectively are emitted.
+ */
+static const char* astrOlePrivateExports[] =
 {
     "DllCanUnloadNow",
     "DllGetClassObject",
@@ -129,6 +136,7 @@ CompareToken(const char *token, const char *comparand)
         token++;
         comparand++;
     }
+    if (IsSeparator(comparand[-1])) return 1;
     if (!IsSeparator(*token)) return 0;
     return 1;
 }
@@ -497,7 +505,7 @@ PrintName(FILE *fileDest, EXPORT *pexp, PSTRING pstr, int fDeco)
         {
             /* Skip leading underscore and remove trailing decoration */
             pcName++;
-            nNameLength = pcAt - pcName;
+            nNameLength = (int)(pcAt - pcName);
         }
 
         /* Print the undecorated function name */
@@ -512,7 +520,7 @@ PrintName(FILE *fileDest, EXPORT *pexp, PSTRING pstr, int fDeco)
         if (pcDot)
         {
             /* First print the dll name, followed by a dot */
-            nNameLength = pcDot - pcName;
+            nNameLength = (int)(pcDot - pcName);
             fprintf(fileDest, "%.*s.", nNameLength, pcName);
 
             /* Now the actual function name */
@@ -709,7 +717,7 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
     char *pc, *pcLine;
     int nLine;
     EXPORT exp;
-    int included;
+    int included, version_included;
     char namebuffer[16];
     unsigned int i;
 
@@ -726,21 +734,12 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
         exp.uFlags = 0;
         exp.nNumber++;
 
-        //if (!strncmp(pcLine, "22 stdcall @(long) MPR_Alloc",28))
-        //    gbDebug = 1;
-
-        //fprintf(stderr, "info: line %d, token:'%d, %.20s'\n",
-        //        nLine, TokenLength(pcLine), pcLine);
-
         /* Skip white spaces */
         while (*pc == ' ' || *pc == '\t') pc++;
 
         /* Skip empty lines, stop at EOF */
         if (*pc == ';' || *pc <= '#') continue;
         if (*pc == 0) return 0;
-
-        //fprintf(stderr, "info: line %d, token:'%.*s'\n",
-        //        nLine, TokenLength(pc), pc);
 
         /* Now we should get either an ordinal or @ */
         if (*pc == '@')
@@ -795,8 +794,6 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
             return -11;
         }
 
-        //fprintf(stderr, "info: nCallingConvention: %d\n", exp.nCallingConvention);
-
         /* Go to next token (options or name) */
         if (!(pc = NextToken(pc)))
         {
@@ -806,16 +803,17 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
 
         /* Handle options */
         included = 1;
+        version_included = 1;
         while (*pc == '-')
         {
-            if (CompareToken(pc, "-arch"))
+            if (CompareToken(pc, "-arch="))
             {
                 /* Default to not included */
                 included = 0;
                 pc += 5;
 
                 /* Look if we are included */
-                while (*pc == '=' || *pc == ',')
+                do
                 {
                     pc++;
                     if (CompareToken(pc, pszArchString) ||
@@ -826,11 +824,62 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
 
                     /* Skip to next arch or end */
                     while (*pc > ',') pc++;
-                }
+                } while (*pc == ',');
             }
             else if (CompareToken(pc, "-i386"))
             {
                 if (giArch != ARCH_X86) included = 0;
+            }
+            else if (CompareToken(pc, "-version="))
+            {
+                /* Default to not included */
+                version_included = 0;
+                pc += 8;
+
+                /* Look if we are included */
+                do
+                {
+                    unsigned version, endversion;
+
+                    /* Optionally skip leading '0x' */
+                    pc++;
+                    if ((pc[0] == '0') && (pc[1] == 'x')) pc += 2;
+
+                    /* Now get the version number */
+                    endversion = version = strtoul(pc, &pc, 16);
+
+                    /* Check if it's a range */
+                    if (pc[0] == '+')
+                    {
+                        endversion = 0xFFF;
+                        pc++;
+                    }
+                    else if (pc[0] == '-')
+                    {
+                        /* Optionally skip leading '0x' */
+                        pc++;
+                        if ((pc[0] == '0') && (pc[1] == 'x')) pc += 2;
+                        endversion = strtoul(pc, &pc, 16);
+                    }
+
+                    /* Check for degenerate range */
+                    if (version > endversion)
+                    {
+                        fprintf(stderr, "%s line %d: error: invalid version rangen\n", pszSourceFileName, nLine);
+                        return -1;
+                    }
+
+                    /* Now compare the range with our version */
+                    if ((guOsVersion >= version) &&
+                        (guOsVersion <= endversion))
+                    {
+                        version_included = 1;
+                    }
+
+                    /* Skip to next arch or end */
+                    while (*pc > ',') pc++;
+
+                } while (*pc == ',');
             }
             else if (CompareToken(pc, "-private"))
             {
@@ -877,7 +926,7 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
         //fprintf(stderr, "info: Name:'%.10s'\n", pc);
 
         /* If arch didn't match ours, skip this entry */
-        if (!included) continue;
+        if (!included || !version_included) continue;
 
         /* Get name */
         exp.strName.buf = pc;
@@ -1043,15 +1092,37 @@ ParseFile(char* pcStart, FILE *fileDest, PFNOUTLINE OutputLine)
             return -1;
         }
 
-        if (!gbMSComp && !gbNotPrivateNoWarn && gbImportLib && !(exp.uFlags & FL_PRIVATE))
+        /*
+         * Check for special handling of OLE exports, only when MSVC
+         * is not used, since otherwise this is handled by MS LINK.EXE.
+         */
+        if (!gbMSComp)
         {
-            for (i = 0; i < ARRAYSIZE(astrShouldBePrivate); i++)
+            /* Check whether the current export is not PRIVATE, or has an ordinal */
+            int bIsNotPrivate = (!gbNotPrivateNoWarn && /*gbImportLib &&*/ !(exp.uFlags & FL_PRIVATE));
+            int bHasOrdinal = (exp.uFlags & FL_ORDINAL);
+
+            /* Check whether the current export is an OLE export, in case any of these tests pass */
+            if (bIsNotPrivate || bHasOrdinal)
             {
-                if (strlen(astrShouldBePrivate[i]) == exp.strName.len &&
-                    strncmp(exp.strName.buf, astrShouldBePrivate[i], exp.strName.len) == 0)
+                for (i = 0; i < ARRAYSIZE(astrOlePrivateExports); ++i)
                 {
-                    fprintf(stderr, "%s line %d: warning: export of '%.*s' should be PRIVATE\n",
-                            pszSourceFileName, nLine, exp.strName.len, exp.strName.buf);
+                    if (strlen(astrOlePrivateExports[i]) == exp.strName.len &&
+                        strncmp(exp.strName.buf, astrOlePrivateExports[i], exp.strName.len) == 0)
+                    {
+                        /* The current export is an OLE export: display the corresponding warning */
+                        if (bIsNotPrivate)
+                        {
+                            fprintf(stderr, "%s line %d: warning: exported symbol '%.*s' should be PRIVATE\n",
+                                    pszSourceFileName, nLine, exp.strName.len, exp.strName.buf);
+                        }
+                        if (bHasOrdinal)
+                        {
+                            fprintf(stderr, "%s line %d: warning: exported symbol '%.*s' should not be assigned an ordinal\n",
+                                    pszSourceFileName, nLine, exp.strName.len, exp.strName.buf);
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -1083,6 +1154,7 @@ int main(int argc, char *argv[])
 {
     size_t nFileSize;
     char *pszSource, *pszDefFileName = NULL, *pszStubFileName = NULL, *pszLibStubName = NULL;
+    const char* pszVersionOption = "--version=0x";
     char achDllName[40];
     FILE *file;
     int result = 0, i;
@@ -1117,6 +1189,10 @@ int main(int argc, char *argv[])
         else if (argv[i][1] == 'n' && argv[i][2] == '=')
         {
             pszDllName = argv[i] + 3;
+        }
+        else if (strncasecmp(argv[i], pszVersionOption, strlen(pszVersionOption)) == 0)
+        {
+            guOsVersion = strtoul(argv[i] + strlen(pszVersionOption), NULL, 16);
         }
         else if (strcasecmp(argv[i], "--implib") == 0)
         {

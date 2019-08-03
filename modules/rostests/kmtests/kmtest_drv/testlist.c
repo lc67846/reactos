@@ -1,8 +1,7 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite Driver test list
- * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ * PROJECT:     ReactOS kernel-mode tests
+ * LICENSE:     LGPL-2.1+ (https://spdx.org/licenses/LGPL-2.1+)
+ * PURPOSE:     Kernel-Mode Test Suite kernel-mode test list
  */
 
 #include <kmt_test.h>
@@ -20,6 +19,7 @@ KMT_TESTFUNC Test_ExResource;
 KMT_TESTFUNC Test_ExSequencedList;
 KMT_TESTFUNC Test_ExSingleList;
 KMT_TESTFUNC Test_ExTimer;
+KMT_TESTFUNC Test_ExUuid;
 KMT_TESTFUNC Test_FsRtlDissect;
 KMT_TESTFUNC Test_FsRtlExpression;
 KMT_TESTFUNC Test_FsRtlLegal;
@@ -33,6 +33,7 @@ KMT_TESTFUNC Test_IoFilesystem;
 KMT_TESTFUNC Test_IoInterrupt;
 KMT_TESTFUNC Test_IoIrp;
 KMT_TESTFUNC Test_IoMdl;
+KMT_TESTFUNC Test_IoVolume;
 KMT_TESTFUNC Test_KeApc;
 KMT_TESTFUNC Test_KeDeviceQueue;
 KMT_TESTFUNC Test_KeDpc;
@@ -91,6 +92,7 @@ const KMT_TEST TestList[] =
     { "ExSequencedList",                    Test_ExSequencedList },
     { "ExSingleList",                       Test_ExSingleList },
     { "-ExTimer",                           Test_ExTimer },
+    { "ExUuid",                             Test_ExUuid },
     { "Example",                            Test_Example },
     { "FsRtlDissect",                       Test_FsRtlDissect },
     { "FsRtlExpression",                    Test_FsRtlExpression },
@@ -105,6 +107,7 @@ const KMT_TEST TestList[] =
     { "IoInterrupt",                        Test_IoInterrupt },
     { "IoIrp",                              Test_IoIrp },
     { "IoMdl",                              Test_IoMdl },
+    { "IoVolume",                           Test_IoVolume },
     { "KeApc",                              Test_KeApc },
     { "KeDeviceQueue",                      Test_KeDeviceQueue },
     { "KeDpc",                              Test_KeDpc },

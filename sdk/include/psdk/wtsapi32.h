@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+/*
+ * pResponse values from WTSSendMessage(), in addition
+ * to those from the standard MessageBox() API.
+ */
+#ifndef IDTIMEOUT
+#define IDTIMEOUT 32000
+#endif
+#ifndef IDASYNC
+#define IDASYNC   32001
+#endif
 
 typedef enum _WTS_VIRTUAL_CLASS
 {
@@ -49,6 +59,21 @@ typedef enum tagWTS_INFO_CLASS
     WTSClientAddress,
     WTSClientDisplay,
     WTSClientProtocolType,
+#if (NTDDI_VERSION >= NTDDI_WS08)
+    WTSIdleTime,
+    WTSLogonTime,
+    WTSIncomingBytes,
+    WTSOutgoingBytes,
+    WTSIncomingFrames,
+    WTSOutgoingFrames,
+    WTSClientInfo,
+    WTSSessionInfo,
+    WTSSessionInfoEx,
+    WTSConfigInfo,
+    WTSValidationInfo,
+    WTSSessionAddressV4,
+    WTSIsRemoteSession
+#endif /* (NTDDI_VERSION >= NTDDI_WS08) */
 } WTS_INFO_CLASS;
 
 typedef enum _WTS_CONNECTSTATE_CLASS

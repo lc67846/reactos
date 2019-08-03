@@ -51,7 +51,7 @@ BEGIN
     EDITTEXT IDC_STATIC_MEM, 155, 130, 210, 10, ES_LEFT | ES_READONLY | NOT WS_BORDER | NOT WS_TABSTOP | ES_AUTOHSCROLL
     EDITTEXT IDC_STATIC_SWAP, 155, 140, 210, 10, ES_LEFT | ES_READONLY | NOT WS_BORDER | NOT WS_TABSTOP | ES_AUTOHSCROLL
     EDITTEXT IDC_STATIC_VERSION, 155, 150, 210, 10, ES_LEFT | ES_READONLY | NOT WS_BORDER | NOT WS_TABSTOP | ES_AUTOHSCROLL
-    CHECKBOX "Sprawdź, czy są cyfrowe podpisy WHQL", IDC_WHQL_SIGN_CHECK, 15, 170, 135, 10, WS_DISABLED
+    CHECKBOX "Sprawdź, czy są cyfrowe podpisy WHQL", IDC_WHQL_SIGN_CHECK, 15, 170, 145, 10, WS_DISABLED
 END
 
 IDD_DISPLAY_DIALOG DIALOGEX 0, 0, 462, 220
@@ -191,10 +191,10 @@ IDD_HELP_DIALOG DIALOGEX 0, 0, 462, 220
 STYLE DS_SHELLFONT | DS_CONTROL | WS_CHILD | WS_CLIPCHILDREN
 FONT 8, "MS Shell Dlg"
 BEGIN
-    LTEXT "Wciąż nie znalazłeś informacji, których szukałeś? Oto kilka dodatkowych rzeczy, które możesz zrobić:", IDC_STATIC, 5, 0, 300, 10
+    LTEXT "Wciąż nie znalazłeś informacji, których szukałeś? Oto kilka dodatkowych rzeczy, które możesz zrobić:", IDC_STATIC, 5, 0, 340, 10
     PUSHBUTTON "Informacje o systemie", IDC_BUTTON_SYSINFO, 5, 20, 140, 14, WS_DISABLED
     LTEXT "Wyświetla dodatkowe informacje o systemie", IDC_STATIC, 150, 23, 300, 10
-    PUSHBUTTON "Wymuszenie Częstotliwości odświeżania", IDC_BUTTON_DDRAW_REFRESH, 5, 40, 140, 14, WS_DISABLED
+    PUSHBUTTON "Wymuszenie częstotliwości odświeżania", IDC_BUTTON_DDRAW_REFRESH, 5, 40, 140, 14, WS_DISABLED
     LTEXT "Wymusza daną częstotliwość odświeżania dla DirectDraw", IDC_STATIC, 150, 43, 300, 10
 END
 
@@ -251,7 +251,7 @@ BEGIN
     IDS_OPTION_NO "Nie"
     IDS_D3DTEST_DESCRIPTION "Uruchomiony zostanie test interfejsu Direct3D. Kontynuować?"
     IDS_D3DTEST_D3Dx "Test obejmie przyspieszany sprzętowo interfejs Direct3D dla %u."
-    IDS_OS_VERSION "%s %s (%d.%d, Build %d)"
+    IDS_OS_VERSION "%s %s (%d.%d, kompilacja %d)"
     IDS_DMUSIC_DESC "Opis"
     IDS_DMUSIC_TYPE "Typ"
     IDS_DMUSIC_KERNEL "Tryb jądra"

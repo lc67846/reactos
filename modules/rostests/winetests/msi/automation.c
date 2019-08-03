@@ -33,6 +33,10 @@
 
 #include "wine/test.h"
 
+#ifdef __REACTOS__
+#include "ole2.h"
+#endif
+
 static BOOL is_wow64;
 
 static BOOL (WINAPI *pCheckTokenMembership)(HANDLE,PSID,PBOOL);

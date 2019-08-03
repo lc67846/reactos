@@ -20,15 +20,15 @@
  */
 
 #include <stdio.h>
-//#include <stdarg.h>
+#include <stdarg.h>
 #include <windef.h>
 #include <winbase.h>
-//#include <winerror.h>
+#include <winerror.h>
 #include <winnls.h>
 #include <wincrypt.h>
 #include <mssip.h>
 
-#include <wine/test.h>
+#include "wine/test.h"
 
 static BOOL (WINAPI * funcCryptSIPGetSignedDataMsg)(SIP_SUBJECTINFO *,DWORD *,DWORD,DWORD *,BYTE *);
 static BOOL (WINAPI * funcCryptSIPPutSignedDataMsg)(SIP_SUBJECTINFO *,DWORD,DWORD *,DWORD,BYTE *);
@@ -187,9 +187,8 @@ static void test_SIPRetrieveSubjectGUID(void)
     ok (ret > 0, "expected GEVA(windir) to succeed, last error %d\n", GetLastError());
     strcat(regeditPath, "\\");
     strcat(regeditPath, regeditExe);
-    MultiByteToWideChar( CP_ACP, 0, regeditPath,
-                         strlen(regeditPath)+1, regeditPathW,
-                         sizeof(regeditPathW)/sizeof(regeditPathW[0]) );
+    MultiByteToWideChar(CP_ACP, 0, regeditPath, strlen(regeditPath)+1, regeditPathW,
+                        ARRAY_SIZE(regeditPathW));
 
     SetLastError(0xdeadbeef);
     memset(&subject, 1, sizeof(GUID));
@@ -221,9 +220,7 @@ static void test_SIPRetrieveSubjectGUID(void)
     /* Now with an empty file */
     GetTempPathA(sizeof(path), path);
     GetTempFileNameA(path, "sip", 0 , tempfile);
-    MultiByteToWideChar( CP_ACP, 0, tempfile,
-                         strlen(tempfile)+1, tempfileW,
-                         sizeof(tempfileW)/sizeof(tempfileW[0]) );
+    MultiByteToWideChar(CP_ACP, 0, tempfile, strlen(tempfile)+1, tempfileW, ARRAY_SIZE(tempfileW));
 
     SetLastError(0xdeadbeef);
     memset(&subject, 1, sizeof(GUID));

@@ -17,14 +17,29 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "wincodecs_private.h"
+#include "config.h"
+#include "wine/port.h"
 
+#include <stdarg.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #ifdef HAVE_TIFFIO_H
 #include <tiffio.h>
 #endif
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+
+#include "wincodecs_private.h"
+
+#include "wine/debug.h"
+#include "wine/library.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 #ifdef SONAME_LIBTIFF
 
@@ -489,7 +504,7 @@ static HRESULT tiff_get_decode_info(TIFF *tiff, tiff_decode_info *decode_info)
             break;
         default:
             FIXME("unhandled indexed bit count %u\n", bps);
-            return E_FAIL;
+            return E_NOTIMPL;
         }
         break;
 
@@ -572,21 +587,27 @@ static HRESULT tiff_get_decode_info(TIFF *tiff, tiff_decode_info *decode_info)
 
     decode_info->resolution_unit = 0;
     pTIFFGetField(tiff, TIFFTAG_RESOLUTIONUNIT, &decode_info->resolution_unit);
-    if (decode_info->resolution_unit != 0)
-    {
-        ret = pTIFFGetField(tiff, TIFFTAG_XRESOLUTION, &decode_info->xres);
-        if (!ret)
-        {
-            WARN("missing X resolution\n");
-            decode_info->resolution_unit = 0;
-        }
 
-        ret = pTIFFGetField(tiff, TIFFTAG_YRESOLUTION, &decode_info->yres);
-        if (!ret)
-        {
-            WARN("missing Y resolution\n");
-            decode_info->resolution_unit = 0;
-        }
+    ret = pTIFFGetField(tiff, TIFFTAG_XRESOLUTION, &decode_info->xres);
+    if (!ret)
+    {
+        WARN("missing X resolution\n");
+    }
+    /* Emulate the behavior of current libtiff versions (libtiff commit a39f6131)
+     * yielding 0 instead of INFINITY for IFD_RATIONAL fields with denominator 0. */
+    if (!isfinite(decode_info->xres))
+    {
+        decode_info->xres = 0.0;
+    }
+
+    ret = pTIFFGetField(tiff, TIFFTAG_YRESOLUTION, &decode_info->yres);
+    if (!ret)
+    {
+        WARN("missing Y resolution\n");
+    }
+    if (!isfinite(decode_info->yres))
+    {
+        decode_info->yres = 0.0;
     }
 
     return S_OK;
@@ -717,20 +738,9 @@ static HRESULT WINAPI TiffDecoder_GetContainerFormat(IWICBitmapDecoder *iface,
 static HRESULT WINAPI TiffDecoder_GetDecoderInfo(IWICBitmapDecoder *iface,
     IWICBitmapDecoderInfo **ppIDecoderInfo)
 {
-    HRESULT hr;
-    IWICComponentInfo *compinfo;
-
     TRACE("(%p,%p)\n", iface, ppIDecoderInfo);
 
-    hr = CreateComponentInfo(&CLSID_WICTiffDecoder, &compinfo);
-    if (FAILED(hr)) return hr;
-
-    hr = IWICComponentInfo_QueryInterface(compinfo, &IID_IWICBitmapDecoderInfo,
-        (void**)ppIDecoderInfo);
-
-    IWICComponentInfo_Release(compinfo);
-
-    return hr;
+    return get_decoder_info(&CLSID_WICTiffDecoder, ppIDecoderInfo);
 }
 
 static HRESULT WINAPI TiffDecoder_CopyPalette(IWICBitmapDecoder *iface,
@@ -826,6 +836,7 @@ static HRESULT WINAPI TiffDecoder_GetFrame(IWICBitmapDecoder *iface,
             result->IWICMetadataBlockReader_iface.lpVtbl = &TiffFrameDecode_BlockVtbl;
             result->ref = 1;
             result->parent = This;
+            IWICBitmapDecoder_AddRef(iface);
             result->index = index;
             result->decode_info = decode_info;
             result->cached_tile_x = -1;
@@ -836,7 +847,7 @@ static HRESULT WINAPI TiffDecoder_GetFrame(IWICBitmapDecoder *iface,
             else
             {
                 hr = E_OUTOFMEMORY;
-                HeapFree(GetProcessHeap(), 0, result);
+                IWICBitmapFrameDecode_Release(&result->IWICBitmapFrameDecode_iface);
             }
         }
         else hr = E_OUTOFMEMORY;
@@ -911,6 +922,7 @@ static ULONG WINAPI TiffFrameDecode_Release(IWICBitmapFrameDecode *iface)
 
     if (ref == 0)
     {
+        IWICBitmapDecoder_Release(&This->parent->IWICBitmapDecoder_iface);
         HeapFree(GetProcessHeap(), 0, This->cached_tile);
         HeapFree(GetProcessHeap(), 0, This);
     }
@@ -948,26 +960,28 @@ static HRESULT WINAPI TiffFrameDecode_GetResolution(IWICBitmapFrameDecode *iface
 {
     TiffFrameDecode *This = impl_from_IWICBitmapFrameDecode(iface);
 
-    switch (This->decode_info.resolution_unit)
+    if (This->decode_info.xres == 0 || This->decode_info.yres == 0)
     {
-    default:
-        FIXME("unknown resolution unit %i\n", This->decode_info.resolution_unit);
-        /* fall through */
-    case 0: /* Not set */
         *pDpiX = *pDpiY = 96.0;
-        break;
-    case 1: /* Relative measurements */
-        *pDpiX = 96.0;
-        *pDpiY = 96.0 * This->decode_info.yres / This->decode_info.xres;
-        break;
-    case 2: /* Inch */
-        *pDpiX = This->decode_info.xres;
-        *pDpiY = This->decode_info.yres;
-        break;
-    case 3: /* Centimeter */
-        *pDpiX = This->decode_info.xres / 2.54;
-        *pDpiY = This->decode_info.yres / 2.54;
-        break;
+    }
+    else
+    {
+        switch (This->decode_info.resolution_unit)
+        {
+        default:
+            FIXME("unknown resolution unit %i\n", This->decode_info.resolution_unit);
+            /* fall through */
+        case 0: /* Not set */
+        case 1: /* Relative measurements */
+        case 2: /* Inch */
+            *pDpiX = This->decode_info.xres;
+            *pDpiY = This->decode_info.yres;
+            break;
+        case 3: /* Centimeter */
+            *pDpiX = This->decode_info.xres * 2.54;
+            *pDpiY = This->decode_info.yres * 2.54;
+            break;
+        }
     }
 
     TRACE("(%p) <-- %f,%f unit=%i\n", iface, *pDpiX, *pDpiY, This->decode_info.resolution_unit);
@@ -1274,7 +1288,7 @@ static HRESULT WINAPI TiffFrameDecode_CopyPixels(IWICBitmapFrameDecode *iface,
     UINT bytesperrow;
     WICRect rect;
 
-    TRACE("(%p,%p,%u,%u,%p)\n", iface, prc, cbStride, cbBufferSize, pbBuffer);
+    TRACE("(%p,%s,%u,%u,%p)\n", iface, debug_wic_rect(prc), cbStride, cbBufferSize, pbBuffer);
 
     if (!prc)
     {
@@ -1296,7 +1310,7 @@ static HRESULT WINAPI TiffFrameDecode_CopyPixels(IWICBitmapFrameDecode *iface,
     if (cbStride < bytesperrow)
         return E_INVALIDARG;
 
-    if ((cbStride * (prc->Height-1)) + ((prc->Width * This->decode_info.bpp) + 7)/8 > cbBufferSize)
+    if ((cbStride * (prc->Height-1)) + bytesperrow > cbBufferSize)
         return E_INVALIDARG;
 
     min_tile_x = prc->X / This->decode_info.tile_width;
@@ -1611,7 +1625,6 @@ static const struct tiff_encode_format formats[] = {
     {&GUID_WICPixelFormat64bppRGBA, 2, 16, 4, 64, 1, 2, 0},
     {&GUID_WICPixelFormat64bppPRGBA, 2, 16, 4, 64, 1, 1, 0},
     {&GUID_WICPixelFormat1bppIndexed, 3, 1, 1, 1, 0, 0, 0},
-    {&GUID_WICPixelFormat2bppIndexed, 3, 2, 1, 2, 0, 0, 0},
     {&GUID_WICPixelFormat4bppIndexed, 3, 4, 1, 4, 0, 0, 0},
     {&GUID_WICPixelFormat8bppIndexed, 3, 8, 1, 8, 0, 0, 0},
     {0}
@@ -1785,9 +1798,12 @@ static HRESULT WINAPI TiffFrameEncode_SetPixelFormat(IWICBitmapFrameEncode *ifac
         return WINCODEC_ERR_WRONGSTATE;
     }
 
+    if (IsEqualGUID(pPixelFormat, &GUID_WICPixelFormat2bppIndexed))
+        *pPixelFormat = GUID_WICPixelFormat4bppIndexed;
+
     for (i=0; formats[i].guid; i++)
     {
-        if (memcmp(formats[i].guid, pPixelFormat, sizeof(GUID)) == 0)
+        if (IsEqualGUID(formats[i].guid, pPixelFormat))
             break;
     }
 
@@ -1949,7 +1965,7 @@ static HRESULT WINAPI TiffFrameEncode_WriteSource(IWICBitmapFrameEncode *iface,
     TiffFrameEncode *This = impl_from_IWICBitmapFrameEncode(iface);
     HRESULT hr;
 
-    TRACE("(%p,%p,%p)\n", iface, pIBitmapSource, prc);
+    TRACE("(%p,%p,%s)\n", iface, pIBitmapSource, debug_wic_rect(prc));
 
     if (!This->initialized)
         return WINCODEC_ERR_WRONGSTATE;
@@ -2105,6 +2121,11 @@ exit:
 static HRESULT WINAPI TiffEncoder_GetContainerFormat(IWICBitmapEncoder *iface,
     GUID *pguidContainerFormat)
 {
+    TRACE("(%p,%p)\n", iface, pguidContainerFormat);
+
+    if (!pguidContainerFormat)
+        return E_INVALIDARG;
+
     memcpy(pguidContainerFormat, &GUID_ContainerFormatTiff, sizeof(GUID));
     return S_OK;
 }
@@ -2167,7 +2188,11 @@ static HRESULT WINAPI TiffEncoder_CreateNewFrame(IWICBitmapEncoder *iface,
 {
     TiffEncoder *This = impl_from_IWICBitmapEncoder(iface);
     TiffFrameEncode *result;
-
+    static const PROPBAG2 opts[2] =
+    {
+        { PROPBAG2_TYPE_DATA, VT_UI1, 0, 0, (LPOLESTR)wszTiffCompressionMethod },
+        { PROPBAG2_TYPE_DATA, VT_R4,  0, 0, (LPOLESTR)wszCompressionQuality },
+    };
     HRESULT hr=S_OK;
 
     TRACE("(%p,%p,%p)\n", iface, ppIFrameEncode, ppIEncoderOptions);
@@ -2184,26 +2209,16 @@ static HRESULT WINAPI TiffEncoder_CreateNewFrame(IWICBitmapEncoder *iface,
         hr = E_FAIL;
     }
 
-    if (SUCCEEDED(hr) && ppIEncoderOptions)
+    if (ppIEncoderOptions && SUCCEEDED(hr))
     {
-        PROPBAG2 opts[2]= {{0}};
-        opts[0].pstrName = (LPOLESTR)wszTiffCompressionMethod;
-        opts[0].vt = VT_UI1;
-        opts[0].dwType = PROPBAG2_TYPE_DATA;
-
-        opts[1].pstrName = (LPOLESTR)wszCompressionQuality;
-        opts[1].vt = VT_R4;
-        opts[1].dwType = PROPBAG2_TYPE_DATA;
-
-        hr = CreatePropertyBag2(opts, 2, ppIEncoderOptions);
-
+        hr = CreatePropertyBag2(opts, ARRAY_SIZE(opts), ppIEncoderOptions);
         if (SUCCEEDED(hr))
         {
             VARIANT v;
             VariantInit(&v);
             V_VT(&v) = VT_UI1;
             V_UI1(&v) = WICTiffCompressionDontCare;
-            hr = IPropertyBag2_Write(*ppIEncoderOptions, 1, opts, &v);
+            hr = IPropertyBag2_Write(*ppIEncoderOptions, 1, (PROPBAG2 *)opts, &v);
             VariantClear(&v);
             if (FAILED(hr))
             {
@@ -2244,7 +2259,7 @@ static HRESULT WINAPI TiffEncoder_CreateNewFrame(IWICBitmapEncoder *iface,
         else
             hr = E_OUTOFMEMORY;
 
-        if (FAILED(hr) && ppIEncoderOptions)
+        if (FAILED(hr))
         {
             IPropertyBag2_Release(*ppIEncoderOptions);
             *ppIEncoderOptions = NULL;

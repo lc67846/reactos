@@ -273,3 +273,29 @@ ExitClose:
 
     return Ret;
 }
+
+DWORD
+GetStyleValue(VOID)
+{
+    HKEY hOptionsKey;
+    DWORD dwStyle = 0, dwSize;
+
+    if (RegOpenKeyEx(hAppSettingsKey,
+                     AppOptionsKey,
+                     0,
+                     KEY_READ,
+                     &hOptionsKey) == ERROR_SUCCESS)
+    {
+        dwSize = sizeof(DWORD);
+        RegQueryValueEx(hOptionsKey,
+                        StyleValue,
+                        NULL,
+                        NULL,
+                        (LPBYTE)&dwStyle,
+                        &dwSize);
+
+        RegCloseKey(hOptionsKey);
+    }
+
+    return dwStyle;
+}

@@ -4,6 +4,7 @@
  *
  * Copyright 1997             Marcus Meissner
  * Copyright 1998, 1999, 2002 Juergen Schmied
+ * Copyright 2019             Katayama Hirofumi MZ
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -129,67 +130,118 @@ HRESULT GetCLSIDForFileType(PCUIDLIST_RELATIVE pidl, LPCWSTR KeyName, CLSID* pcl
     return S_OK;
 }
 
-static HRESULT getIconLocationForFolder(IShellFolder * psf, LPCITEMIDLIST pidl, UINT uFlags,
-                                        LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT *pwFlags)
+static HRESULT
+getDefaultIconLocation(LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT uFlags)
 {
-    static const WCHAR shellClassInfo[] = { '.', 'S', 'h', 'e', 'l', 'l', 'C', 'l', 'a', 's', 's', 'I', 'n', 'f', 'o', 0 };
+    static const WCHAR folder[] = { 'F', 'o', 'l', 'd', 'e', 'r', 0 };
+
+    if (!HCR_GetIconW(folder, szIconFile, NULL, cchMax, piIndex))
+    {
+        lstrcpynW(szIconFile, swShell32Name, cchMax);
+        *piIndex = -IDI_SHELL_FOLDER;
+    }
+
+    if (uFlags & GIL_OPENICON)
+    {
+        // next icon
+        if (*piIndex < 0)
+            (*piIndex)--;
+        else
+            (*piIndex)++;
+    }
+
+    return S_OK;
+}
+
+static const WCHAR s_shellClassInfo[] = { '.', 'S', 'h', 'e', 'l', 'l', 'C', 'l', 'a', 's', 's', 'I', 'n', 'f', 'o', 0 };
+
+static BOOL
+getShellClassInfo(LPCWSTR Entry, LPWSTR pszValue, DWORD cchValueLen, LPCWSTR IniFile)
+{
+    return GetPrivateProfileStringW(s_shellClassInfo, Entry, NULL, pszValue, cchValueLen, IniFile);
+}
+
+static HRESULT
+getIconLocationForFolder(IShellFolder * psf, PCITEMID_CHILD pidl, UINT uFlags,
+                         LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT *pwFlags)
+{
+    DWORD dwFileAttrs;
+    WCHAR wszPath[MAX_PATH];
+    WCHAR wszIniFullPath[MAX_PATH];
     static const WCHAR iconFile[] = { 'I', 'c', 'o', 'n', 'F', 'i', 'l', 'e', 0 };
     static const WCHAR clsid[] = { 'C', 'L', 'S', 'I', 'D', 0 };
     static const WCHAR clsid2[] = { 'C', 'L', 'S', 'I', 'D', '2', 0 };
     static const WCHAR iconIndex[] = { 'I', 'c', 'o', 'n', 'I', 'n', 'd', 'e', 'x', 0 };
+    static const WCHAR iconResource[] = { 'I', 'c', 'o', 'n', 'R', 'e', 's', 'o', 'u', 'r', 'c', 'e', 0 };
     static const WCHAR wszDesktopIni[] = { 'd','e','s','k','t','o','p','.','i','n','i',0 };
-    int icon_idx;
 
-    if (!(uFlags & GIL_DEFAULTICON) && (_ILGetFileAttributes(ILFindLastID(pidl), NULL, 0) & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_READONLY)) != 0 )
+    if (uFlags & GIL_DEFAULTICON)
+        goto Quit;
+
+    // get path
+    if (!ILGetDisplayNameExW(psf, pidl, wszPath, 0))
+        goto Quit;
+    if (!PathIsDirectoryW(wszPath))
+        goto Quit;
+
+    // read-only or system folder?
+    dwFileAttrs = _ILGetFileAttributes(ILFindLastID(pidl), NULL, 0);
+    if ((dwFileAttrs & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_READONLY)) == 0)
+        goto Quit;
+
+    // build the full path of ini file
+    StringCchCopyW(wszIniFullPath, _countof(wszIniFullPath), wszPath);
+    PathAppendW(wszIniFullPath, wszDesktopIni);
+
+    WCHAR wszValue[MAX_PATH], wszTemp[MAX_PATH];
+    if (getShellClassInfo(iconFile, wszValue, _countof(wszValue), wszIniFullPath))
     {
-        WCHAR wszFolderPath[MAX_PATH];
+        // wszValue --> wszTemp
+        ExpandEnvironmentStringsW(wszValue, wszTemp, _countof(wszTemp));
 
-        if (!ILGetDisplayNameExW(psf, pidl, wszFolderPath, 0))
-            return FALSE;
+        // wszPath + wszTemp --> wszPath
+        if (PathIsRelativeW(wszTemp))
+            PathAppendW(wszPath, wszTemp);
+        else
+            StringCchCopyW(wszPath, _countof(wszPath), wszTemp);
 
-        PathAppendW(wszFolderPath, wszDesktopIni);
+        // wszPath --> szIconFile
+        GetFullPathNameW(wszPath, cchMax, szIconFile, NULL);
 
-        if (PathFileExistsW(wszFolderPath))
-        {
-            WCHAR wszPath[MAX_PATH];
-            WCHAR wszCLSIDValue[CHARS_IN_GUID];
+        *piIndex = GetPrivateProfileIntW(s_shellClassInfo, iconIndex, 0, wszIniFullPath);
+        return S_OK;
+    }
+    else if (getShellClassInfo(clsid, wszValue, _countof(wszValue), wszIniFullPath) &&
+             HCR_GetIconW(wszValue, szIconFile, NULL, cchMax, piIndex))
+    {
+        return S_OK;
+    }
+    else if (getShellClassInfo(clsid2, wszValue, _countof(wszValue), wszIniFullPath) &&
+             HCR_GetIconW(wszValue, szIconFile, NULL, cchMax, piIndex))
+    {
+        return S_OK;
+    }
+    else if (getShellClassInfo(iconResource, wszValue, _countof(wszValue), wszIniFullPath))
+    {
+        // wszValue --> wszTemp
+        ExpandEnvironmentStringsW(wszValue, wszTemp, _countof(wszTemp));
 
-            if (GetPrivateProfileStringW(shellClassInfo, iconFile, NULL, wszPath, MAX_PATH, wszFolderPath))
-            {
-                ExpandEnvironmentStringsW(wszPath, szIconFile, cchMax);
+        // parse the icon location
+        *piIndex = PathParseIconLocationW(wszTemp);
 
-                *piIndex = GetPrivateProfileIntW(shellClassInfo, iconIndex, 0, wszFolderPath);
-                return S_OK;
-            }
-            else if (GetPrivateProfileStringW(shellClassInfo, clsid, NULL, wszCLSIDValue, CHARS_IN_GUID, wszFolderPath) &&
-                HCR_GetIconW(wszCLSIDValue, szIconFile, NULL, cchMax, &icon_idx))
-            {
-                *piIndex = icon_idx;
-                return S_OK;
-            }
-            else if (GetPrivateProfileStringW(shellClassInfo, clsid2, NULL, wszCLSIDValue, CHARS_IN_GUID, wszFolderPath) &&
-                HCR_GetIconW(wszCLSIDValue, szIconFile, NULL, cchMax, &icon_idx))
-            {
-                *piIndex = icon_idx;
-                return S_OK;
-            }
-        }
+        // wszPath + wszTemp --> wszPath
+        if (PathIsRelativeW(wszTemp))
+            PathAppendW(wszPath, wszTemp);
+        else
+            StringCchCopyW(wszPath, _countof(wszPath), wszTemp);
+
+        // wszPath --> szIconFile
+        GetFullPathNameW(wszPath, cchMax, szIconFile, NULL);
+        return S_OK;
     }
 
-    static const WCHAR folder[] = { 'F', 'o', 'l', 'd', 'e', 'r', 0 };
-
-    if (!HCR_GetIconW(folder, szIconFile, NULL, cchMax, &icon_idx))
-    {
-        lstrcpynW(szIconFile, swShell32Name, cchMax);
-        icon_idx = -IDI_SHELL_FOLDER;
-    }
-
-    if (uFlags & GIL_OPENICON)
-        *piIndex = icon_idx < 0 ? icon_idx - 1 : icon_idx + 1;
-    else
-        *piIndex = icon_idx;
-
-    return S_OK;
+Quit:
+    return getDefaultIconLocation(szIconFile, cchMax, piIndex, uFlags);
 }
 
 HRESULT CFSExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, REFIID iid, LPVOID * ppvOut)
@@ -456,23 +508,6 @@ void SHELL32_GetCLSIDForDirectory(LPCWSTR pwszDir, CLSID* pclsidFolder)
     }
 }
 
-
-static const DWORD dwSupportedAttr=
-                      SFGAO_CANCOPY |           /*0x00000001 */
-                      SFGAO_CANMOVE |           /*0x00000002 */
-                      SFGAO_CANLINK |           /*0x00000004 */
-                      SFGAO_CANRENAME |         /*0x00000010 */
-                      SFGAO_CANDELETE |         /*0x00000020 */
-                      SFGAO_HASPROPSHEET |      /*0x00000040 */
-                      SFGAO_DROPTARGET |        /*0x00000100 */
-                      SFGAO_LINK |              /*0x00010000 */
-                      SFGAO_READONLY |          /*0x00040000 */
-                      SFGAO_HIDDEN |            /*0x00080000 */
-                      SFGAO_FILESYSANCESTOR |   /*0x10000000 */
-                      SFGAO_FOLDER |            /*0x20000000 */
-                      SFGAO_FILESYSTEM |        /*0x40000000 */
-                      SFGAO_HASSUBFOLDER;       /*0x80000000 */
-
 HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDWORD pdwAttributes)
 {
     DWORD dwFileAttributes, dwShellAttributes;
@@ -484,42 +519,29 @@ HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDW
         return S_OK;
     }
 
-    if (*pdwAttributes & ~dwSupportedAttr)
-    {
-        WARN ("attributes 0x%08x not implemented\n", (*pdwAttributes & ~dwSupportedAttr));
-        *pdwAttributes &= dwSupportedAttr;
-    }
-
     dwFileAttributes = _ILGetFileAttributes(pidl, NULL, 0);
 
     /* Set common attributes */
-    dwShellAttributes = *pdwAttributes;
-    dwShellAttributes |= SFGAO_FILESYSTEM | SFGAO_DROPTARGET | SFGAO_HASPROPSHEET | SFGAO_CANDELETE |
-                         SFGAO_CANRENAME | SFGAO_CANLINK | SFGAO_CANMOVE | SFGAO_CANCOPY;
+    dwShellAttributes = SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANLINK | SFGAO_CANRENAME | SFGAO_CANDELETE |
+                        SFGAO_HASPROPSHEET | SFGAO_DROPTARGET | SFGAO_FILESYSTEM;
 
     if (dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-    {
-        dwShellAttributes |=  (SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR);
-    }
+        dwShellAttributes |= (SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE);
     else
-        dwShellAttributes &= ~(SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR);
+        dwShellAttributes |= SFGAO_STREAM;
 
     if (dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)
         dwShellAttributes |=  SFGAO_HIDDEN;
-    else
-        dwShellAttributes &= ~SFGAO_HIDDEN;
 
     if (dwFileAttributes & FILE_ATTRIBUTE_READONLY)
         dwShellAttributes |=  SFGAO_READONLY;
-    else
-        dwShellAttributes &= ~SFGAO_READONLY;
 
     if (SFGAO_LINK & *pdwAttributes)
     {
         char ext[MAX_PATH];
 
-        if (!_ILGetExtension(pidl, ext, MAX_PATH) || lstrcmpiA(ext, "lnk"))
-        dwShellAttributes &= ~SFGAO_LINK;
+        if (_ILGetExtension(pidl, ext, MAX_PATH) && !lstrcmpiA(ext, "lnk"))
+            dwShellAttributes |= SFGAO_LINK;
     }
 
     if (SFGAO_HASSUBFOLDER & *pdwAttributes)
@@ -530,13 +552,13 @@ HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDW
             CComPtr<IEnumIDList> pEnumIL;
             if (SUCCEEDED(psf2->EnumObjects(0, SHCONTF_FOLDERS, &pEnumIL)))
             {
-                if (pEnumIL->Skip(1) != S_OK)
-                    dwShellAttributes &= ~SFGAO_HASSUBFOLDER;
+                if (pEnumIL->Skip(1) == S_OK)
+                    dwShellAttributes |= SFGAO_HASSUBFOLDER;
             }
         }
     }
 
-    *pdwAttributes &= dwShellAttributes;
+    *pdwAttributes = dwShellAttributes;
 
     TRACE ("-- 0x%08x\n", *pdwAttributes);
     return S_OK;
@@ -857,7 +879,7 @@ HRESULT WINAPI CFSFolder::CreateViewObject(HWND hwndOwner,
         }
         else if (IsEqualIID (riid, IID_IShellView))
         {
-            SFV_CREATE sfvparams = {sizeof(SFV_CREATE), this};
+            SFV_CREATE sfvparams = {sizeof(SFV_CREATE), this, NULL, this};
             hr = SHCreateShellFolderView(&sfvparams, (IShellView**)ppvOut);
         }
     }
@@ -1603,31 +1625,132 @@ HRESULT WINAPI CFSFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObjec
     if (uMsg != DFM_INVOKECOMMAND || wParam != DFM_CMD_PROPERTIES)
         return S_OK;
 
-    PIDLIST_ABSOLUTE pidlFolder;
-    PUITEMID_CHILD *apidl;
-    UINT cidl;
-    HRESULT hr = SH_GetApidlFromDataObject(pdtobj, &pidlFolder, &apidl, &cidl);
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
+    return Shell_DefaultContextMenuCallBack(this, pdtobj);
+}
 
-    if (cidl > 1)
-        ERR("SHMultiFileProperties is not yet implemented\n");
+static HBITMAP DoLoadPicture(LPCWSTR pszFileName)
+{
+    // create stream from file
+    HRESULT hr;
+    CComPtr<IStream> pStream;
+    hr = SHCreateStreamOnFileEx(pszFileName, STGM_READ, FILE_ATTRIBUTE_NORMAL,
+                                FALSE, NULL, &pStream);
+    if (FAILED(hr))
+        return NULL;
 
-    STRRET strFile;
-    hr = GetDisplayNameOf(apidl[0], SHGDN_FORPARSING, &strFile);
-    if (SUCCEEDED(hr))
+    // load the picture
+    HBITMAP hbm = NULL;
+    CComPtr<IPicture> pPicture;
+    OleLoadPicture(pStream, 0, FALSE, IID_IPicture, (LPVOID *)&pPicture);
+
+    // get the bitmap handle
+    if (pPicture)
     {
-        hr = SH_ShowPropertiesDialog(strFile.pOleStr, pidlFolder, apidl);
-        if (FAILED(hr))
-            ERR("SH_ShowPropertiesDialog failed\n");
+        pPicture->get_Handle((OLE_HANDLE *)&hbm);
+
+        // copy the bitmap handle
+        hbm = (HBITMAP)CopyImage(hbm, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
     }
-    else
+
+    return hbm;
+}
+
+HRESULT WINAPI CFSFolder::GetCustomViewInfo(ULONG unknown, SFVM_CUSTOMVIEWINFO_DATA *data)
+{
+    if (data == NULL)
     {
-        ERR("Failed to get display name\n");
+        return E_POINTER;
+    }
+    if (data->cbSize != sizeof(*data))
+    {
+        // NOTE: You have to set the cbData member before SFVM_GET_CUSTOMVIEWINFO call.
+        return E_INVALIDARG;
     }
 
-    SHFree(pidlFolder);
-    _ILFreeaPidl(apidl, cidl);
+    data->hbmBack = NULL;
+    data->clrText = CLR_INVALID;
+    data->clrTextBack = CLR_INVALID;
 
+    WCHAR szPath[MAX_PATH], szIniFile[MAX_PATH];
+
+    // does the folder exists?
+    if (!SHGetPathFromIDListW(pidlRoot, szPath) || !PathIsDirectoryW(szPath))
+    {
+        return E_INVALIDARG;
+    }
+
+    // don't use custom view in network path for security
+    if (PathIsNetworkPath(szPath))
+    {
+        return E_ACCESSDENIED;
+    }
+
+    // build the ini file path
+    StringCchCopyW(szIniFile, _countof(szIniFile), szPath);
+    PathAppend(szIniFile, L"desktop.ini");
+
+    static LPCWSTR TheGUID = L"{BE098140-A513-11D0-A3A4-00C04FD706EC}";
+    static LPCWSTR Space = L" \t\n\r\f\v";
+
+    // get info from ini file
+    WCHAR szImage[MAX_PATH], szText[64];
+
+    // load the image
+    szImage[0] = UNICODE_NULL;
+    GetPrivateProfileStringW(TheGUID, L"IconArea_Image", L"", szImage, _countof(szImage), szIniFile);
+    if (szImage[0])
+    {
+        StrTrimW(szImage, Space);
+        if (PathIsRelativeW(szImage))
+        {
+            PathAppendW(szPath, szImage);
+            StringCchCopyW(szImage, _countof(szImage), szPath);
+        }
+        data->hbmBack = DoLoadPicture(szImage);
+    }
+
+    // load the text color
+    szText[0] = UNICODE_NULL;
+    GetPrivateProfileStringW(TheGUID, L"IconArea_Text", L"", szText, _countof(szText), szIniFile);
+    if (szText[0])
+    {
+        StrTrimW(szText, Space);
+
+        LPWSTR pchEnd = NULL;
+        COLORREF cr = (wcstol(szText, &pchEnd, 0) & 0xFFFFFF);
+
+        if (pchEnd && !*pchEnd)
+            data->clrText = cr;
+    }
+
+    // load the text background color
+    szText[0] = UNICODE_NULL;
+    GetPrivateProfileStringW(TheGUID, L"IconArea_TextBackground", L"", szText, _countof(szText), szIniFile);
+    if (szText[0])
+    {
+        StrTrimW(szText, Space);
+
+        LPWSTR pchEnd = NULL;
+        COLORREF cr = (wcstol(szText, &pchEnd, 0) & 0xFFFFFF);
+
+        if (pchEnd && !*pchEnd)
+            data->clrTextBack = cr;
+    }
+
+    if (data->hbmBack != NULL || data->clrText != CLR_INVALID || data->clrTextBack != CLR_INVALID)
+        return S_OK;
+
+    return E_FAIL;
+}
+
+HRESULT WINAPI CFSFolder::MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    HRESULT hr = E_NOTIMPL;
+    switch (uMsg)
+    {
+    case SFVM_GET_CUSTOMVIEWINFO:
+        hr = GetCustomViewInfo((ULONG)wParam, (SFVM_CUSTOMVIEWINFO_DATA *)lParam);
+        break;
+    }
     return hr;
 }

@@ -28,6 +28,7 @@
 #include <ndk/obfuncs.h>
 #include <ndk/psfuncs.h>
 #include <ndk/rtlfuncs.h>
+#include <ndk/ketypes.h>
 #include <ndk/setypes.h>
 
 #include <ntsam.h>
@@ -78,6 +79,14 @@ typedef struct _LSAP_LOGON_CONTEXT
     HANDLE ClientProcessHandle;
     HANDLE ConnectionHandle;
 } LSAP_LOGON_CONTEXT, *PLSAP_LOGON_CONTEXT;
+
+typedef struct _SAMPR_ULONG_ARRAY
+{
+    unsigned long Count;
+    unsigned long *Element;
+} SAMPR_ULONG_ARRAY, *PSAMPR_ULONG_ARRAY;
+
+extern NT_PRODUCT_TYPE LsapProductType;
 
 extern SID_IDENTIFIER_AUTHORITY NullSidAuthority;
 extern SID_IDENTIFIER_AUTHORITY WorldSidAuthority;
@@ -200,8 +209,20 @@ LsapLookupSids(PLSAPR_SID_ENUM_BUFFER SidEnumBuffer,
                DWORD ClientRevision);
 
 /* lsarpc.c */
-VOID
+NTSTATUS
 LsarStartRpcServer(VOID);
+
+/* notify.c */
+VOID
+LsapInitNotificationList(VOID);
+
+NTSTATUS
+LsapRegisterNotification(
+    PLSA_API_MSG RequestMsg);
+
+VOID
+LsapNotifyPolicyChange(
+    POLICY_NOTIFICATION_INFORMATION_CLASS InformationClass);
 
 /* policy.c */
 NTSTATUS

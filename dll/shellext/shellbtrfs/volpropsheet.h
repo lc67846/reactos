@@ -15,6 +15,8 @@
  * You should have received a copy of the GNU Lesser General Public Licence
  * along with WinBtrfs.  If not, see <http://www.gnu.org/licenses/>. */
 
+#pragma once
+
 #include <shlobj.h>
 #ifndef __REACTOS__
 #include "../btrfsioctl.h"
@@ -32,13 +34,13 @@ class BtrfsVolPropSheet : public IShellExtInit, IShellPropSheetExt {
 public:
     BtrfsVolPropSheet() {
         refcount = 0;
-        ignore = TRUE;
-        stgm_set = FALSE;
-        devices = NULL;
+        ignore = true;
+        stgm_set = false;
+        devices = nullptr;
 
         InterlockedIncrement(&objs_loaded);
 
-        balance = NULL;
+        balance = nullptr;
     }
 
     virtual ~BtrfsVolPropSheet() {
@@ -82,7 +84,7 @@ public:
     virtual HRESULT __stdcall AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam);
     virtual HRESULT __stdcall ReplacePage(UINT uPageID, LPFNADDPROPSHEETPAGE pfnReplacePage, LPARAM lParam);
 
-    void FormatUsage(HWND hwndDlg, WCHAR* s, ULONG size, btrfs_usage* usage);
+    void FormatUsage(HWND hwndDlg, wstring& s, btrfs_usage* usage);
     void RefreshUsage(HWND hwndDlg);
     void ShowUsage(HWND hwndDlg);
     INT_PTR CALLBACK UsageDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -91,20 +93,20 @@ public:
     void ShowDevices(HWND hwndDlg);
     void ShowScrub(HWND hwndDlg);
     INT_PTR CALLBACK StatsDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    void ShowStats(HWND hwndDlg, UINT64 devid);
+    void ShowStats(HWND hwndDlg, uint64_t devid);
     void ResetStats(HWND hwndDlg);
 
     btrfs_device* devices;
-    BOOL readonly;
+    bool readonly;
     BtrfsBalance* balance;
     BTRFS_UUID uuid;
-    BOOL uuid_set;
+    bool uuid_set;
 
 private:
     LONG refcount;
-    BOOL ignore;
+    bool ignore;
     STGMEDIUM stgm;
-    BOOL stgm_set;
-    WCHAR fn[MAX_PATH];
-    UINT64 stats_dev;
+    bool stgm_set;
+    wstring fn;
+    uint64_t stats_dev;
 };

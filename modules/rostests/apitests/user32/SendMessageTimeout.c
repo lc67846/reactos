@@ -5,11 +5,7 @@
  * PROGRAMMERS:     Thomas Faber <thomas.faber@reactos.org>
  */
 
-#include <apitest.h>
-#include <winuser.h>
-
-#include <msgtrace.h>
-#include <user32testhelpers.h>
+#include "precomp.h"
 
 static DWORD dwThread1;
 static DWORD dwThread2;
@@ -197,8 +193,8 @@ TestRecursiveInterThreadMessages(
     BOOL Ret;
     DWORD ExitCode;
 
-    Parameter = (PVOID)((KillThread1 ? KILL_THREAD1_FLAG : 0) |
-                        (KillThread2 ? KILL_THREAD2_FLAG : 0));
+    Parameter = UlongToPtr((KillThread1 ? KILL_THREAD1_FLAG : 0) |
+                           (KillThread2 ? KILL_THREAD2_FLAG : 0));
     hThread1 = CreateThread(NULL, 0, Thread1, Parameter, CREATE_SUSPENDED, &dwThread1);
     hThread2 = CreateThread(NULL, 0, Thread2, Parameter, CREATE_SUSPENDED, &dwThread2);
 

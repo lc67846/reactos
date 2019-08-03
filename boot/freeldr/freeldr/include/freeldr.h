@@ -50,6 +50,7 @@
 #include <internal/hal.h>
 #include <drivers/pci/pci.h>
 #include <winerror.h>
+#include <ntstrsafe.h>
 #else
 #include <ntsup.h>
 #endif
@@ -89,6 +90,7 @@
 #include <fs/ntfs.h>
 #include <fs/iso.h>
 #include <fs/pxe.h>
+#include <fs/btrfs.h>
 
 /* UI support */
 #include <ui/gui.h>

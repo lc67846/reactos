@@ -64,6 +64,13 @@
 #define IDM_BAND_TITLE                   0xA200
 #define IDM_BAND_CLOSE                   0xA201
 
+#define IDM_POPUPMENU        2001
+#define IDM_LARGE_ICONS      2002
+#define IDM_SMALL_ICONS      2003
+#define IDM_SHOW_TEXT        2004
+#define IDM_VIEW_MENU        2005
+#define IDM_OPEN_FOLDER      2006
+
 /* Random id for band close button, feel free to change it */
 #define IDM_BASEBAR_CLOSE                0xA200
 
@@ -95,12 +102,18 @@
 #define IDR_PROGRESSDIALOG       140
 #define IDR_AUTOCOMPLETE         141
 #define IDR_ACLISTISF            142
+#define IDR_ISFBAND              143
+#define IDR_ACLCUSTOMMRU         144
+#define IDR_TASKBARLIST          145
 
 #define IDS_SMALLICONS           12301
 #define IDS_LARGEICONS           12302
 #define IDS_SHOWTEXTLABELS       12303
 #define IDS_NOTEXTLABELS         12304
 #define IDS_SELECTIVETEXTONRIGHT 12305
+#define IDS_BROWSEFORNEWTOOLAR   12387
+#define IDS_TOOLBAR_ERR_TITLE    12388
+#define IDS_TOOLBAR_ERR_TEXT     12389
 #define IDS_GOBUTTONLABEL        12656
 #define IDS_GOBUTTONTIPTEMPLATE  12657
 #define IDS_SEARCHLABEL          12897
@@ -111,6 +124,7 @@
 #define IDS_UP                   58434
 #define IDS_BACK                 58689
 #define IDS_FORWARD              58690
+#define IDS_FOLDER_OPTIONS       58691
 
 #define IDS_CANCELLING           16
 #define IDS_REMAINING            17
@@ -118,7 +132,6 @@
 #define IDC_PROGRESS_BAR         102
 #define IDC_TEXT_LINE            103
 #define IDD_PROGRESS_DLG         100
-
 #define IDR_ACCELERATORS 256
 
 #define IDI_CABINET 103

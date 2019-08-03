@@ -64,7 +64,7 @@ LoadPopupMenu(IN HINSTANCE hInstance,
 }
 
 static BOOL CALLBACK
-PropSheetAddPage(HPROPSHEETPAGE hpage, LPARAM lParam)
+DisplayAppletPropSheetAddPage(HPROPSHEETPAGE hpage, LPARAM lParam)
 {
     PROPSHEETHEADER *ppsh = (PROPSHEETHEADER *)lParam;
     if (ppsh != NULL && ppsh->nPages < MAX_DESK_PAGES)
@@ -97,7 +97,7 @@ InitPropSheetPage(PROPSHEETHEADER *ppsh, WORD idDlg, DLGPROC DlgProc, LPFNPSPCAL
         hPage = CreatePropertySheetPage(&psp);
         if (hPage != NULL)
         {
-            return PropSheetAddPage(hPage, (LPARAM)ppsh);
+            return DisplayAppletPropSheetAddPage(hPage, (LPARAM)ppsh);
         }
     }
 
@@ -117,6 +117,23 @@ static const struct
     { IDD_APPEARANCE, AppearancePageProc, NULL, L"Appearance" },
     { IDD_SETTINGS, SettingsPageProc, SettingsPageCallbackProc, L"Settings" },
 };
+
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_DESK_ICON));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
 
 /* Display Applet */
 static LONG APIENTRY
@@ -180,14 +197,15 @@ DisplayApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags = PSH_USECALLBACK | PSH_PROPTITLE;
+    psh.dwFlags = PSH_USECALLBACK | PSH_PROPTITLE | PSH_USEICONID;
     psh.hwndParent = hCPLWindow;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDC_DESK_ICON));
+    psh.pszIcon = MAKEINTRESOURCEW(IDC_DESK_ICON);
     psh.pszCaption = Caption;
     psh.nPages = 0;
     psh.nStartPage = 0;
     psh.phpage = hpsp;
+    psh.pfnCallback = PropSheetProc;
 
     /* Allow shell extensions to replace the background page */
     hpsxa = SHCreatePropSheetExtArray(HKEY_LOCAL_MACHINE, REGSTR_PATH_CONTROLSFOLDER TEXT("\\Desk"), MAX_DESK_PAGES - psh.nPages);
@@ -199,7 +217,7 @@ DisplayApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 
         /* Override the background page if requested by a shell extension */
         if (PropPages[i].idDlg == IDD_BACKGROUND && hpsxa != NULL &&
-            SHReplaceFromPropSheetExtArray(hpsxa, CPLPAGE_DISPLAY_BACKGROUND, PropSheetAddPage, (LPARAM)&psh) != 0)
+            SHReplaceFromPropSheetExtArray(hpsxa, CPLPAGE_DISPLAY_BACKGROUND, DisplayAppletPropSheetAddPage, (LPARAM)&psh) != 0)
         {
             /* The shell extension added one or more pages to replace the background page.
                Don't create the built-in page anymore! */

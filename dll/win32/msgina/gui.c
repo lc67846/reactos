@@ -27,6 +27,16 @@ typedef struct _LEGALNOTICEDATA
     LPWSTR pszText;
 } LEGALNOTICEDATA, *PLEGALNOTICEDATA;
 
+typedef struct _DLG_DATA
+{
+    PGINA_CONTEXT pgContext;
+    HBITMAP hBitmap;
+    HBITMAP hBarBitmap;
+    UINT_PTR TimerID;
+    DWORD BarCounter;
+    DWORD BarWidth;
+    DWORD BarHeight;
+} DLG_DATA, *PDLG_DATA;
 
 static BOOL
 GUIInitialize(
@@ -36,14 +46,80 @@ GUIInitialize(
     return TRUE;
 }
 
+
+static
+VOID
+SetWelcomeText(HWND hWnd)
+{
+    PWCHAR pBuffer = NULL, p;
+    HKEY hKey;
+    DWORD BufSize, dwType, dwWelcomeSize, dwTitleLength;
+    LONG rc;
+
+    TRACE("SetWelcomeText(%p)\n", hWnd);
+
+    /* Open the Winlogon key */
+    rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+                       L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+                       0,
+                       KEY_QUERY_VALUE,
+                       &hKey);
+    if (rc != ERROR_SUCCESS)
+    {
+        WARN("RegOpenKeyExW() failed with error %lu\n", rc);
+        return;
+    }
+
+    /* Get the size of the Welcome value */
+    dwWelcomeSize = 0;
+    rc = RegQueryValueExW(hKey,
+                          L"Welcome",
+                          NULL,
+                          &dwType,
+                          NULL,
+                          &dwWelcomeSize);
+    if (rc == ERROR_FILE_NOT_FOUND || dwWelcomeSize == 0 || dwType != REG_SZ)
+        goto done;
+
+    dwTitleLength = GetWindowTextLengthW(hWnd);
+    BufSize = dwWelcomeSize + ((dwTitleLength + 1) * sizeof(WCHAR));
+
+    pBuffer = HeapAlloc(GetProcessHeap(), 0, BufSize);
+    if (pBuffer == NULL)
+        goto done;
+
+    GetWindowTextW(hWnd, pBuffer, BufSize / sizeof(WCHAR));
+    wcscat(pBuffer, L" ");
+    p = &pBuffer[dwTitleLength + 1];
+
+    RegQueryValueExW(hKey,
+                     L"Welcome",
+                     NULL,
+                     &dwType,
+                     (PBYTE)p,
+                     &dwWelcomeSize);
+
+    SetWindowText(hWnd, pBuffer);
+
+done:
+    if (pBuffer != NULL)
+        HeapFree(GetProcessHeap(), 0, pBuffer);
+
+    RegCloseKey(hKey);
+}
+
+
 static INT_PTR CALLBACK
-StatusMessageWindowProc(
+StatusDialogProc(
     IN HWND hwndDlg,
     IN UINT uMsg,
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
+    PDLG_DATA pDlgData;
     UNREFERENCED_PARAMETER(wParam);
+
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
 
     switch (uMsg)
     {
@@ -57,8 +133,84 @@ StatusMessageWindowProc(
 
             if (msg->pTitle)
                 SetWindowTextW(hwndDlg, msg->pTitle);
-            SetDlgItemTextW(hwndDlg, IDC_STATUSLABEL, msg->pMessage);
+            SetDlgItemTextW(hwndDlg, IDC_STATUS_MESSAGE, msg->pMessage);
             SetEvent(msg->StartupEvent);
+
+            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
+
+            if (pDlgData == NULL)
+                return FALSE;
+
+            /* Load the bar bitmap */
+            pDlgData->hBarBitmap = LoadImageW(hDllInstance, MAKEINTRESOURCEW(IDI_BAR), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            if (pDlgData->hBarBitmap)
+            {
+                BITMAP bm;
+
+                GetObject(pDlgData->hBarBitmap, sizeof(BITMAP), &bm);
+                pDlgData->BarWidth = bm.bmWidth;
+                pDlgData->BarHeight = bm.bmHeight;
+                pDlgData->TimerID = SetTimer(hwndDlg, -1, 20, NULL);
+            }
+            return TRUE;
+        }
+
+        case WM_TIMER:
+        {
+            if (pDlgData)
+            {
+                /*
+                 * Default rotation bar image width is 413 (same as logo)
+                 * We can divide 413 by 7 without remainder
+                 */
+                pDlgData->BarCounter = (pDlgData->BarCounter + 7) % pDlgData->BarWidth;
+                InvalidateRect(hwndDlg, NULL, FALSE);
+                UpdateWindow(hwndDlg);
+            }
+            return TRUE;
+        }
+
+        case WM_DRAWITEM:
+        {
+            LPDRAWITEMSTRUCT lpDis = (LPDRAWITEMSTRUCT)lParam;
+
+            if (lpDis->CtlID != IDC_BAR)
+            {
+                return FALSE;
+            }
+
+            if (pDlgData && pDlgData->hBarBitmap)
+            {
+                HDC hdcMem;
+                HGDIOBJ hOld;
+                DWORD off = pDlgData->BarCounter;
+                DWORD iw = pDlgData->BarWidth;
+                DWORD ih = pDlgData->BarHeight;
+
+                hdcMem = CreateCompatibleDC(lpDis->hDC);
+                hOld = SelectObject(hdcMem, pDlgData->hBarBitmap);
+                BitBlt(lpDis->hDC, off, 0, iw - off, ih, hdcMem, 0, 0, SRCCOPY);
+                BitBlt(lpDis->hDC, 0, 0, off, ih, hdcMem, iw - off, 0, SRCCOPY);
+                SelectObject(hdcMem, hOld);
+                DeleteDC(hdcMem);
+
+                return TRUE;
+            }
+            return FALSE;
+        }
+
+        case WM_DESTROY:
+        {
+            if (pDlgData)
+            {
+                if (pDlgData->hBarBitmap)
+                {
+                    KillTimer(hwndDlg, pDlgData->TimerID);
+                    DeleteObject(pDlgData->hBarBitmap);
+                }
+                HeapFree(GetProcessHeap(), 0, pDlgData);
+            }
             return TRUE;
         }
     }
@@ -95,9 +247,9 @@ StartupWindowThread(LPVOID lpParam)
 
     DialogBoxParamW(
         hDllInstance,
-        MAKEINTRESOURCEW(IDD_STATUSWINDOW_DLG),
+        MAKEINTRESOURCEW(IDD_STATUS),
         GetDesktopWindow(),
-        StatusMessageWindowProc,
+        StatusDialogProc,
         (LPARAM)lpParam);
 
     HeapFree(GetProcessHeap(), 0, lpParam);
@@ -174,7 +326,7 @@ GUIDisplayStatusMessage(
     if (pTitle)
         SetWindowTextW(pgContext->hStatusWindow, pTitle);
 
-    SetDlgItemTextW(pgContext->hStatusWindow, IDC_STATUSLABEL, pMessage);
+    SetDlgItemTextW(pgContext->hStatusWindow, IDC_STATUS_MESSAGE, pMessage);
 
     return TRUE;
 }
@@ -193,41 +345,48 @@ GUIRemoveStatusMessage(
 }
 
 static INT_PTR CALLBACK
-EmptyWindowProc(
+WelcomeDialogProc(
     IN HWND hwndDlg,
     IN UINT uMsg,
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
-    PGINA_CONTEXT pgContext;
-    
-    pgContext = (PGINA_CONTEXT)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+    PDLG_DATA pDlgData;
+
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
 
     switch (uMsg)
     {
         case WM_INITDIALOG:
         {
-            pgContext = (PGINA_CONTEXT)lParam;
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pgContext);
+            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            if (pDlgData == NULL)
+                return FALSE;
 
-            /* Draw the logo bitmap */
-            pgContext->hBitmap = LoadImageW(pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
+
+            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
+
+            /* Load the logo bitmap */
+            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
             return TRUE;
         }
+
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pgContext->hBitmap)
+            if (pDlgData->hBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pgContext->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
         case WM_DESTROY:
         {
-            DeleteObject(pgContext->hBitmap);
+            DeleteObject(pDlgData->hBitmap);
+            HeapFree(GetProcessHeap(), 0, pDlgData);
             return TRUE;
         }
     }
@@ -243,9 +402,9 @@ GUIDisplaySASNotice(
     /* Display the notice window */
     pgContext->pWlxFuncs->WlxDialogBoxParam(pgContext->hWlx,
                                             pgContext->hDllInstance,
-                                            MAKEINTRESOURCEW(IDD_NOTICE_DLG),
+                                            MAKEINTRESOURCEW(IDD_WELCOME),
                                             GetDesktopWindow(),
-                                            EmptyWindowProc,
+                                            WelcomeDialogProc,
                                             (LPARAM)pgContext);
 }
 
@@ -400,7 +559,7 @@ DoChangePassword(
                   RequestBuffer->NewPassword.MaximumLength);
 
     /* Connect to the LSA server */
-    if (!ConnectToLsa(pgContext))
+    if (ConnectToLsa(pgContext) != ERROR_SUCCESS)
     {
         ERR("ConnectToLsa() failed\n");
         goto done;
@@ -435,7 +594,7 @@ DoChangePassword(
                        IDS_PASSWORDCHANGED);
 
     if ((wcscmp(UserName, pgContext->UserName) == 0) &&
-        (wcscmp(Domain, pgContext->Domain) == 0) &&
+        (wcscmp(Domain, pgContext->DomainName) == 0) &&
         (wcscmp(OldPassword, pgContext->Password) == 0))
     {
         ZeroMemory(pgContext->Password, sizeof(pgContext->Password));
@@ -472,7 +631,7 @@ ChangePasswordDialogProc(
             SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pgContext);
 
             SetDlgItemTextW(hwndDlg, IDC_CHANGEPWD_USERNAME, pgContext->UserName);
-            SendDlgItemMessageW(hwndDlg, IDC_CHANGEPWD_DOMAIN, CB_ADDSTRING, 0, (LPARAM)pgContext->Domain);
+            SendDlgItemMessageW(hwndDlg, IDC_CHANGEPWD_DOMAIN, CB_ADDSTRING, 0, (LPARAM)pgContext->DomainName);
             SendDlgItemMessageW(hwndDlg, IDC_CHANGEPWD_DOMAIN, CB_SETCURSEL, 0, 0);
             SetFocus(GetDlgItem(hwndDlg, IDC_CHANGEPWD_OLDPWD));
             return TRUE;
@@ -520,10 +679,10 @@ OnInitSecurityDlg(HWND hwnd,
 
     LoadStringW(pgContext->hDllInstance, IDS_LOGONMSG, Buffer1, _countof(Buffer1));
 
-    wsprintfW(Buffer2, L"%s\\%s", pgContext->Domain, pgContext->UserName);
+    wsprintfW(Buffer2, L"%s\\%s", pgContext->DomainName, pgContext->UserName);
     wsprintfW(Buffer4, Buffer1, Buffer2);
 
-    SetDlgItemTextW(hwnd, IDC_LOGONMSG, Buffer4);
+    SetDlgItemTextW(hwnd, IDC_SECURITY_MESSAGE, Buffer4);
 
     LoadStringW(pgContext->hDllInstance, IDS_LOGONDATE, Buffer1, _countof(Buffer1));
 
@@ -535,10 +694,10 @@ OnInitSecurityDlg(HWND hwnd,
 
     wsprintfW(Buffer4, Buffer1, Buffer2, Buffer3);
 
-    SetDlgItemTextW(hwnd, IDC_LOGONDATE, Buffer4);
+    SetDlgItemTextW(hwnd, IDC_SECURITY_LOGONDATE, Buffer4);
 
     if (pgContext->bAutoAdminLogon)
-        EnableWindow(GetDlgItem(hwnd, IDC_LOGOFF), FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_SECURITY_LOGOFF), FALSE);
 }
 
 
@@ -554,7 +713,7 @@ OnChangePassword(
     res = pgContext->pWlxFuncs->WlxDialogBoxParam(
         pgContext->hWlx,
         pgContext->hDllInstance,
-        MAKEINTRESOURCEW(IDD_CHANGE_PASSWORD),
+        MAKEINTRESOURCEW(IDD_CHANGEPWD),
         hwnd,
         ChangePasswordDialogProc,
         (LPARAM)pgContext);
@@ -608,7 +767,7 @@ OnLogOff(
     return pgContext->pWlxFuncs->WlxDialogBoxParam(
         pgContext->hWlx,
         pgContext->hDllInstance,
-        MAKEINTRESOURCEW(IDD_LOGOFF_DLG),
+        MAKEINTRESOURCEW(IDD_LOGOFF),
         hwndDlg,
         LogOffDialogProc,
         (LPARAM)pgContext);
@@ -624,26 +783,17 @@ OnShutDown(
     INT ret;
     DWORD ShutdownOptions;
 
-    if (ImpersonateLoggedOnUser(pgContext->UserToken))
-    {
-        pgContext->nShutdownAction = LoadShutdownSelState();
-        ShutdownOptions = GetAllowedShutdownOptions();
-        RevertToSelf();
-    }
-    else
-    {
-        ERR("WL: ImpersonateLoggedOnUser() failed with error %lu\n", GetLastError());
-        pgContext->nShutdownAction = 0;
-        ShutdownOptions = 0;
-    }
+    TRACE("OnShutDown(%p %p)\n", hwndDlg, pgContext);
 
-    ret = ShutdownDialog(hwndDlg, ShutdownOptions, pgContext);
+    pgContext->nShutdownAction = GetDefaultShutdownSelState();
+    ShutdownOptions = GetDefaultShutdownOptions();
 
-    if (ret == IDOK)
+    if (pgContext->UserToken != NULL)
     {
         if (ImpersonateLoggedOnUser(pgContext->UserToken))
         {
-            SaveShutdownSelState(pgContext->nShutdownAction);
+            pgContext->nShutdownAction = LoadShutdownSelState();
+            ShutdownOptions = GetAllowedShutdownOptions();
             RevertToSelf();
         }
         else
@@ -652,12 +802,30 @@ OnShutDown(
         }
     }
 
+    ret = ShutdownDialog(hwndDlg, ShutdownOptions, pgContext);
+
+    if (ret == IDOK)
+    {
+        if (pgContext->UserToken != NULL)
+        {
+            if (ImpersonateLoggedOnUser(pgContext->UserToken))
+            {
+                SaveShutdownSelState(pgContext->nShutdownAction);
+                RevertToSelf();
+            }
+            else
+            {
+                ERR("WL: ImpersonateLoggedOnUser() failed with error %lu\n", GetLastError());
+            }
+        }
+    }
+
     return ret;
 }
 
 
 static INT_PTR CALLBACK
-LoggedOnWindowProc(
+SecurityDialogProc(
     IN HWND hwndDlg,
     IN UINT uMsg,
     IN WPARAM wParam,
@@ -674,6 +842,8 @@ LoggedOnWindowProc(
             pgContext = (PGINA_CONTEXT)lParam;
             SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pgContext);
 
+            SetWelcomeText(hwndDlg);
+
             OnInitSecurityDlg(hwndDlg, (PGINA_CONTEXT)lParam);
             SetFocus(GetDlgItem(hwndDlg, IDNO));
             return TRUE;
@@ -683,22 +853,22 @@ LoggedOnWindowProc(
         {
             switch (LOWORD(wParam))
             {
-                case IDC_LOCK:
+                case IDC_SECURITY_LOCK:
                     EndDialog(hwndDlg, WLX_SAS_ACTION_LOCK_WKSTA);
                     return TRUE;
-                case IDC_LOGOFF:
+                case IDC_SECURITY_LOGOFF:
                     if (OnLogOff(hwndDlg, pgContext) == IDYES)
                         EndDialog(hwndDlg, WLX_SAS_ACTION_LOGOFF);
                     return TRUE;
-                case IDC_SHUTDOWN:
+                case IDC_SECURITY_SHUTDOWN:
                     if (OnShutDown(hwndDlg, pgContext) == IDOK)
                         EndDialog(hwndDlg, pgContext->nShutdownAction);
                     return TRUE;
-                case IDC_CHANGEPWD:
+                case IDC_SECURITY_CHANGEPWD:
                     if (OnChangePassword(hwndDlg, pgContext))
                         EndDialog(hwndDlg, WLX_SAS_ACTION_PWD_CHANGED);
                     return TRUE;
-                case IDC_TASKMGR:
+                case IDC_SECURITY_TASKMGR:
                     EndDialog(hwndDlg, WLX_SAS_ACTION_TASKLIST);
                     return TRUE;
                 case IDCANCEL:
@@ -739,9 +909,9 @@ GUILoggedOnSAS(
     result = pgContext->pWlxFuncs->WlxDialogBoxParam(
         pgContext->hWlx,
         pgContext->hDllInstance,
-        MAKEINTRESOURCEW(IDD_LOGGEDON_DLG),
+        MAKEINTRESOURCEW(IDD_SECURITY),
         GetDesktopWindow(),
-        LoggedOnWindowProc,
+        SecurityDialogProc,
         (LPARAM)pgContext);
 
     if (result < WLX_SAS_ACTION_LOGON ||
@@ -772,13 +942,13 @@ DoLogon(
     BOOL result = FALSE;
     NTSTATUS Status, SubStatus = STATUS_SUCCESS;
 
-    if (GetTextboxText(hwndDlg, IDC_USERNAME, &UserName) && *UserName == '\0')
+    if (GetTextboxText(hwndDlg, IDC_LOGON_USERNAME, &UserName) && *UserName == '\0')
         goto done;
 
-    if (GetTextboxText(hwndDlg, IDC_LOGON_TO, &Domain) && *Domain == '\0')
+    if (GetTextboxText(hwndDlg, IDC_LOGON_DOMAIN, &Domain) && *Domain == '\0')
         goto done;
 
-    if (!GetTextboxText(hwndDlg, IDC_PASSWORD, &Password))
+    if (!GetTextboxText(hwndDlg, IDC_LOGON_PASSWORD, &Password))
         goto done;
 
     Status = DoLoginTasks(pgContext, UserName, Domain, Password, &SubStatus);
@@ -807,11 +977,11 @@ DoLogon(
         else if (SubStatus == STATUS_ACCOUNT_LOCKED_OUT)
         {
             TRACE("Account locked!\n");
-            pgContext->pWlxFuncs->WlxMessageBox(pgContext->hWlx,
-                                                hwndDlg,
-                                                L"Account locked!",
-                                                L"Logon error",
-                                                MB_OK | MB_ICONERROR);
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_ACCOUNTLOCKED);
             goto done;
         }
         else if ((SubStatus == STATUS_PASSWORD_MUST_CHANGE) ||
@@ -836,7 +1006,7 @@ DoLogon(
 
             Status = DoLoginTasks(pgContext,
                                   pgContext->UserName,
-                                  pgContext->Domain,
+                                  pgContext->DomainName,
                                   pgContext->Password,
                                   &SubStatus);
             if (!NT_SUCCESS(Status))
@@ -846,14 +1016,40 @@ DoLogon(
                 goto done;
             }
         }
+        else if (SubStatus == STATUS_ACCOUNT_EXPIRED)
+        {
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONEXCLAMATION,
+                               IDS_LOGONTITLE,
+                               IDS_ACCOUNTEXPIRED);
+        }
+        else if (SubStatus == STATUS_INVALID_LOGON_HOURS)
+        {
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_INVALIDLOGONHOURS);
+            goto done;
+        }
+        else if (SubStatus == STATUS_INVALID_WORKSTATION)
+        {
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_INVALIDWORKSTATION);
+            goto done;
+        }
         else
         {
             TRACE("Other error!\n");
-            pgContext->pWlxFuncs->WlxMessageBox(pgContext->hWlx,
-                                                hwndDlg,
-                                                L"Other error!",
-                                                L"Logon error",
-                                                MB_OK | MB_ICONERROR);
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_ACCOUNTRESTRICTION);
             goto done;
         }
     }
@@ -862,7 +1058,6 @@ DoLogon(
         TRACE("DoLoginTasks failed! Status 0x%08lx\n", Status);
         goto done;
     }
-
 
     if (!CreateProfile(pgContext, UserName, Domain, Password))
     {
@@ -876,6 +1071,8 @@ DoLogon(
     result = TRUE;
 
 done:
+    pgContext->bAutoAdminLogon = FALSE;
+
     if (UserName != NULL)
         HeapFree(GetProcessHeap(), 0, UserName);
 
@@ -908,12 +1105,12 @@ SetDomainComboBox(
         lIndex = SendMessageW(hwndDomainComboBox, CB_ADDSTRING, 0, (LPARAM)szComputerName);
     }
 
-    if (wcslen(pgContext->Domain) != 0)
+    if (wcslen(pgContext->DomainName) != 0)
     {
-        lFindIndex = SendMessageW(hwndDomainComboBox, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)pgContext->Domain);
+        lFindIndex = SendMessageW(hwndDomainComboBox, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)pgContext->DomainName);
         if (lFindIndex == CB_ERR)
         {
-            lIndex = SendMessageW(hwndDomainComboBox, CB_ADDSTRING, 0, (LPARAM)pgContext->Domain);
+            lIndex = SendMessageW(hwndDomainComboBox, CB_ADDSTRING, 0, (LPARAM)pgContext->DomainName);
         }
         else
         {
@@ -926,63 +1123,79 @@ SetDomainComboBox(
 
 
 static INT_PTR CALLBACK
-LoggedOutWindowProc(
+LogonDialogProc(
     IN HWND hwndDlg,
     IN UINT uMsg,
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
-    PGINA_CONTEXT pgContext;
+    PDLG_DATA pDlgData;
 
-    pgContext = (PGINA_CONTEXT)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
 
     switch (uMsg)
     {
         case WM_INITDIALOG:
         {
+            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            if (pDlgData == NULL)
+                return FALSE;
+
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
+
             /* FIXME: take care of NoDomainUI */
-            pgContext = (PGINA_CONTEXT)lParam;
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pgContext);
-
-            if (!pgContext->bDontDisplayLastUserName)
-                SetDlgItemTextW(hwndDlg, IDC_USERNAME, pgContext->UserName);
-
-            if (pgContext->bDisableCAD)
-                EnableWindow(GetDlgItem(hwndDlg, IDCANCEL), FALSE);
-
-            if (!pgContext->bShutdownWithoutLogon)
-                EnableWindow(GetDlgItem(hwndDlg, IDC_SHUTDOWN), FALSE);
-
-            SetDomainComboBox(GetDlgItem(hwndDlg, IDC_LOGON_TO), pgContext);
-
-            SetFocus(GetDlgItem(hwndDlg, pgContext->bDontDisplayLastUserName ? IDC_USERNAME : IDC_PASSWORD));
+            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
 
             /* Draw the logo bitmap */
-            pgContext->hBitmap = LoadImageW(pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+
+            SetWelcomeText(hwndDlg);
+
+            if (pDlgData->pgContext->bAutoAdminLogon ||
+                !pDlgData->pgContext->bDontDisplayLastUserName)
+                SetDlgItemTextW(hwndDlg, IDC_LOGON_USERNAME, pDlgData->pgContext->UserName);
+
+            if (pDlgData->pgContext->bAutoAdminLogon)
+                SetDlgItemTextW(hwndDlg, IDC_LOGON_PASSWORD, pDlgData->pgContext->Password);
+
+            SetDomainComboBox(GetDlgItem(hwndDlg, IDC_LOGON_DOMAIN), pDlgData->pgContext);
+
+            if (pDlgData->pgContext->bDisableCAD)
+                EnableWindow(GetDlgItem(hwndDlg, IDCANCEL), FALSE);
+
+            if (!pDlgData->pgContext->bShutdownWithoutLogon)
+                EnableWindow(GetDlgItem(hwndDlg, IDC_LOGON_SHUTDOWN), FALSE);
+
+            SetFocus(GetDlgItem(hwndDlg, pDlgData->pgContext->bDontDisplayLastUserName ? IDC_LOGON_USERNAME : IDC_LOGON_PASSWORD));
+
+            if (pDlgData->pgContext->bAutoAdminLogon)
+                PostMessage(GetDlgItem(hwndDlg, IDOK), BM_CLICK, 0, 0);
+
             return TRUE;
         }
 
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pgContext->hBitmap)
+            if (pDlgData->hBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pgContext->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
 
         case WM_DESTROY:
-            DeleteObject(pgContext->hBitmap);
+            DeleteObject(pDlgData->hBitmap);
+            HeapFree(GetProcessHeap(), 0, pDlgData);
             return TRUE;
 
         case WM_COMMAND:
             switch (LOWORD(wParam))
             {
                 case IDOK:
-                    if (DoLogon(hwndDlg, pgContext))
+                    if (DoLogon(hwndDlg, pDlgData->pgContext))
                         EndDialog(hwndDlg, WLX_SAS_ACTION_LOGON);
                     return TRUE;
 
@@ -990,9 +1203,9 @@ LoggedOutWindowProc(
                     EndDialog(hwndDlg, WLX_SAS_ACTION_NONE);
                     return TRUE;
 
-                case IDC_SHUTDOWN:
-                    if (OnShutDown(hwndDlg, pgContext) == IDOK)
-                        EndDialog(hwndDlg, pgContext->nShutdownAction);
+                case IDC_LOGON_SHUTDOWN:
+                    if (OnShutDown(hwndDlg, pDlgData->pgContext) == IDOK)
+                        EndDialog(hwndDlg, pDlgData->pgContext->nShutdownAction);
                     return TRUE;
             }
             break;
@@ -1073,7 +1286,7 @@ GUILoggedOutSAS(
     {
         pgContext->pWlxFuncs->WlxDialogBoxParam(pgContext->hWlx,
                                                 pgContext->hDllInstance,
-                                                MAKEINTRESOURCEW(IDD_LEGALNOTICE_DLG),
+                                                MAKEINTRESOURCEW(IDD_LEGALNOTICE),
                                                 GetDesktopWindow(),
                                                 LegalNoticeDialogProc,
                                                 (LPARAM)&LegalNotice);
@@ -1088,9 +1301,9 @@ GUILoggedOutSAS(
     result = pgContext->pWlxFuncs->WlxDialogBoxParam(
         pgContext->hWlx,
         pgContext->hDllInstance,
-        MAKEINTRESOURCEW(IDD_LOGGEDOUT_DLG),
+        MAKEINTRESOURCEW(IDD_LOGON),
         GetDesktopWindow(),
-        LoggedOutWindowProc,
+        LogonDialogProc,
         (LPARAM)pgContext);
     if (result >= WLX_SAS_ACTION_LOGON &&
         result <= WLX_SAS_ACTION_SWITCH_CONSOLE)
@@ -1115,7 +1328,7 @@ SetLockMessage(HWND hwnd,
 
     LoadStringW(pgContext->hDllInstance, IDS_LOCKMSG, Buffer1, _countof(Buffer1));
 
-    wsprintfW(Buffer2, L"%s\\%s", pgContext->Domain, pgContext->UserName);
+    wsprintfW(Buffer2, L"%s\\%s", pgContext->DomainName, pgContext->UserName);
     wsprintfW(Buffer3, Buffer1, Buffer2);
 
     SetDlgItemTextW(hwnd, nDlgItem, Buffer3);
@@ -1135,13 +1348,13 @@ DoUnlock(
     LPWSTR Password = NULL;
     BOOL res = FALSE;
 
-    if (GetTextboxText(hwndDlg, IDC_USERNAME, &UserName) && *UserName == '\0')
+    if (GetTextboxText(hwndDlg, IDC_UNLOCK_USERNAME, &UserName) && *UserName == '\0')
     {
         HeapFree(GetProcessHeap(), 0, UserName);
         return FALSE;
     }
 
-    if (GetTextboxText(hwndDlg, IDC_PASSWORD, &Password))
+    if (GetTextboxText(hwndDlg, IDC_UNLOCK_PASSWORD, &Password))
     {
         if (UserName != NULL && Password != NULL &&
             wcscmp(UserName, pgContext->UserName) == 0 &&
@@ -1169,7 +1382,7 @@ DoUnlock(
             else
             {
                 LoadStringW(pgContext->hDllInstance, IDS_LOCKEDWRONGUSER, Buffer1, _countof(Buffer1));
-                wsprintfW(Buffer2, Buffer1, pgContext->Domain, pgContext->UserName);
+                wsprintfW(Buffer2, Buffer1, pgContext->DomainName, pgContext->UserName);
                 LoadStringW(pgContext->hDllInstance, IDS_COMPUTERLOCKED, Buffer1, _countof(Buffer1));
                 MessageBoxW(hwndDlg, Buffer2, Buffer1, MB_OK | MB_ICONERROR);
             }
@@ -1189,57 +1402,65 @@ DoUnlock(
 static
 INT_PTR
 CALLBACK
-UnlockWindowProc(
+UnlockDialogProc(
     IN HWND hwndDlg,
     IN UINT uMsg,
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
-    PGINA_CONTEXT pgContext;
+    PDLG_DATA pDlgData;
     INT result = WLX_SAS_ACTION_NONE;
 
-    pgContext = (PGINA_CONTEXT)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
 
     switch (uMsg)
     {
         case WM_INITDIALOG:
         {
-            pgContext = (PGINA_CONTEXT)lParam;
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pgContext);
+            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            if (pDlgData == NULL)
+                return FALSE;
 
-            SetLockMessage(hwndDlg, IDC_LOCKMSG, pgContext);
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
 
-            SetDlgItemTextW(hwndDlg, IDC_USERNAME, pgContext->UserName);
-            SetFocus(GetDlgItem(hwndDlg, IDC_PASSWORD));
+            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
 
-            if (pgContext->bDisableCAD)
+            SetWelcomeText(hwndDlg);
+
+            SetLockMessage(hwndDlg, IDC_UNLOCK_MESSAGE, pDlgData->pgContext);
+
+            SetDlgItemTextW(hwndDlg, IDC_UNLOCK_USERNAME, pDlgData->pgContext->UserName);
+            SetFocus(GetDlgItem(hwndDlg, IDC_UNLOCK_PASSWORD));
+
+            if (pDlgData->pgContext->bDisableCAD)
                 EnableWindow(GetDlgItem(hwndDlg, IDCANCEL), FALSE);
 
-            /* Draw the logo bitmap */
-            pgContext->hBitmap = LoadImageW(pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            /* Load the logo bitmap */
+            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
             return TRUE;
         }
 
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pgContext->hBitmap)
+            if (pDlgData->hBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pgContext->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
         case WM_DESTROY:
-            DeleteObject(pgContext->hBitmap);
+            DeleteObject(pDlgData->hBitmap);
+            HeapFree(GetProcessHeap(), 0, pDlgData);
             return TRUE;
 
         case WM_COMMAND:
             switch (LOWORD(wParam))
             {
                 case IDOK:
-                    if (DoUnlock(hwndDlg, pgContext, &result))
+                    if (DoUnlock(hwndDlg, pDlgData->pgContext, &result))
                         EndDialog(hwndDlg, result);
                     return TRUE;
 
@@ -1265,9 +1486,9 @@ GUILockedSAS(
     result = pgContext->pWlxFuncs->WlxDialogBoxParam(
         pgContext->hWlx,
         pgContext->hDllInstance,
-        MAKEINTRESOURCEW(IDD_UNLOCK_DLG),
+        MAKEINTRESOURCEW(IDD_UNLOCK),
         GetDesktopWindow(),
-        UnlockWindowProc,
+        UnlockDialogProc,
         (LPARAM)pgContext);
     if (result >= WLX_SAS_ACTION_LOGON &&
         result <= WLX_SAS_ACTION_SWITCH_CONSOLE)
@@ -1282,42 +1503,51 @@ GUILockedSAS(
 
 
 static INT_PTR CALLBACK
-LockedWindowProc(
+LockedDialogProc(
     IN HWND hwndDlg,
     IN UINT uMsg,
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
-    PGINA_CONTEXT pgContext;
+    PDLG_DATA pDlgData;
 
-    pgContext = (PGINA_CONTEXT)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
 
     switch (uMsg)
     {
         case WM_INITDIALOG:
         {
-            pgContext = (PGINA_CONTEXT)lParam;
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pgContext);
+            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            if (pDlgData == NULL)
+                return FALSE;
 
-            /* Draw the logo bitmap */
-            pgContext->hBitmap = LoadImageW(pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
-            SetLockMessage(hwndDlg, IDC_LOCKMSG, pgContext);
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
+
+            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
+
+            /* Load the logo bitmap */
+            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+
+            SetWelcomeText(hwndDlg);
+
+            SetLockMessage(hwndDlg, IDC_LOCKED_MESSAGE, pDlgData->pgContext);
             return TRUE;
         }
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pgContext->hBitmap)
+            if (pDlgData->hBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pgContext->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
         case WM_DESTROY:
         {
-            DeleteObject(pgContext->hBitmap);
+            DeleteObject(pDlgData->hBitmap);
+            HeapFree(GetProcessHeap(), 0, pDlgData);
             return TRUE;
         }
     }
@@ -1335,9 +1565,9 @@ GUIDisplayLockedNotice(
     pgContext->pWlxFuncs->WlxDialogBoxParam(
         pgContext->hWlx,
         pgContext->hDllInstance,
-        MAKEINTRESOURCEW(IDD_LOCKED_DLG),
+        MAKEINTRESOURCEW(IDD_LOCKED),
         GetDesktopWindow(),
-        LockedWindowProc,
+        LockedDialogProc,
         (LPARAM)pgContext);
 }
 

@@ -18,7 +18,14 @@
 
 #include "ieframe.h"
 
-#include <initguid.h>
+#include "exdispid.h"
+#include "mshtml.h"
+#include "perhist.h"
+#include "initguid.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(ieframe);
 
 DEFINE_OLEGUID(CGID_DocHostCmdPriv, 0x000214D4L, 0, 0);
 
@@ -421,7 +428,7 @@ static void update_travellog(DocHost *This)
 
     static const WCHAR about_schemeW[] = {'a','b','o','u','t',':'};
 
-    if(This->url && !strncmpiW(This->url, about_schemeW, sizeof(about_schemeW)/sizeof(*about_schemeW))) {
+    if(This->url && !strncmpiW(This->url, about_schemeW, ARRAY_SIZE(about_schemeW))) {
         TRACE("Skipping about URL\n");
         return;
     }

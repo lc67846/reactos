@@ -20,8 +20,13 @@
 
 #include "hlink_private.h"
 
-#include <winreg.h>
-#include <rpcproxy.h>
+#include "winreg.h"
+#include "rpcproxy.h"
+#include "hlguids.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(hlink);
 
 static HINSTANCE instance;
 
@@ -384,9 +389,9 @@ HRESULT WINAPI HlinkParseDisplayName(LPBC pibc, LPCWSTR pwzDisplayName, BOOL fNo
     if(fNoForceAbs)
         FIXME("Unsupported fNoForceAbs\n");
 
-    if(!strncmpiW(pwzDisplayName, file_colonW, sizeof(file_colonW)/sizeof(WCHAR))) {
-        pwzDisplayName += sizeof(file_colonW)/sizeof(WCHAR);
-        eaten += sizeof(file_colonW)/sizeof(WCHAR);
+    if(!strncmpiW(pwzDisplayName, file_colonW, ARRAY_SIZE(file_colonW))) {
+        pwzDisplayName += ARRAY_SIZE(file_colonW);
+        eaten += ARRAY_SIZE(file_colonW);
 
         while(*pwzDisplayName == '/') {
             pwzDisplayName++;

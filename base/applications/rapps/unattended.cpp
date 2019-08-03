@@ -11,7 +11,7 @@
 
 #include <setupapi.h>
 
-#define MIN_ARGS 2
+#define MIN_ARGS 3
 
 BOOL UseCmdParameters(LPWSTR lpCmdLine)
 {
@@ -25,17 +25,17 @@ BOOL UseCmdParameters(LPWSTR lpCmdLine)
 
     // TODO: use DB filenames as names because they're shorter
     ATL::CSimpleArray<ATL::CStringW> arrNames;
-    if (!StrCmpW(argv[0], CMD_KEY_INSTALL))
+    if (!StrCmpIW(argv[1], CMD_KEY_INSTALL))
     {
-        for (INT i = 1; i < argc; ++i)
+        for (INT i = 2; i < argc; ++i)
         {
             arrNames.Add(argv[i]);
-        }       
-    } 
-    else 
-    if (!StrCmpW(argv[0], CMD_KEY_SETUP))
+        }
+    }
+    else
+    if (!StrCmpIW(argv[1], CMD_KEY_SETUP))
     {
-        HINF InfHandle = SetupOpenInfFileW(argv[1], NULL, INF_STYLE_WIN4, NULL);
+        HINF InfHandle = SetupOpenInfFileW(argv[2], NULL, INF_STYLE_WIN4, NULL);
         if (InfHandle == INVALID_HANDLE_VALUE)
         {
             return FALSE;
@@ -47,7 +47,7 @@ BOOL UseCmdParameters(LPWSTR lpCmdLine)
             WCHAR szName[MAX_PATH];
             do
             {
-                if (SetupGetStringFieldW(&Context, 1, szName, MAX_PATH, NULL))
+                if (SetupGetStringFieldW(&Context, 1, szName, _countof(szName), NULL))
                 {
                     arrNames.Add(szName);
                 }
@@ -64,12 +64,12 @@ BOOL UseCmdParameters(LPWSTR lpCmdLine)
     apps.UpdateAppsDB();
     apps.Enum(ENUM_ALL_AVAILABLE, NULL);
 
-    ATL::CSimpleArray<CAvailableApplicationInfo*> arrAppInfo = apps.FindInfoList(arrNames);
+    ATL::CSimpleArray<CAvailableApplicationInfo> arrAppInfo = apps.FindInfoList(arrNames);
     if (arrAppInfo.GetSize() > 0)
     {
         CDownloadManager::DownloadListOfApplications(arrAppInfo, TRUE);
         return TRUE;
     }
-    
+
     return FALSE;
 }

@@ -18,10 +18,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <wine/test.h>
+#include "wine/test.h"
 #include <errno.h>
 #include <stdio.h>
-#include <msvcrt.h>
+#include <math.h>
+#include "msvcrt.h"
 #include <process.h>
 
 static inline float __port_infinity(void)
@@ -29,6 +30,9 @@ static inline float __port_infinity(void)
     static const unsigned __inf_bytes = 0x7f800000;
     return *(const float *)&__inf_bytes;
 }
+#ifdef __REACTOS__
+#undef INFINITY
+#endif
 #define INFINITY __port_infinity()
 
 static inline float __port_nan(void)
@@ -36,6 +40,9 @@ static inline float __port_nan(void)
     static const unsigned __nan_bytes = 0x7fc00000;
     return *(const float *)&__nan_bytes;
 }
+#ifdef __REACTOS__
+#undef NAN
+#endif
 #define NAN __port_nan()
 
 static inline BOOL almost_equal(double d1, double d2) {
@@ -163,7 +170,7 @@ static void test_I10_OUTPUT(void)
     if (j != 12)
         trace("sizeof(long double) = %d on this machine\n", j);
 
-    for(i=0; i<sizeof(I10_OUTPUT_tests)/sizeof(I10_OUTPUT_test); i++) {
+    for(i=0; i<ARRAY_SIZE(I10_OUTPUT_tests); i++) {
         memset(out.str, '#', sizeof(out.str));
 
         if (sizeof(long double) == 12)
@@ -620,7 +627,7 @@ static void test__lfind_s(void)
     }
 
     key = 1234;
-    num = sizeof(tests)/sizeof(tests[0]);
+    num = ARRAY_SIZE(tests);
 
     errno = 0xdeadbeef;
     found = p_lfind_s(NULL, tests, &num, sizeof(int), _lfind_s_comp, NULL);

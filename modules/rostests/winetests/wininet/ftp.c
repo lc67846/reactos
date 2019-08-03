@@ -30,18 +30,15 @@
  */
 
 #include <stdarg.h>
-//#include <stdio.h>
-//#include <stdlib.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
+#include "windef.h"
+#include "winbase.h"
+#include "wininet.h"
+#include "winsock2.h"
 
-#include <windef.h>
-#include <winbase.h>
-#include <wininet.h>
-//#include "winsock.h"
-
-#include <wine/test.h>
+#include "wine/test.h"
 
 
 static BOOL (WINAPI *pFtpCommandA)(HINTERNET,BOOL,DWORD,LPCSTR,DWORD_PTR,HINTERNET*);
@@ -115,6 +112,7 @@ static void test_connect(HINTERNET hInternet)
     ok ( hFtp != NULL, "InternetConnect failed : %d\n", GetLastError());
     ok ( GetLastError() == ERROR_SUCCESS,
         "ERROR_SUCCESS, got %d\n", GetLastError());
+    InternetCloseHandle(hFtp);
 
     SetLastError(0xdeadbeef);
     hFtp = InternetConnectA(hInternet, "ftp.winehq.org", INTERNET_DEFAULT_FTP_PORT, "", NULL,
@@ -128,6 +126,7 @@ static void test_connect(HINTERNET hInternet)
     {
         ok(GetLastError() == ERROR_SUCCESS,
                 "Expected ERROR_SUCCESS, got %d\n", GetLastError());
+        InternetCloseHandle(hFtp);
     }
 }
 

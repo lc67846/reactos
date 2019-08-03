@@ -18,23 +18,18 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #define _WIN32_DCOM
 #define COBJMACROS
 #define CONST_VTABLE
 
 #include <stdarg.h>
-//#include <stdio.h>
+#include <stdio.h>
 
-#include <windef.h>
-#include <winbase.h>
-#include <ole2.h>
-//#include "objbase.h"
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
 
-#include <wine/test.h>
+#include "wine/test.h"
 
 
 #define METHOD_LIST \
@@ -706,7 +701,7 @@ static void test_DoDragDrop(void)
     GetWindowRect(hwnd, &rect);
     ok(SetCursorPos(rect.left+50, rect.top+50), "SetCursorPos failed\n");
 
-    for (seq = 0; seq < sizeof(call_lists) / sizeof(call_lists[0]); seq++)
+    for (seq = 0; seq < ARRAY_SIZE(call_lists); seq++)
     {
         DWORD effect_in;
         trace("%d\n", seq);

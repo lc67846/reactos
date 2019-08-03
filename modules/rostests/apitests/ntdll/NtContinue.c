@@ -5,8 +5,7 @@
  * PROGRAMMER:
  */
 
-#include <apitest.h>
-#include <ndk/kefuncs.h>
+#include "precomp.h"
 
 #include <setjmp.h>
 #include <time.h>
@@ -124,7 +123,7 @@ void check(CONTEXT * pContext)
 START_TEST(NtContinue)
 {
 #ifdef __RUNTIME_CHECKS__
-    skip("This test breaks MSVC runtime checks!");
+    skip("This test breaks MSVC runtime checks!\n");
     return;
 #endif /* __RUNTIME_CHECKS__ */
     initrand();

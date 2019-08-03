@@ -12,6 +12,7 @@
 #define NDEBUG
 #include <debug.h>
 
+INIT_FUNCTION
 PBUS_HANDLER
 NTAPI
 HalpAllocateAndInitPciBusHandler(
@@ -20,12 +21,14 @@ HalpAllocateAndInitPciBusHandler(
     IN BOOLEAN TestAllocation
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpFixupPciSupportedRanges(
     IN ULONG BusCount
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpGetChipHacks(
@@ -35,6 +38,7 @@ HalpGetChipHacks(
     IN PULONG HackFlags
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpGetPciBridgeConfig(
@@ -42,18 +46,21 @@ HalpGetPciBridgeConfig(
     IN PUCHAR BusCount
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsBridgeDevice(
     IN PPCI_COMMON_CONFIG PciData
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsIdeDevice(
     IN PPCI_COMMON_CONFIG PciData
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsRecognizedCard(
@@ -62,6 +69,7 @@ HalpIsRecognizedCard(
     IN ULONG Flags
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsValidPCIDevice(
@@ -69,18 +77,21 @@ HalpIsValidPCIDevice(
     IN PCI_SLOT_NUMBER Slot
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpMarkChipsetDecode(
     IN BOOLEAN OverrideEnable
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpRegisterInternalBusHandlers(
     VOID
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 ShowSize(
@@ -160,7 +171,7 @@ HalpAllocateBusHandler(IN INTERFACE_TYPE InterfaceType,
     return Bus;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 HalpRegisterInternalBusHandlers(VOID)
@@ -235,7 +246,7 @@ HalpRegisterInternalBusHandlers(VOID)
 }
 
 #ifndef _MINIHAL_
-INIT_SECTION
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpMarkChipsetDecode(BOOLEAN OverrideEnable)
@@ -283,7 +294,7 @@ HalpMarkChipsetDecode(BOOLEAN OverrideEnable)
     return Status;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 PBUS_HANDLER
 NTAPI
 HalpAllocateAndInitPciBusHandler(IN ULONG PciType,
@@ -368,7 +379,7 @@ HalpAllocateAndInitPciBusHandler(IN ULONG PciType,
     return Bus;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsValidPCIDevice(IN PBUS_HANDLER BusHandler,
@@ -430,7 +441,7 @@ HalpIsValidPCIDevice(IN PBUS_HANDLER BusHandler,
 
 static BOOLEAN WarningsGiven[5];
 
-INIT_SECTION
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpGetChipHacks(IN USHORT VendorId,
@@ -494,7 +505,7 @@ HalpGetChipHacks(IN USHORT VendorId,
     return Status;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsRecognizedCard(IN PPCI_REGISTRY_INFO_INTERNAL PciRegistryInfo,
@@ -575,7 +586,7 @@ HalpIsRecognizedCard(IN PPCI_REGISTRY_INFO_INTERNAL PciRegistryInfo,
     return FALSE;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsIdeDevice(IN PPCI_COMMON_CONFIG PciData)
@@ -628,7 +639,7 @@ HalpIsIdeDevice(IN PPCI_COMMON_CONFIG PciData)
     return FALSE;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpIsBridgeDevice(IN PPCI_COMMON_CONFIG PciData)
@@ -642,7 +653,7 @@ HalpIsBridgeDevice(IN PPCI_COMMON_CONFIG PciData)
              (PciData->SubClass == PCI_SUBCLASS_BR_CARDBUS)));
 }
 
-INIT_SECTION
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpGetPciBridgeConfig(IN ULONG PciType,
@@ -695,7 +706,7 @@ HalpGetPciBridgeConfig(IN ULONG PciType,
     return FALSE;
 }
 
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 HalpFixupPciSupportedRanges(IN ULONG BusCount)
@@ -758,7 +769,7 @@ HalpFixupPciSupportedRanges(IN ULONG BusCount)
     }
 }
 
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 ShowSize(ULONG x)
@@ -790,7 +801,7 @@ ShowSize(ULONG x)
  */
 #include "pci_classes.h"
 #include "pci_vendors.h"
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 HalpDebugPciDumpBus(IN ULONG i,
@@ -943,7 +954,7 @@ HalpDebugPciDumpBus(IN ULONG i,
 }
 #endif
 
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 HalpInitializePciBus(VOID)
@@ -1128,32 +1139,6 @@ HalpInitializePciBus(VOID)
                     }
                 }
 
-                /* Check if this is a USB controller */
-                if ((PciData->BaseClass == PCI_CLASS_SERIAL_BUS_CTLR) &&
-                    (PciData->SubClass == PCI_SUBCLASS_SB_USB))
-                {
-                    /* Check if this is an OHCI controller */
-                    if (PciData->ProgIf == 0x10)
-                    {
-                        DbgPrint("\tDevice is an OHCI (USB) PCI Expansion Card. Turn off Legacy USB in your BIOS!\n\n");
-                        continue;
-                    }
-
-                    /* Check for Intel UHCI controller */
-                    if (PciData->VendorID == 0x8086)
-                    {
-                        DbgPrint("\tDevice is an Intel UHCI (USB) Controller. Turn off Legacy USB in your BIOS!\n\n");
-                        continue;
-                    }
-
-                    /* Check for VIA UHCI controller */
-                    if (PciData->VendorID == 0x1106)
-                    {
-                        DbgPrint("\tDevice is a VIA UHCI (USB) Controller. Turn off Legacy USB in your BIOS!\n\n");
-                        continue;
-                    }
-                }
-
                 /* Now check the registry for chipset hacks */
                 Status = HalpGetChipHacks(PciData->VendorID,
                                           PciData->DeviceID,
@@ -1208,7 +1193,7 @@ HalpInitializePciBus(VOID)
 #endif
 }
 
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 HalpInitBusHandlers(VOID)
@@ -1217,7 +1202,7 @@ HalpInitBusHandlers(VOID)
     HalpRegisterInternalBusHandlers();
 }
 
-INIT_SECTION
+INIT_FUNCTION
 VOID
 NTAPI
 HalpRegisterKdSupportFunctions(VOID)
@@ -1228,8 +1213,13 @@ HalpRegisterKdSupportFunctions(VOID)
 
     /* Register memory functions */
 #ifndef _MINIHAL_
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+    KdMapPhysicalMemory64 = HalpMapPhysicalMemory64Vista;
+    KdUnmapVirtualAddress = HalpUnmapVirtualAddressVista;
+#else
     KdMapPhysicalMemory64 = HalpMapPhysicalMemory64;
     KdUnmapVirtualAddress = HalpUnmapVirtualAddress;
+#endif
 #endif
 
     /* Register ACPI stub */

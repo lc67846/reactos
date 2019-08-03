@@ -552,9 +552,9 @@ static DWORD WINAPI
 ShowStatusMessageThread(
     IN LPVOID lpParameter)
 {
-    HWND *phWnd = (HWND *)lpParameter;
-    HWND hWnd;
+    HWND hWnd, hItem;
     MSG Msg;
+    UNREFERENCED_PARAMETER(lpParameter);
 
     hWnd = CreateDialogParam(hDllInstance,
                              MAKEINTRESOURCE(IDD_STATUSWINDOW_DLG),
@@ -563,9 +563,14 @@ ShowStatusMessageThread(
                              (LPARAM)NULL);
     if (!hWnd)
         return 0;
-    *phWnd = hWnd;
 
     ShowWindow(hWnd, SW_SHOW);
+
+    hItem = GetDlgItem(hWnd, IDC_STATUSPROGRESS);
+    if (hItem)
+    {
+        PostMessage(hItem, PBM_SETMARQUEE, TRUE, 40);
+    }
 
     /* Message loop for the Status window */
     while (GetMessage(&Msg, NULL, 0, 0))
@@ -573,6 +578,8 @@ ShowStatusMessageThread(
         TranslateMessage(&Msg);
         DispatchMessage(&Msg);
     }
+
+    EndDialog(hWnd, 0);
 
     return 0;
 }
@@ -661,7 +668,8 @@ cleanup:
 static BOOL
 CommonInstall(VOID)
 {
-    HWND hWnd = NULL;
+    HANDLE hThread = NULL;
+    BOOL bResult = FALSE;
 
     hSysSetupInf = SetupOpenInfFileW(L"syssetup.inf",
                                      NULL,
@@ -676,49 +684,54 @@ CommonInstall(VOID)
     if (!InstallSysSetupInfDevices())
     {
         FatalError("InstallSysSetupInfDevices() failed!\n");
-        goto error;
+        goto Exit;
     }
 
     if(!InstallSysSetupInfComponents())
     {
         FatalError("InstallSysSetupInfComponents() failed!\n");
-        goto error;
+        goto Exit;
     }
 
     if (!IsConsoleBoot())
     {
-        HANDLE hThread;
-
         hThread = CreateThread(NULL,
                                0,
                                ShowStatusMessageThread,
-                               (LPVOID)&hWnd,
+                               NULL,
                                0,
                                NULL);
-        if (hThread)
-            CloseHandle(hThread);
     }
 
     if (!EnableUserModePnpManager())
     {
         FatalError("EnableUserModePnpManager() failed!\n");
-        goto error;
+        goto Exit;
     }
 
     if (CMP_WaitNoPendingInstallEvents(INFINITE) != WAIT_OBJECT_0)
     {
         FatalError("CMP_WaitNoPendingInstallEvents() failed!\n");
-        goto error;
+        goto Exit;
     }
 
-    EndDialog(hWnd, 0);
-    return TRUE;
+    bResult = TRUE;
 
-error:
-    if (hWnd)
-        EndDialog(hWnd, 0);
-    SetupCloseInfFile(hSysSetupInf);
-    return FALSE;
+Exit:
+
+    if (bResult == FALSE)
+    {
+        SetupCloseInfFile(hSysSetupInf);
+    }
+
+    if (hThread != NULL)
+    {
+        PostThreadMessage(GetThreadId(hThread), WM_QUIT, 0, 0);
+        WaitForSingleObject(hThread, INFINITE);
+        CloseHandle(hThread);
+    }
+
+    return bResult;
 }
 
 /* Install a section of a .inf file
@@ -1113,7 +1126,7 @@ InitializeDefaultUserLocale(VOID)
 
         /* Misc */
         {LOCALE_SCOUNTRY, L"sCountry"},
-        {LOCALE_SLANGUAGE, L"sLanguage"},
+        {LOCALE_SABBREVLANGNAME, L"sLanguage"},
         {LOCALE_ICOUNTRY, L"iCountry"},
         {0, NULL}};
 
@@ -1162,6 +1175,79 @@ InitializeDefaultUserLocale(VOID)
 
 done:
     RegCloseKey(hLocaleKey);
+}
+
+
+static
+DWORD
+SaveDefaultUserHive(VOID)
+{
+    WCHAR szDefaultUserHive[MAX_PATH];
+    HKEY hUserKey = NULL;
+    DWORD cchSize;
+    DWORD dwError;
+
+    DPRINT("SaveDefaultUserHive()\n");
+
+    cchSize = ARRAYSIZE(szDefaultUserHive);
+    GetDefaultUserProfileDirectoryW(szDefaultUserHive, &cchSize);
+
+    wcscat(szDefaultUserHive, L"\\ntuser.dat");
+
+    dwError = RegOpenKeyExW(HKEY_USERS,
+                            L".DEFAULT",
+                            0,
+                            KEY_READ,
+                            &hUserKey);
+    if (dwError != ERROR_SUCCESS)
+    {
+        DPRINT1("RegOpenKeyExW() failed (Error %lu)\n", dwError);
+        return dwError;
+    }
+
+    pSetupEnablePrivilege(L"SeBackupPrivilege", TRUE);
+
+    /* Save the Default hive */
+    dwError = RegSaveKeyExW(hUserKey,
+                            szDefaultUserHive,
+                            NULL,
+                            REG_STANDARD_FORMAT);
+    if (dwError == ERROR_ALREADY_EXISTS)
+    {
+        WCHAR szBackupHive[MAX_PATH];
+
+        /* Build the backup hive file name by replacing the extension */
+        wcscpy(szBackupHive, szDefaultUserHive);
+        wcscpy(&szBackupHive[wcslen(szBackupHive) - 4], L".bak");
+
+        /* Back up the existing default user hive by renaming it, replacing any possible existing old backup */
+        if (!MoveFileExW(szDefaultUserHive,
+                         szBackupHive,
+                         MOVEFILE_REPLACE_EXISTING))
+        {
+            dwError = GetLastError();
+            DPRINT1("Failed to create a default-user hive backup '%S', MoveFileExW failed (Error %lu)\n",
+                    szBackupHive, dwError);
+        }
+        else
+        {
+            /* The backup has been done, retry saving the Default hive */
+            dwError = RegSaveKeyExW(hUserKey,
+                                    szDefaultUserHive,
+                                    NULL,
+                                    REG_STANDARD_FORMAT);
+        }
+    }
+    if (dwError != ERROR_SUCCESS)
+    {
+        DPRINT1("RegSaveKeyExW() failed (Error %lu)\n", dwError);
+    }
+
+    pSetupEnablePrivilege(L"SeBackupPrivilege", FALSE);
+
+    RegCloseKey(hUserKey);
+
+    return dwError;
 }
 
 
@@ -1225,6 +1311,18 @@ InstallReactOS(VOID)
         PathAddBackslash(szBuffer);
         wcscat(szBuffer, L"system");
         CreateDirectory(szBuffer, NULL);
+    }
+
+    if (SaveDefaultUserHive() != ERROR_SUCCESS)
+    {
+        FatalError("SaveDefaultUserHive() failed");
+        return 0;
+    }
+
+    if (!CopySystemProfile(0))
+    {
+        FatalError("CopySystemProfile() failed");
+        return 0;
     }
 
     hHotkeyThread = CreateThread(NULL, 0, HotkeyThread, NULL, 0, NULL);

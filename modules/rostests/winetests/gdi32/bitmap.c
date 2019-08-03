@@ -35,7 +35,6 @@
 #ifndef __REACTOS__ /* CORE-11331 */
 #include "wine/ddk/d3dkmthk.h"
 #endif
-
 #include "wine/test.h"
 
 #ifndef __REACTOS__ /* CORE-11331 */

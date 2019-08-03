@@ -73,8 +73,10 @@ list(APPEND SOURCE
     wine/timezone.c
     winnls/string/casemap.c
     winnls/string/collation.c
+    winnls/string/digitmap.c
     winnls/string/fold.c
     winnls/string/format_msg.c
+    winnls/string/japanese.c
     winnls/string/lang.c
     winnls/string/lcformat.c
     winnls/string/lstring.c
@@ -97,10 +99,11 @@ elseif(ARCH STREQUAL "arm")
 endif()
 
 add_asm_files(kernel32_asm ${ASM_SOURCE})
-add_library(kernel32 SHARED
+add_library(kernel32 MODULE
     ${SOURCE}
     ${kernel32_asm}
     kernel32.rc
+    ${CMAKE_CURRENT_BINARY_DIR}/kernel32_stubs.c
     ${CMAKE_CURRENT_BINARY_DIR}/kernel32.def)
 
 set_module_type(kernel32 win32dll ENTRYPOINT DllMain 12)

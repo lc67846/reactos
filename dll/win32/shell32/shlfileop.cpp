@@ -5,6 +5,7 @@
  * Copyright 2002 Andriy Palamarchuk
  * Copyright 2004 Dietrich Teickner (from Odin)
  * Copyright 2004 Rolf Kalbermatter
+ * Copyright 2019 Katayama Hirofumi MZ <katayama.hirofumi.mz@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -31,6 +32,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(shell);
 #define IsDotDir(x)     ((x[0] == '.') && ((x[1] == 0) || ((x[1] == '.') && (x[2] == 0))))
 
 #define FO_MASK         0xF
+
+#define NEW_FILENAME_ON_COPY_TRIES 100
 
 static const WCHAR wWildcardFile[] = {'*',0};
 static const WCHAR wWildcardChars[] = {'*','?',0};
@@ -877,7 +880,7 @@ int WINAPI SHCreateDirectoryExW(HWND hWnd, LPCWSTR path, LPSECURITY_ATTRIBUTES s
             }
         }
 
-        if (ret && hWnd && (ERROR_CANCELLED != ret))
+        if (ret && hWnd && (ERROR_CANCELLED != ret && ERROR_ALREADY_EXISTS != ret))
         {
             ShellMessageBoxW(shell32_hInstance, hWnd, MAKEINTRESOURCEW(IDS_CREATEFOLDER_DENIED), MAKEINTRESOURCEW(IDS_CREATEFOLDER_CAPTION),
                                     MB_ICONEXCLAMATION | MB_OK, path);
@@ -1062,11 +1065,15 @@ static void add_file_to_entry(FILE_ENTRY *feFile, LPCWSTR szFile)
 {
     DWORD dwLen = lstrlenW(szFile) + 1;
     LPCWSTR ptr;
+    LPCWSTR ptr2;
 
     feFile->szFullPath = (LPWSTR)HeapAlloc(GetProcessHeap(), 0, dwLen * sizeof(WCHAR));
     lstrcpyW(feFile->szFullPath, szFile);
 
     ptr = StrRChrW(szFile, NULL, '\\');
+    ptr2 = StrRChrW(szFile, NULL, '/');
+    if (!ptr || ptr < ptr2)
+        ptr = ptr2;
     if (ptr)
     {
         dwLen = ptr - szFile + 1;
@@ -1083,10 +1090,14 @@ static void add_file_to_entry(FILE_ENTRY *feFile, LPCWSTR szFile)
 static LPWSTR wildcard_to_file(LPCWSTR szWildCard, LPCWSTR szFileName)
 {
     LPCWSTR ptr;
+    LPCWSTR ptr2;
     LPWSTR szFullPath;
     DWORD dwDirLen, dwFullLen;
 
     ptr = StrRChrW(szWildCard, NULL, '\\');
+    ptr2 = StrRChrW(szWildCard, NULL, '/');
+    if (!ptr || ptr < ptr2)
+        ptr = ptr2;
     dwDirLen = ptr - szWildCard + 1;
 
     dwFullLen = dwDirLen + lstrlenW(szFileName) + 1;
@@ -1219,6 +1230,34 @@ static void destroy_file_list(FILE_LIST *flList)
     HeapFree(GetProcessHeap(), 0, flList->feFiles);
 }
 
+static CStringW try_find_new_name(LPCWSTR szDestPath)
+{
+    CStringW mask(szDestPath);
+    CStringW ext(PathFindExtensionW(szDestPath));
+
+    // cut off extension before inserting a "new file" mask
+    if (!ext.IsEmpty())
+    {
+        mask = mask.Left(mask.GetLength() - ext.GetLength());
+    }
+    mask += L" (%d)" + ext;
+
+    CStringW newName;
+
+    // trying to find new file name
+    for (int i = 1; i < NEW_FILENAME_ON_COPY_TRIES; i++)
+    {
+        newName.Format(mask, i);
+
+        if (!PathFileExistsW(newName))
+        {
+            return newName;
+        }
+    }
+
+    return CStringW();
+}
+
 static void copy_dir_to_dir(FILE_OPERATION *op, const FILE_ENTRY *feFrom, LPCWSTR szDestPath)
 {
     WCHAR szFrom[MAX_PATH], szTo[MAX_PATH];
@@ -1236,12 +1275,20 @@ static void copy_dir_to_dir(FILE_OPERATION *op, const FILE_ENTRY *feFrom, LPCWST
 
     if (!(op->req->fFlags & FOF_NOCONFIRMATION) && PathFileExistsW(szTo))
     {
-        if (!SHELL_ConfirmDialogW(op->req->hwnd, ASK_OVERWRITE_FOLDER, feFrom->szFilename, op))
+        CStringW newPath;
+        if (lstrcmp(feFrom->szDirectory, szDestPath) == 0 && !(newPath = try_find_new_name(szTo)).IsEmpty())
         {
-            /* Vista returns an ERROR_CANCELLED even if user pressed "No" */
-            if (!op->bManyItems)
-                op->bCancelled = TRUE;
-            return;
+            StringCchCopyW(szTo, _countof(szTo), newPath);
+        }
+        else
+        {
+            if (!SHELL_ConfirmDialogW(op->req->hwnd, ASK_OVERWRITE_FOLDER, feFrom->szFilename, op))
+            {
+                /* Vista returns an ERROR_CANCELLED even if user pressed "No" */
+                if (!op->bManyItems)
+                    op->bCancelled = TRUE;
+                return;
+            }
         }
     }
 
@@ -1266,6 +1313,12 @@ static BOOL copy_file_to_file(FILE_OPERATION *op, const WCHAR *szFrom, const WCH
 {
     if (!(op->req->fFlags & FOF_NOCONFIRMATION) && PathFileExistsW(szTo))
     {
+        CStringW newPath;
+        if (lstrcmp(szFrom, szTo) == 0 && !(newPath = try_find_new_name(szTo)).IsEmpty())
+        {
+            return SHNotifyCopyFileW(op, szFrom, newPath, FALSE) == 0;
+        }
+
         if (!SHELL_ConfirmDialogW(op->req->hwnd, ASK_OVERWRITE_FILE, PathFindFileNameW(szTo), op))
             return FALSE;
     }
@@ -1486,7 +1539,7 @@ static HRESULT delete_files(FILE_OPERATION *op, const FILE_LIST *flFrom)
     {
         fileEntry = &flFrom->feFiles[i];
 
-        if ((HANDLE)fileEntry->attributes == INVALID_HANDLE_VALUE)
+        if (fileEntry->attributes == (ULONG)-1)
         {
             // This is a windows 2003 server specific value which has been removed.
             // Later versions of windows return ERROR_FILE_NOT_FOUND.
@@ -1586,6 +1639,9 @@ static void move_dir_to_dir(FILE_OPERATION *op, const FILE_ENTRY *feFrom, LPCWST
 
     destroy_file_list(&flFromNew);
     destroy_file_list(&flToNew);
+
+    if (PathIsDirectoryEmptyW(feFrom->szFullPath))
+        Win32RemoveDirectoryW(feFrom->szFullPath);
 }
 
 /* moves a file or directory to another directory */
@@ -1624,7 +1680,8 @@ static DWORD move_files(FILE_OPERATION *op, BOOL multiDest, const FILE_LIST *flF
 
     if (!(multiDest) &&
         !flFrom->bAnyDirectories &&
-        flFrom->dwNumFiles > flTo->dwNumFiles)
+        flFrom->dwNumFiles > flTo->dwNumFiles &&
+        !(flTo->bAnyDirectories && flTo->dwNumFiles == 1))
     {
         return ERROR_CANCELLED;
     }
@@ -1735,6 +1792,7 @@ int WINAPI SHFileOperationW(LPSHFILEOPSTRUCTW lpFileOp)
     if (FAILED(ret))
         return ret;
 
+    lpFileOp->fAnyOperationsAborted = FALSE;
     check_flags(lpFileOp->fFlags);
 
     ZeroMemory(&flFrom, sizeof(FILE_LIST));

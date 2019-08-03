@@ -1,13 +1,3 @@
-list(APPEND SOURCE
-    Context.c
-    Dispatch.c
-    Filter.c
-    Interface.c
-    Lib.c
-    Messaging.c
-    Object.c
-    ${CMAKE_CURRENT_BINARY_DIR}/fltmgr.def
-    fltmgr.h)
 
 include_directories(
     ${REACTOS_SOURCE_DIR}/sdk/include/reactos/drivers/fltmgr
@@ -15,9 +5,23 @@ include_directories(
 
 spec2def(fltmgr.sys fltmgr.spec ADD_IMPORTLIB)
 
-add_library(fltmgr SHARED
+list(APPEND SOURCE
+    Context.c
+    Dispatch.c
+    Filter.c
+    Interface.c
+    Lib.c
+    Messaging.c
+    Misc.c
+    Object.c
+    Registry.c
+    Volume.c
+    fltmgr.h)
+
+add_library(fltmgr MODULE
     ${SOURCE}
-    fltmgr.rc)
+    fltmgr.rc
+    ${CMAKE_CURRENT_BINARY_DIR}/fltmgr.def)
 
 set_module_type(fltmgr kernelmodedriver)
 target_link_libraries(fltmgr ${PSEH_LIB})

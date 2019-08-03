@@ -637,8 +637,8 @@ USBPORT_InvalidateControllerHandler(IN PDEVICE_OBJECT FdoDevice,
 {
     PUSBPORT_DEVICE_EXTENSION FdoExtension;
 
-    DPRINT("USBPORT_InvalidateControllerHandler: Invalidate Type - %x\n",
-           Type);
+    DPRINT_CORE("USBPORT_InvalidateControllerHandler: Invalidate Type - %x\n",
+                Type);
 
     FdoExtension = FdoDevice->DeviceExtension;
 
@@ -869,7 +869,7 @@ USBPORT_DpcHandler(IN PDEVICE_OBJECT FdoDevice)
     LIST_ENTRY List;
     LONG LockCounter;
 
-    DPRINT("USBPORT_DpcHandler: ... \n");
+    DPRINT_CORE("USBPORT_DpcHandler: ... \n");
 
     FdoExtension = FdoDevice->DeviceExtension;
 
@@ -1393,7 +1393,7 @@ USBPORT_WorkerThread(IN PVOID StartContext)
         KeQuerySystemTime(&NewTime);
 
         KeAcquireSpinLock(&FdoExtension->WorkerThreadEventSpinLock, &OldIrql);
-        KeResetEvent(&FdoExtension->WorkerThreadEvent);
+        KeClearEvent(&FdoExtension->WorkerThreadEvent);
         KeReleaseSpinLock(&FdoExtension->WorkerThreadEventSpinLock, OldIrql);
         DPRINT_CORE("USBPORT_WorkerThread: run \n");
 
@@ -1696,7 +1696,7 @@ USBPORT_AllocateCommonBuffer(IN PDEVICE_OBJECT FdoDevice,
     PHYSICAL_ADDRESS LogicalAddress;
     ULONG_PTR BaseVA;
     ULONG_PTR StartBufferVA;
-    ULONG_PTR StartBufferPA;
+    ULONG StartBufferPA;
 
     DPRINT("USBPORT_AllocateCommonBuffer: FdoDevice - %p, BufferLength - %p\n",
            FdoDevice,
@@ -1844,8 +1844,11 @@ USBPORT_AddDevice(IN PDRIVER_OBJECT DriverObject,
 
         RtlInitUnicodeString(&DeviceName, CharDeviceName);
 
-        Length = sizeof(USBPORT_DEVICE_EXTENSION) +
-                 MiniPortInterface->Packet.MiniPortExtensionSize;
+        ASSERT(MiniPortInterface->Packet.MiniPortExtensionSize <=
+               MAXULONG - sizeof(USBPORT_DEVICE_EXTENSION) - sizeof(USB2_HC_EXTENSION));
+        Length = (ULONG)(sizeof(USBPORT_DEVICE_EXTENSION) +
+                         MiniPortInterface->Packet.MiniPortExtensionSize +
+                         sizeof(USB2_HC_EXTENSION));
 
         /* Create device */
         Status = IoCreateDevice(DriverObject,
@@ -1903,6 +1906,22 @@ USBPORT_AddDevice(IN PDRIVER_OBJECT DriverObject,
     FdoExtension->MiniPortExt = (PVOID)((ULONG_PTR)FdoExtension +
                                         sizeof(USBPORT_DEVICE_EXTENSION));
 
+    if (MiniPortInterface->Packet.MiniPortFlags & USB_MINIPORT_FLAGS_USB2)
+    {
+        FdoExtension->Usb2Extension =
+        (PUSB2_HC_EXTENSION)((ULONG_PTR)FdoExtension->MiniPortExt +
+                             MiniPortInterface->Packet.MiniPortExtensionSize);
+
+        DPRINT("USBPORT_AddDevice: Usb2Extension - %p\n",
+               FdoExtension->Usb2Extension);
+
+        USB2_InitController(FdoExtension->Usb2Extension);
+    }
+    else
+    {
+        FdoExtension->Usb2Extension = NULL;
+    }
+
     FdoExtension->MiniPortInterface = MiniPortInterface;
     FdoExtension->FdoNameNumber = DeviceNumber;
 
@@ -1936,7 +1955,7 @@ USBPORT_Unload(IN PDRIVER_OBJECT DriverObject)
 
     if (!MiniPortInterface)
     {
-        DPRINT("USBPORT_Unload: CRITICAL ERROR!!! USBPORT_FindMiniPort not found MiniPortInterface\n");
+        DPRINT("USBPORT_Unload: CRITICAL ERROR!!! Not found MiniPortInterface\n");
         KeBugCheckEx(BUGCODE_USB_DRIVER, 1, 0, 0, 0);
     }
 
@@ -2091,7 +2110,7 @@ USBPORT_RequestAsyncCallback(IN PVOID MiniPortExtension,
 
 PVOID
 NTAPI
-USBPORT_GetMappedVirtualAddress(IN PVOID PhysicalAddress,
+USBPORT_GetMappedVirtualAddress(IN ULONG PhysicalAddress,
                                 IN PVOID MiniPortExtension,
                                 IN PVOID MiniPortEndpoint)
 {
@@ -2112,7 +2131,7 @@ USBPORT_GetMappedVirtualAddress(IN PVOID PhysicalAddress,
 
     HeaderBuffer = Endpoint->HeaderBuffer;
 
-    Offset = (ULONG_PTR)PhysicalAddress - HeaderBuffer->PhysicalAddress;
+    Offset = PhysicalAddress - HeaderBuffer->PhysicalAddress;
     VirtualAddress = HeaderBuffer->VirtualAddress + Offset;
 
     return (PVOID)VirtualAddress;
@@ -2282,7 +2301,7 @@ USBPORT_MapTransfer(IN PDEVICE_OBJECT FdoDevice,
     BOOLEAN WriteToDevice;
     PHYSICAL_ADDRESS PhAddr = {{0, 0}};
     PHYSICAL_ADDRESS PhAddress = {{0, 0}};
-    SIZE_T TransferLength;
+    ULONG TransferLength;
     SIZE_T SgCurrentLength;
     SIZE_T ElementLength;
     PUSBPORT_DEVICE_HANDLE DeviceHandle;
@@ -2692,7 +2711,7 @@ USBPORT_Dispatch(IN PDEVICE_OBJECT DeviceObject,
                        IoStack->MajorFunction,
                        IoStack->MinorFunction);
 
-                Irp->IoStatus.Status = Status;
+                Status = Irp->IoStatus.Status;
                 IoCompleteRequest(Irp, IO_NO_INCREMENT);
             }
             else

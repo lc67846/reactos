@@ -17,6 +17,11 @@
  */
 
 #include "hhctrl.h"
+#include "stream.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(htmlhelp);
 
 static SearchItem *SearchCHM_Folder(SearchItem *item, IStorage *pStorage,
                                     const WCHAR *folder, const char *needle);
@@ -147,7 +152,7 @@ cleanup:
 static SearchItem *SearchCHM_Storage(SearchItem *item, IStorage *pStorage,
                                      const char *needle)
 {
-    const WCHAR szHTMext[] = {'.','h','t','m',0};
+    static const WCHAR szHTMext[] = {'.','h','t','m',0};
     IEnumSTATSTG *elem = NULL;
     WCHAR *filename = NULL;
     STATSTG entries;

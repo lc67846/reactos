@@ -19,30 +19,25 @@
 #ifndef __WINE_DLLS_DDRAW_DDRAW_PRIVATE_H
 #define __WINE_DLLS_DDRAW_DDRAW_PRIVATE_H
 
-#include <config.h>
-#include <wine/port.h>
-
 #include <assert.h>
-#include <stdarg.h>
-
-#define _INC_WINDOWS
-#define COM_NO_WINDOW_H
-
+#include <limits.h>
 #define COBJMACROS
 #define NONAMELESSSTRUCT
 #define NONAMELESSUNION
+#include "wine/debug.h"
+#include "wine/heap.h"
 
-#include <windef.h>
-#include <winbase.h>
-#include <wingdi.h>
-#include <winuser.h>
-#include <d3d.h>
+#include "winbase.h"
+#include "wingdi.h"
+#include "winuser.h"
 
-#include <wine/debug.h>
-#include <wine/list.h>
-#include <wine/wined3d.h>
-
-WINE_DEFAULT_DEBUG_CHANNEL(ddraw);
+#include "d3d.h"
+#include "ddraw.h"
+#ifdef DDRAW_INIT_GUID
+#include "initguid.h"
+#endif
+#include "wine/list.h"
+#include "wine/wined3d.h"
 
 extern const struct wined3d_parent_ops ddraw_null_wined3d_parent_ops DECLSPEC_HIDDEN;
 extern DWORD force_refresh_rate DECLSPEC_HIDDEN;
@@ -62,14 +57,15 @@ struct FvfToDecl
 #define DDRAW_NO3D              0x00000008
 #define DDRAW_SCL_DDRAW1        0x00000010
 #define DDRAW_SCL_RECURSIVE     0x00000020
-#define DDRAW_GDI_FLIP          0x00000040
+#define DDRAW_SWAPPED           0x00000040
+#define DDRAW_GDI_FLIP          0x00000080
 
 #define DDRAW_STRIDE_ALIGNMENT  8
 
 #define DDRAW_WINED3D_FLAGS     (WINED3D_LEGACY_DEPTH_BIAS | WINED3D_VIDMEM_ACCOUNTING \
         | WINED3D_RESTORE_MODE_ON_ACTIVATE | WINED3D_FOCUS_MESSAGES | WINED3D_PIXEL_CENTER_INTEGER \
         | WINED3D_LEGACY_UNBOUND_RESOURCE_COLOR | WINED3D_NO_PRIMITIVE_RESTART \
-        | WINED3D_LEGACY_CUBEMAP_FILTERING | WINED3D_LIMIT_VIEWPORT)
+        | WINED3D_LEGACY_CUBEMAP_FILTERING)
 
 enum ddraw_device_state
 {
@@ -223,7 +219,7 @@ void ddraw_surface_init(struct ddraw_surface *surface, struct ddraw *ddraw,
         struct wined3d_texture *wined3d_texture, unsigned int sub_resource_idx,
         const struct wined3d_parent_ops **parent_ops) DECLSPEC_HIDDEN;
 HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
-        const RECT *rect, BOOL read) DECLSPEC_HIDDEN;
+        const RECT *rect, BOOL read, unsigned int swap_interval) DECLSPEC_HIDDEN;
 
 static inline struct ddraw_surface *impl_from_IDirect3DTexture(IDirect3DTexture *iface)
 {
@@ -349,6 +345,8 @@ struct d3d_device
     /* Handle management */
     struct ddraw_handle_table handle_table;
     D3DMATRIXHANDLE          world, proj, view;
+
+    struct wined3d_vec4 user_clip_planes[D3DMAXUSERCLIPPLANES];
 };
 
 HRESULT d3d_device_create(struct ddraw *ddraw, const GUID *guid, struct ddraw_surface *target, IUnknown *rt_iface,
@@ -590,6 +588,7 @@ void ddrawformat_from_wined3dformat(DDPIXELFORMAT *ddraw_format,
 BOOL wined3d_colour_from_ddraw_colour(const DDPIXELFORMAT *pf, const struct ddraw_palette *palette,
         DWORD colour, struct wined3d_color *wined3d_colour) DECLSPEC_HIDDEN;
 enum wined3d_format_id wined3dformat_from_ddrawformat(const DDPIXELFORMAT *format) DECLSPEC_HIDDEN;
+unsigned int wined3dmapflags_from_ddrawmapflags(unsigned int flags) DECLSPEC_HIDDEN;
 void DDRAW_dump_surface_desc(const DDSURFACEDESC2 *lpddsd) DECLSPEC_HIDDEN;
 void dump_D3DMATRIX(const D3DMATRIX *mat) DECLSPEC_HIDDEN;
 void DDRAW_dump_DDCAPS(const DDCAPS *lpcaps) DECLSPEC_HIDDEN;

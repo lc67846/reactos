@@ -19,16 +19,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
-//#include "windows.h"
-#include <wine/test.h>
-#include <wingdi.h>
-#include <objbase.h>
-#include <gdiplus.h>
 #include <math.h>
+
+#include "objbase.h"
+#include "gdiplus.h"
+#include "wine/test.h"
 
 #define RGNDATA_RECT            0x10000000
 #define RGNDATA_PATH            0x10000001
@@ -819,7 +814,8 @@ static void test_isinfinite(void)
 
     status = GdipCreateFromHDC(hdc, &graphics);
     expect(Ok, status);
-    GdipCreateRegion(&region);
+    status = GdipCreateRegion(&region);
+    expect(Ok, status);
 
     GdipCreateMatrix2(3.0, 0.0, 0.0, 1.0, 20.0, 30.0, &m);
 
@@ -865,7 +861,8 @@ static void test_isempty(void)
 
     status = GdipCreateFromHDC(hdc, &graphics);
     expect(Ok, status);
-    GdipCreateRegion(&region);
+    status = GdipCreateRegion(&region);
+    expect(Ok, status);
 
     /* NULL arguments */
     status = GdipIsEmptyRegion(NULL, NULL, NULL);
@@ -1446,6 +1443,22 @@ static void test_translate(void)
     ReleaseDC(0, hdc);
 }
 
+static DWORD get_region_type(GpRegion *region)
+{
+    DWORD *data;
+    DWORD size;
+    DWORD result;
+    DWORD status;
+    status = GdipGetRegionDataSize(region, &size);
+    expect(Ok, status);
+    data = GdipAlloc(size);
+    status = GdipGetRegionData(region, (BYTE*)data, size, NULL);
+    ok(status == Ok || status == InsufficientBuffer, "unexpected status 0x%x\n", status);
+    result = data[4];
+    GdipFree(data);
+    return result;
+}
+
 static void test_transform(void)
 {
     GpRegion *region, *region2;
@@ -1456,6 +1469,7 @@ static void test_transform(void)
     GpStatus status;
     HDC hdc = GetDC(0);
     BOOL res;
+    DWORD type;
 
     status = GdipCreateFromHDC(hdc, &graphics);
     expect(Ok, status);
@@ -1488,6 +1502,8 @@ static void test_transform(void)
     status = GdipIsEqualRegion(region, region2, graphics, &res);
     expect(Ok, status);
     ok(res, "Expected to be equal.\n");
+    type = get_region_type(region);
+    expect(0x10000003 /* RegionDataInfiniteRect */, type);
 
     /* empty */
     status = GdipSetEmpty(region);
@@ -1502,6 +1518,8 @@ static void test_transform(void)
     status = GdipIsEqualRegion(region, region2, graphics, &res);
     expect(Ok, status);
     ok(res, "Expected to be equal.\n");
+    type = get_region_type(region);
+    expect(0x10000002 /* RegionDataEmptyRect */, type);
 
     /* rect */
     rectf.X = 10.0;
@@ -1521,6 +1539,8 @@ static void test_transform(void)
     status = GdipIsEqualRegion(region, region2, graphics, &res);
     expect(Ok, status);
     ok(res, "Expected to be equal.\n");
+    type = get_region_type(region);
+    expect(0x10000000 /* RegionDataRect */, type);
 
     /* path */
     status = GdipAddPathEllipse(path, 0.0, 10.0, 100.0, 150.0);
@@ -1539,6 +1559,21 @@ static void test_transform(void)
     status = GdipIsEqualRegion(region, region2, graphics, &res);
     expect(Ok, status);
     ok(res, "Expected to be equal.\n");
+    type = get_region_type(region);
+    expect(0x10000001 /* RegionDataPath */, type);
+
+    /* rotated rect -> path */
+    rectf.X = 10.0;
+    rectf.Y = 0.0;
+    rectf.Width = rectf.Height = 100.0;
+    status = GdipCombineRegionRect(region, &rectf, CombineModeReplace);
+    expect(Ok, status);
+    status = GdipRotateMatrix(matrix, 45.0, MatrixOrderAppend);
+    expect(Ok, status);
+    status = GdipTransformRegion(region, matrix);
+    expect(Ok, status);
+    type = get_region_type(region);
+    expect(0x10000001 /* RegionDataPath */, type);
 
     status = GdipDeleteRegion(region);
     expect(Ok, status);
@@ -1746,7 +1781,8 @@ static void test_getbounds(void)
     ok(rectf.Height == 100.0, "Expected height = 0.0, got %.2f\n", rectf.Height);
 
     /* the world and page transforms are ignored */
-    GdipScaleWorldTransform(graphics, 2.0, 2.0, MatrixOrderPrepend);
+    status = GdipScaleWorldTransform(graphics, 2.0, 2.0, MatrixOrderPrepend);
+    ok(status == Ok, "status %08x\n", status);
     GdipSetPageUnit(graphics, UnitInch);
     GdipSetPageScale(graphics, 2.0);
     status = GdipGetRegionBounds(region, graphics, &rectf);

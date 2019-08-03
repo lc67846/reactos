@@ -135,7 +135,7 @@ PopProcessShutDownLists(VOID)
 
         /* Wait for the thread to finish and dereference it */
         KeWaitForSingleObject(ShutDownWaitEntry->Thread, 0, 0, 0, 0);
-        ObfDereferenceObject(ShutDownWaitEntry->Thread);
+        ObDereferenceObject(ShutDownWaitEntry->Thread);
 
         /* Finally free the entry */
         ExFreePoolWithTag(ShutDownWaitEntry, 'LSoP');
@@ -165,7 +165,7 @@ PopShutdownHandler(VOID)
 
         /* Display shutdown logo and message */
         Logo1 = InbvGetResourceAddress(IDB_SHUTDOWN_MSG);
-        Logo2 = InbvGetResourceAddress(IDB_DEFAULT_LOGO);
+        Logo2 = InbvGetResourceAddress(IDB_LOGO_DEFAULT);
         if ((Logo1) && (Logo2))
         {
             InbvBitBlt(Logo1, 220, 352);
@@ -278,17 +278,26 @@ PopGracefulShutdown(IN PVOID Context)
     DPRINT("Configuration Manager shutting down\n");
     CmShutdownSystem();
 
+    /* Shut down the Executive */
+    DPRINT("Executive shutting down\n");
+    ExShutdownSystem();
+
     /* Note that modified pages should be written here (MiShutdownSystem) */
-#ifdef NEWCC
+    MmShutdownSystem(0);
+
     /* Flush all user files before we start shutting down IO */
     /* This is where modified pages are written back by the IO manager */
     CcShutdownSystem();
-#endif
 
     /* In this step, the I/O manager does last-chance shutdown notification */
     DPRINT("I/O manager shutting down in phase 1\n");
     IoShutdownSystem(1);
     CcWaitForCurrentLazyWriterActivity();
+
+    /* FIXME: Calling Mm shutdown phase 1 here to get page file dereference
+     * but it shouldn't be called here. Only phase 2 should be called.
+     */
+    MmShutdownSystem(1);
 
     /* Note that here, we should broadcast the power IRP to devices */
 

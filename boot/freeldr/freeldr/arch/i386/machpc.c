@@ -19,7 +19,6 @@
 #include <freeldr.h>
 #include <cportlib/cportlib.h>
 
-#define NDEBUG
 #include <debug.h>
 
 DBG_DEFAULT_CHANNEL(HWDETECT);
@@ -77,6 +76,27 @@ DBG_DEFAULT_CHANNEL(HWDETECT);
 /* Timeout in ms for sending to keyboard controller. */
 #define CONTROLLER_TIMEOUT                              250
 
+
+VOID
+PcGetExtendedBIOSData(PULONG ExtendedBIOSDataArea, PULONG ExtendedBIOSDataSize)
+{
+    REGS BiosRegs;
+
+    /* Get address and size of the extended BIOS data area */
+    BiosRegs.d.eax = 0xC100;
+    Int386(0x15, &BiosRegs, &BiosRegs);
+    if (INT386_SUCCESS(BiosRegs))
+    {
+        *ExtendedBIOSDataArea = BiosRegs.w.es << 4;
+        *ExtendedBIOSDataSize = 1024;
+    }
+    else
+    {
+        WARN("Int 15h AH=C1h call failed\n");
+        *ExtendedBIOSDataArea = 0;
+        *ExtendedBIOSDataSize = 0;
+    }
+}
 
 // NOTE: Similar to machxbox.c!XboxGetHarddiskConfigurationData(),
 // but with extended geometry support.
@@ -341,12 +361,12 @@ DetectSerialMouse(PUCHAR Port)
     StallExecutionProcessor(10000);
 
     /* Read first four bytes, which contains Microsoft Mouse signs */
-    TimeOut = 200;
+    TimeOut = 20;
     for (i = 0; i < 4; i++)
     {
-        while (((READ_PORT_UCHAR(Port + 5) & 1) == 0) && (TimeOut > 0))
+        while ((READ_PORT_UCHAR(Port + 5) & 1) == 0)
         {
-            StallExecutionProcessor(1000);
+            StallExecutionProcessor(100);
             --TimeOut;
             if (TimeOut == 0)
                 return MOUSE_TYPE_NONE;
@@ -644,7 +664,7 @@ DetectSerialPorts(PCONFIGURATION_COMPONENT_DATA BusKey)
     for (i = 0; i < MAX_COM_PORTS; i++, BasePtr++)
     {
         Base = (ULONG) * BasePtr;
-        if (Base == 0 || !CpDoesPortExist((PUCHAR)Base))
+        if ((Base == 0) || !CpDoesPortExist(UlongToPtr(Base)))
             continue;
 
         TRACE("Found COM%u port at 0x%x\n", i + 1, Base);
@@ -1302,6 +1322,18 @@ DetectIsaBios(PCONFIGURATION_COMPONENT_DATA SystemKey, ULONG *BusNumber)
     /* FIXME: Detect more ISA devices */
 }
 
+static
+UCHAR
+PcGetFloppyCount(VOID)
+{
+    UCHAR Data;
+
+    WRITE_PORT_UCHAR((PUCHAR)0x70, 0x10);
+    Data = READ_PORT_UCHAR((PUCHAR)0x71);
+
+    return ((Data & 0xF0) ? 1 : 0) + ((Data & 0x0F) ? 1 : 0);
+}
+
 PCONFIGURATION_COMPONENT_DATA
 PcHwDetect(VOID)
 {
@@ -1368,6 +1400,7 @@ PcMachInit(const char *CmdLine)
     MachVtbl.VideoSetDisplayMode = PcVideoSetDisplayMode;
     MachVtbl.VideoGetDisplaySize = PcVideoGetDisplaySize;
     MachVtbl.VideoGetBufferSize = PcVideoGetBufferSize;
+    MachVtbl.VideoGetFontsFromFirmware = PcVideoGetFontsFromFirmware;
     MachVtbl.VideoSetTextCursorPosition = PcVideoSetTextCursorPosition;
     MachVtbl.VideoHideShowTextCursor = PcVideoHideShowTextCursor;
     MachVtbl.VideoPutChar = PcVideoPutChar;
@@ -1379,6 +1412,8 @@ PcMachInit(const char *CmdLine)
     MachVtbl.Beep = PcBeep;
     MachVtbl.PrepareForReactOS = PcPrepareForReactOS;
     MachVtbl.GetMemoryMap = PcMemGetMemoryMap;
+    MachVtbl.GetExtendedBIOSData = PcGetExtendedBIOSData;
+    MachVtbl.GetFloppyCount = PcGetFloppyCount;
     MachVtbl.DiskGetBootPath = PcDiskGetBootPath;
     MachVtbl.DiskReadLogicalSectors = PcDiskReadLogicalSectors;
     MachVtbl.DiskGetDriveGeometry = PcDiskGetDriveGeometry;
@@ -1387,15 +1422,13 @@ PcMachInit(const char *CmdLine)
     MachVtbl.InitializeBootDevices = PcInitializeBootDevices;
     MachVtbl.HwDetect = PcHwDetect;
     MachVtbl.HwIdle = PcHwIdle;
-
-    // DiskGetPartitionEntry = DiskGetMbrPartitionEntry; // Default
 }
 
 VOID
-PcPrepareForReactOS(IN BOOLEAN Setup)
+PcPrepareForReactOS(VOID)
 {
     /* On PC, prepare video and turn off the floppy motor */
-    PcVideoPrepareForReactOS(Setup);
+    PcVideoPrepareForReactOS();
     DiskStopFloppyMotor();
 }
 

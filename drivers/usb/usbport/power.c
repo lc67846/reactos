@@ -105,8 +105,6 @@ USBPORT_DoSetPowerD0(IN PDEVICE_OBJECT FdoDevice)
 {
     DPRINT("USBPORT_DoSetPowerD0: FIXME!\n");
     return;
-    DbgBreakPoint();
-    //ASSERT(FALSE);
 }
 
 VOID
@@ -199,7 +197,7 @@ USBPORT_ResumeController(IN PDEVICE_OBJECT FdoDevice)
 
     RtlZeroMemory(FdoExtension->MiniPortExt, Packet->MiniPortExtensionSize);
 
-    RtlZeroMemory(FdoExtension->UsbPortResources.StartVA,
+    RtlZeroMemory((PVOID)FdoExtension->UsbPortResources.StartVA,
                   Packet->MiniPortResourcesSize);
 
     FdoExtension->UsbPortResources.IsChirpHandled = TRUE;

@@ -18,11 +18,25 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdarg.h>
+
+#define NONAMELESSUNION
+
 #include "urlmon_main.h"
 
-#include <ole2.h>
+#include "winreg.h"
 
-#include <initguid.h>
+#define NO_SHLWAPI_REG
+#include "shlwapi.h"
+#include "advpub.h"
+#include "initguid.h"
+
+#include "wine/debug.h"
+
+#include "urlmon.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(urlmon);
+
 DEFINE_GUID(CLSID_CUri, 0xDF2FCE13, 0x25EC, 0x45BB, 0x9D,0x4C, 0xCE,0xCD,0x47,0xC2,0x43,0x0C);
 
 LONG URLMON_refCount = 0;
@@ -289,19 +303,31 @@ static ULONG WINAPI CF_Release(IClassFactory *iface)
 }
 
 
-static HRESULT WINAPI CF_CreateInstance(IClassFactory *iface, IUnknown *pOuter,
-                                        REFIID riid, LPVOID *ppobj)
+static HRESULT WINAPI CF_CreateInstance(IClassFactory *iface, IUnknown *outer,
+                                        REFIID riid, void **ppv)
 {
     ClassFactory *This = impl_from_IClassFactory(iface);
+    IUnknown *unk;
     HRESULT hres;
-    LPUNKNOWN punk;
     
-    TRACE("(%p)->(%p,%s,%p)\n",This,pOuter,debugstr_guid(riid),ppobj);
+    TRACE("(%p)->(%p %s %p)\n", This, outer, debugstr_guid(riid), ppv);
 
-    *ppobj = NULL;
-    if(SUCCEEDED(hres = This->pfnCreateInstance(pOuter, (LPVOID *) &punk))) {
-        hres = IUnknown_QueryInterface(punk, riid, ppobj);
-        IUnknown_Release(punk);
+    if(outer && !IsEqualGUID(riid, &IID_IUnknown)) {
+        *ppv = NULL;
+        return CLASS_E_NOAGGREGATION;
+    }
+
+    hres = This->pfnCreateInstance(outer, (void**)&unk);
+    if(FAILED(hres)) {
+        *ppv = NULL;
+        return hres;
+    }
+
+    if(!IsEqualGUID(riid, &IID_IUnknown)) {
+        hres = IUnknown_QueryInterface(unk, riid, ppv);
+        IUnknown_Release(unk);
+    }else {
+        *ppv = unk;
     }
     return hres;
 }
@@ -383,7 +409,7 @@ static void init_session(void)
 {
     unsigned int i;
 
-    for(i=0; i < sizeof(object_creation)/sizeof(object_creation[0]); i++) {
+    for(i = 0; i < ARRAY_SIZE(object_creation); i++) {
         if(object_creation[i].protocol)
             register_namespace(object_creation[i].cf, object_creation[i].clsid,
                                       object_creation[i].protocol, TRUE);
@@ -412,10 +438,10 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
 {
     unsigned int i;
     HRESULT hr;
-    
+
     TRACE("(%s,%s,%p)\n", debugstr_guid(rclsid), debugstr_guid(riid), ppv);
-    
-    for (i=0; i < sizeof(object_creation)/sizeof(object_creation[0]); i++)
+
+    for (i = 0; i < ARRAY_SIZE(object_creation); i++)
     {
 	if (IsEqualGUID(object_creation[i].clsid, rclsid))
 	    return IClassFactory_QueryInterface(object_creation[i].cf, riid, ppv);

@@ -460,7 +460,7 @@ CDrvDefExt::GeneralPageProc(
 
                     if (GetDlgItemTextW(hwndDlg, 14000, wszBuf, _countof(wszBuf)))
                         SetVolumeLabelW(pDrvDefExt->m_wszDrive, wszBuf);
-                    SetWindowLongPtr(hwndDlg, DWL_MSGRESULT, PSNRET_NOERROR);
+                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_NOERROR);
                     return TRUE;
                 }
             }
@@ -648,12 +648,15 @@ CDrvDefExt::AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam)
             pfnAddPage(hPage, lParam);
     }
 
-    hPage = SH_CreatePropertySheetPage(IDD_DRIVE_HARDWARE,
-                                       HardwarePageProc,
-                                       (LPARAM)this,
-                                       NULL);
-    if (hPage)
-        pfnAddPage(hPage, lParam);
+    if (GetDriveTypeW(m_wszDrive) != DRIVE_REMOTE)
+    {
+        hPage = SH_CreatePropertySheetPage(IDD_DRIVE_HARDWARE,
+                                           HardwarePageProc,
+                                           (LPARAM)this,
+                                           NULL);
+        if (hPage)
+            pfnAddPage(hPage, lParam);
+    }
 
     return S_OK;
 }

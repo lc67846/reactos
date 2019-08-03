@@ -182,7 +182,7 @@ static const shvheader DesktopSFHeader[] = {
 
 static const DWORD dwDesktopAttributes =
     SFGAO_HASSUBFOLDER | SFGAO_FILESYSTEM | SFGAO_FOLDER | SFGAO_FILESYSANCESTOR |
-    SFGAO_STORAGEANCESTOR | SFGAO_HASPROPSHEET | SFGAO_STORAGE | SFGAO_CANLINK;
+    SFGAO_STORAGEANCESTOR | SFGAO_HASPROPSHEET | SFGAO_STORAGE;
 static const DWORD dwMyComputerAttributes =
     SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_HASPROPSHEET | SFGAO_DROPTARGET |
     SFGAO_FILESYSANCESTOR | SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_CANLINK;
@@ -819,6 +819,9 @@ HRESULT WINAPI CDesktopFolder::Initialize(LPCITEMIDLIST pidl)
 {
     TRACE ("(%p)->(%p)\n", this, pidl);
 
+    if (!pidl)
+        return S_OK;
+
     return E_INVALIDARG;
 }
 
@@ -842,7 +845,7 @@ HRESULT WINAPI CDesktopFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IData
     {
         if (uMsg == DFM_INVOKECOMMAND && wParam == 0)
         {
-            if (32 >= (UINT)ShellExecuteW(hwndOwner, L"open", L"rundll32.exe shell32.dll,Control_RunDLL desk.cpl", NULL, NULL, SW_SHOWNORMAL))
+            if (32 >= (UINT_PTR)ShellExecuteW(hwndOwner, L"open", L"rundll32.exe shell32.dll,Control_RunDLL desk.cpl", NULL, NULL, SW_SHOWNORMAL))
                 return E_FAIL;
             return S_OK;
         }
@@ -858,33 +861,10 @@ HRESULT WINAPI CDesktopFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IData
         return S_OK;
     }
 
-    PIDLIST_ABSOLUTE pidlFolder;
-    PUITEMID_CHILD *apidl;
-    UINT cidl;
-    HRESULT hr = SH_GetApidlFromDataObject(pdtobj, &pidlFolder, &apidl, &cidl);
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
+    if (uMsg != DFM_INVOKECOMMAND || wParam != DFM_CMD_PROPERTIES)
+        return S_OK;
 
-    if (cidl > 1)
-        ERR("SHMultiFileProperties is not yet implemented\n");
-
-    STRRET strFile;
-    hr = GetDisplayNameOf(apidl[0], SHGDN_FORPARSING, &strFile);
-    if (SUCCEEDED(hr))
-    {
-        hr = SH_ShowPropertiesDialog(strFile.pOleStr, pidlFolder, apidl);
-        if (FAILED(hr))
-            ERR("SH_ShowPropertiesDialog failed\n");
-    }
-    else
-    {
-        ERR("Failed to get display name\n");
-    }
-
-    SHFree(pidlFolder);
-    _ILFreeaPidl(apidl, cidl);
-
-    return hr;
+    return Shell_DefaultContextMenuCallBack(this, pdtobj);
 }
 
 /*************************************************************************

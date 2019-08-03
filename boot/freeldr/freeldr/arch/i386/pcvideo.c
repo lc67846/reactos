@@ -19,7 +19,6 @@
 #include <freeldr.h>
 #include <suppress.h>
 
-#define NDEBUG
 #include <debug.h>
 
 #define VIDEOPORT_PALETTE_READ        0x03C7
@@ -118,6 +117,20 @@ static VIDEODISPLAYMODE DisplayMode = VideoTextMode;   /* Current display mode *
 static BOOLEAN VesaVideoMode = FALSE;                     /* Are we using a VESA mode? */
 static SVGA_MODE_INFORMATION VesaVideoModeInformation; /* Only valid when in VESA mode */
 static ULONG CurrentMemoryBank = 0;                      /* Currently selected VESA bank */
+
+enum
+{
+    INT1FhFont = 0x00,
+    INT43hFont = 0x01,
+    ROM_8x14CharacterFont = 0x02,
+    ROM_8x8DoubleDotFontLo = 0x03,
+    ROM_8x8DoubleDotFontHi = 0x04,
+    ROM_AlphaAlternate = 0x05,
+    ROM_8x16Font = 0x06,
+    ROM_Alternate9x16Font = 0x07,
+    UltraVision_8x20Font = 0x11,
+    UltraVision_8x10Font = 0x12,
+};
 
 static ULONG
 PcVideoDetectVideoCard(VOID)
@@ -959,6 +972,40 @@ PcVideoGetBufferSize(VOID)
 }
 
 VOID
+PcVideoGetFontsFromFirmware(PULONG RomFontPointers)
+{
+    REGS BiosRegs;
+
+    /* Get the address of the BIOS ROM fonts.
+       Int 10h, AX=1130h, BH = pointer specifier
+       returns: es:bp = address */
+    BiosRegs.d.eax = 0x1130;
+    BiosRegs.b.bh = ROM_8x14CharacterFont;
+    Int386(0x10, &BiosRegs, &BiosRegs);
+    RomFontPointers[0] = BiosRegs.w.es << 4 | BiosRegs.w.bp;
+
+    BiosRegs.b.bh = ROM_8x8DoubleDotFontLo;
+    Int386(0x10, &BiosRegs, &BiosRegs);
+    RomFontPointers[1] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
+
+    BiosRegs.b.bh = ROM_8x8DoubleDotFontHi;
+    Int386(0x10, &BiosRegs, &BiosRegs);
+    RomFontPointers[2] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
+
+    BiosRegs.b.bh = ROM_AlphaAlternate;
+    Int386(0x10, &BiosRegs, &BiosRegs);
+    RomFontPointers[3] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
+
+    BiosRegs.b.bh = ROM_8x16Font;
+    Int386(0x10, &BiosRegs, &BiosRegs);
+    RomFontPointers[4] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
+
+    BiosRegs.b.bh = ROM_Alternate9x16Font;
+    Int386(0x10, &BiosRegs, &BiosRegs);
+    RomFontPointers[5] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
+}
+
+VOID
 PcVideoSetTextCursorPosition(UCHAR X, UCHAR Y)
 {
   REGS Regs;
@@ -1110,16 +1157,10 @@ PcVideoSync(VOID)
 }
 
 VOID
-PcVideoPrepareForReactOS(IN BOOLEAN Setup)
+PcVideoPrepareForReactOS(VOID)
 {
-    if (Setup)
-    {
-        PcVideoSetMode80x50_80x43();
-    }
-    else
-    {
-        PcVideoSetBiosMode(0x12);
-    }
+    // PcVideoSetMode80x50_80x43();
+    PcVideoSetMode80x25();
     PcVideoHideShowTextCursor(FALSE);
 }
 

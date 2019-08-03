@@ -21,8 +21,28 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
+#include <assert.h>
+#include <stdarg.h>
+#include <string.h>
 
-#include "precomp.h"
+#define COBJMACROS
+#define NONAMELESSUNION
+#define NONAMELESSSTRUCT
+
+#include "winerror.h"
+#include "windef.h"
+#include "winbase.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "wine/list.h"
+#include "wine/unicode.h"
+#include "objbase.h"
+#include "oleauto.h"    /* for SysAllocString(....) */
+#include "ole2.h"
+#include "olectl.h"
+#include "wine/debug.h"
+#include "connpt.h" /* for CreateConnectionPoint */
+#include "oaidl.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
@@ -571,7 +591,7 @@ static void realize_font(OLEFontImpl *This)
     if(This->gdiFont)
     {
         old_font = SelectObject(hdc, This->gdiFont);
-        GetTextFaceW(hdc, sizeof(text_face) / sizeof(text_face[0]), text_face);
+        GetTextFaceW(hdc, ARRAY_SIZE(text_face), text_face);
         SelectObject(hdc, old_font);
         dec_int_ref(This->gdiFont);
         This->gdiFont = 0;
@@ -625,7 +645,7 @@ static void realize_font(OLEFontImpl *This)
     /* Fixup the name and charset properties so that they match the
        selected font */
     old_font = SelectObject(get_dc(), This->gdiFont);
-    GetTextFaceW(hdc, sizeof(text_face) / sizeof(text_face[0]), text_face);
+    GetTextFaceW(hdc, ARRAY_SIZE(text_face), text_face);
     if(lstrcmpiW(text_face, This->description.lpstrName))
     {
         HeapFree(GetProcessHeap(), 0, This->description.lpstrName);

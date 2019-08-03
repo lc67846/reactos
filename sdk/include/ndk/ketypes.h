@@ -1975,7 +1975,7 @@ typedef struct _KPROCESS
     LIST_ENTRY ProfileListHead;
 #if (NTDDI_VERSION >= NTDDI_LONGHORN)
     ULONG_PTR DirectoryTableBase;
-    ULONG Unused0;
+    ULONG_PTR Unused0;
 #else
     ULONG_PTR DirectoryTableBase[2];
 #endif
@@ -1988,7 +1988,7 @@ typedef struct _KPROCESS
     UCHAR Iopl;
     UCHAR Unused;
 #endif
-    volatile ULONG ActiveProcessors;
+    volatile KAFFINITY ActiveProcessors;
     ULONG KernelTime;
     ULONG UserTime;
     LIST_ENTRY ReadyListHead;

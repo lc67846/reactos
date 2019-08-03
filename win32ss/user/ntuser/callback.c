@@ -1208,5 +1208,29 @@ co_IntSetupOBM(VOID)
    IntCbFreeMemory(Argument);
 }
 
+//
+//  Called from Kernel GDI sides, no UserLeave/EnterCo required.
+//
+LRESULT
+APIENTRY
+co_UserCBClientPrinterThunk( PVOID pkt, INT InSize, PVOID pvOutData, INT OutSize )
+{
+   NTSTATUS Status;
+
+   Status = KeUserModeCallback(USER32_CALLBACK_UMPD,
+                               pkt,
+                               InSize,
+                               pvOutData,
+                               (PULONG)&OutSize);
+
+
+   if (!NT_SUCCESS(Status))
+   {
+      ERR("User UMPD callback failed!\n");
+      return 1;
+   }
+
+   return 0;
+}
 
 /* EOF */

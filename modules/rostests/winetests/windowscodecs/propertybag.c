@@ -17,21 +17,16 @@
  */
 
 #include <stdarg.h>
-//#include <math.h>
-
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
+#include <math.h>
 
 #define COBJMACROS
 #define CONST_VTABLE
 
-#include <windef.h>
-#include <winbase.h>
-#include <ole2.h>
-//#include "wincodec.h"
-#include <wincodecsdk.h>
-#include <wine/test.h>
+#include "windef.h"
+#include "objbase.h"
+#include "wincodec.h"
+#include "wincodecsdk.h"
+#include "wine/test.h"
 
 static const WCHAR wszTestProperty1[] = {'P','r','o','p','e','r','t','y','1',0};
 static const WCHAR wszTestProperty2[] = {'P','r','o','p','e','r','t','y','2',0};

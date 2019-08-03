@@ -24,15 +24,6 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  *
- * NOTES
- *
- * This code was audited for completeness against the documented features
- * of Comctl32.dll version 6.0 on May. 20, 2005, by James Hawkins.
- * 
- * Unless otherwise noted, we believe this code to be complete, as per
- * the specification mentioned above.
- * If you discover missing features, or bugs, please note them below.
- * 
  * TODO:
  *
  * Default Message Processing
@@ -133,9 +124,28 @@
  *   -- LVGroupComparE
  */
 
-#include "comctl32.h"
+#include "config.h"
+#include "wine/port.h"
 
+#include <assert.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "winnt.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "winnls.h"
+#include "commctrl.h"
+#include "comctl32.h"
+#include "uxtheme.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(listview);
 
@@ -1001,7 +1011,7 @@ static BOOL notify_dispinfoT(const LISTVIEW_INFO *infoPtr, UINT code, LPNMLVDISP
         return ret;
     }
 
-    /* if dipsinfo holder changed notification code then convert */
+    /* if dispinfo holder changed notification code then convert */
     if (!isW && (pdi->hdr.code == LVN_GETDISPINFOW) && (pdi->item.mask & LVIF_TEXT))
     {
         length = WideCharToMultiByte(CP_ACP, 0, pdi->item.pszText, -1, NULL, 0, NULL, NULL);
@@ -3843,33 +3853,44 @@ static LRESULT LISTVIEW_MouseHover(LISTVIEW_INFO *infoPtr, INT x, INT y)
  *   None.
  */
 static void LISTVIEW_MarqueeHighlight(LISTVIEW_INFO *infoPtr, const POINT *coords_orig,
-                                      const POINT *coords_offs, const POINT *offset,
                                       INT scroll)
 {
     BOOL controlDown = FALSE;
     LVITEMW item;
     ITERATOR old_elems, new_elems;
     RECT rect;
+    POINT coords_offs, offset;
 
-    if (coords_offs->x > infoPtr->marqueeOrigin.x)
+    /* Ensure coordinates are within client bounds */
+    coords_offs.x = max(min(coords_orig->x, infoPtr->rcList.right), 0);
+    coords_offs.y = max(min(coords_orig->y, infoPtr->rcList.bottom), 0);
+
+    /* Get offset */
+    LISTVIEW_GetOrigin(infoPtr, &offset);
+
+    /* Offset coordinates by the appropriate amount */
+    coords_offs.x -= offset.x;
+    coords_offs.y -= offset.y;
+
+    if (coords_offs.x > infoPtr->marqueeOrigin.x)
     {
         rect.left = infoPtr->marqueeOrigin.x;
-        rect.right = coords_offs->x;
+        rect.right = coords_offs.x;
     }
     else
     {
-        rect.left = coords_offs->x;
+        rect.left = coords_offs.x;
         rect.right = infoPtr->marqueeOrigin.x;
     }
 
-    if (coords_offs->y > infoPtr->marqueeOrigin.y)
+    if (coords_offs.y > infoPtr->marqueeOrigin.y)
     {
         rect.top = infoPtr->marqueeOrigin.y;
-        rect.bottom = coords_offs->y;
+        rect.bottom = coords_offs.y;
     }
     else
     {
-        rect.top = coords_offs->y;
+        rect.top = coords_offs.y;
         rect.bottom = infoPtr->marqueeOrigin.y;
     }
 
@@ -3895,7 +3916,7 @@ static void LISTVIEW_MarqueeHighlight(LISTVIEW_INFO *infoPtr, const POINT *coord
 
     infoPtr->marqueeRect = rect;
     infoPtr->marqueeDrawRect = rect;
-    OffsetRect(&infoPtr->marqueeDrawRect, offset->x, offset->y);
+    OffsetRect(&infoPtr->marqueeDrawRect, offset.x, offset.y);
 
     iterator_frameditems_absolute(&new_elems, infoPtr, &infoPtr->marqueeRect);
     iterator_remove_common_items(&old_elems, &new_elems);
@@ -3960,9 +3981,7 @@ static VOID CALLBACK LISTVIEW_ScrollTimer(HWND hWnd, UINT uMsg, UINT_PTR idEvent
 {
     LISTVIEW_INFO *infoPtr;
     SCROLLINFO scrollInfo;
-    POINT coords_orig;
-    POINT coords_offs;
-    POINT offset;
+    POINT coords;
     INT scroll = 0;
 
     infoPtr = (LISTVIEW_INFO *) idEvent;
@@ -3971,19 +3990,8 @@ static VOID CALLBACK LISTVIEW_ScrollTimer(HWND hWnd, UINT uMsg, UINT_PTR idEvent
         return;
 
     /* Get the current cursor position and convert to client coordinates */
-    GetCursorPos(&coords_orig);
-    ScreenToClient(hWnd, &coords_orig);
-
-    /* Ensure coordinates are within client bounds */
-    coords_offs.x = max(min(coords_orig.x, infoPtr->rcList.right), 0);
-    coords_offs.y = max(min(coords_orig.y, infoPtr->rcList.bottom), 0);
-
-    /* Get offset */
-    LISTVIEW_GetOrigin(infoPtr, &offset);
-
-    /* Offset coordinates by the appropriate amount */
-    coords_offs.x -= offset.x;
-    coords_offs.y -= offset.y;
+    GetCursorPos(&coords);
+    ScreenToClient(hWnd, &coords);
 
     scrollInfo.cbSize = sizeof(SCROLLINFO);
     scrollInfo.fMask = SIF_ALL;
@@ -4007,12 +4015,12 @@ static VOID CALLBACK LISTVIEW_ScrollTimer(HWND hWnd, UINT uMsg, UINT_PTR idEvent
             scroll |= SCROLL_RIGHT;
     }
 
-    if (((coords_orig.x <= 0) && (scroll & SCROLL_LEFT)) ||
-        ((coords_orig.y <= 0) && (scroll & SCROLL_UP))   ||
-        ((coords_orig.x >= infoPtr->rcList.right) && (scroll & SCROLL_RIGHT)) ||
-        ((coords_orig.y >= infoPtr->rcList.bottom) && (scroll & SCROLL_DOWN)))
+    if (((coords.x <= 0) && (scroll & SCROLL_LEFT)) ||
+        ((coords.y <= 0) && (scroll & SCROLL_UP))   ||
+        ((coords.x >= infoPtr->rcList.right) && (scroll & SCROLL_RIGHT)) ||
+        ((coords.y >= infoPtr->rcList.bottom) && (scroll & SCROLL_DOWN)))
     {
-        LISTVIEW_MarqueeHighlight(infoPtr, &coords_orig, &coords_offs, &offset, scroll);
+        LISTVIEW_MarqueeHighlight(infoPtr, &coords, scroll);
     }
 }
 
@@ -4034,6 +4042,9 @@ static LRESULT LISTVIEW_MouseMove(LISTVIEW_INFO *infoPtr, WORD fwKeys, INT x, IN
     RECT rect;
     POINT pt;
 
+    pt.x = x;
+    pt.y = y;
+
     if (!(fwKeys & MK_LBUTTON))
         infoPtr->bLButtonDown = FALSE;
 
@@ -4046,24 +4057,6 @@ static LRESULT LISTVIEW_MouseMove(LISTVIEW_INFO *infoPtr, WORD fwKeys, INT x, IN
 
         if (infoPtr->bMarqueeSelect)
         {
-            POINT coords_orig;
-            POINT coords_offs;
-            POINT offset;
-
-            coords_orig.x = x;
-            coords_orig.y = y;
-
-            /* Get offset */
-            LISTVIEW_GetOrigin(infoPtr, &offset);
-
-            /* Ensure coordinates are within client bounds */
-            coords_offs.x = max(min(x, infoPtr->rcList.right), 0);
-            coords_offs.y = max(min(y, infoPtr->rcList.bottom), 0);
-
-            /* Offset coordinates by the appropriate amount */
-            coords_offs.x -= offset.x;
-            coords_offs.y -= offset.y;
-
             /* Enable the timer if we're going outside our bounds, in case the user doesn't
                move the mouse again */
 
@@ -4082,12 +4075,9 @@ static LRESULT LISTVIEW_MouseMove(LISTVIEW_INFO *infoPtr, WORD fwKeys, INT x, IN
                 KillTimer(infoPtr->hwndSelf, (UINT_PTR) infoPtr);
             }
 
-            LISTVIEW_MarqueeHighlight(infoPtr, &coords_orig, &coords_offs, &offset, 0);
+            LISTVIEW_MarqueeHighlight(infoPtr, &pt, 0);
             return 0;
         }
-
-        pt.x = x;
-        pt.y = y;
 
         ht.pt = pt;
         LISTVIEW_HitTest(infoPtr, &ht, TRUE, TRUE);
@@ -6706,16 +6696,19 @@ static BOOL LISTVIEW_GetItemT(const LISTVIEW_INFO *infoPtr, LPLVITEMW lpLVItem, 
     /* make a local copy */
     isubitem = lpLVItem->iSubItem;
 
+    if (isubitem && (lpLVItem->mask & LVIF_STATE))
+        lpLVItem->state = 0;
+
     /* a quick optimization if all we're asked is the focus state
      * these queries are worth optimising since they are common,
      * and can be answered in constant time, without the heavy accesses */
     if ( (lpLVItem->mask == LVIF_STATE) && (lpLVItem->stateMask == LVIS_FOCUSED) &&
 	 !(infoPtr->uCallbackMask & LVIS_FOCUSED) )
     {
-	lpLVItem->state = 0;
-	if (infoPtr->nFocusedItem == lpLVItem->iItem)
-	    lpLVItem->state |= LVIS_FOCUSED;
-	return TRUE;
+        lpLVItem->state = 0;
+        if (infoPtr->nFocusedItem == lpLVItem->iItem && isubitem == 0)
+            lpLVItem->state |= LVIS_FOCUSED;
+        return TRUE;
     }
 
     ZeroMemory(&dispInfo, sizeof(dispInfo));
@@ -8433,6 +8426,8 @@ static BOOL LISTVIEW_SetColumnWidth(LISTVIEW_INFO *infoPtr, INT nColumn, INT cx)
 	if (infoPtr->himlSmall && (nColumn == 0 || (LISTVIEW_GetColumnInfo(infoPtr, nColumn)->fmt & LVCFMT_IMAGE)))
 	    max_cx += infoPtr->iconSize.cx;
 	max_cx += TRAILING_LABEL_PADDING;
+        if (nColumn == 0 && (infoPtr->dwLvExStyle & LVS_EX_CHECKBOXES))
+            max_cx += GetSystemMetrics(SM_CXSMICON);
     }
 
     /* autosize based on listview items width */
@@ -8864,6 +8859,7 @@ static BOOL LISTVIEW_SetItemCount(LISTVIEW_INFO *infoPtr, INT nItems, DWORD dwFl
 	    if (infoPtr->nFocusedItem >= nItems)
 	    {
 		LISTVIEW_SetItemFocus(infoPtr, -1);
+                infoPtr->nFocusedItem = -1;
 		SetRectEmpty(&infoPtr->rcFocus);
 	    }
 	}
@@ -9483,7 +9479,7 @@ static VOID CALLBACK LISTVIEW_DelayedEditItem(HWND hwnd, UINT uMsg, UINT_PTR idE
  *   Success: TRUE
  *   Failure: FALSE
  */
-static LRESULT LISTVIEW_NCCreate(HWND hwnd, const CREATESTRUCTW *lpcs)
+static LRESULT LISTVIEW_NCCreate(HWND hwnd, WPARAM wParam, const CREATESTRUCTW *lpcs)
 {
   LISTVIEW_INFO *infoPtr;
   LOGFONTW logFont;
@@ -9545,7 +9541,8 @@ static LRESULT LISTVIEW_NCCreate(HWND hwnd, const CREATESTRUCTW *lpcs)
   if (!(infoPtr->hdpaPosX  = DPA_Create(10))) goto fail;
   if (!(infoPtr->hdpaPosY  = DPA_Create(10))) goto fail;
   if (!(infoPtr->hdpaColumns = DPA_Create(10))) goto fail;
-  return TRUE;
+
+  return DefWindowProcW(hwnd, WM_NCCREATE, wParam, (LPARAM)lpcs);
 
 fail:
     DestroyWindow(infoPtr->hwndHeader);
@@ -11711,7 +11708,7 @@ LISTVIEW_WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return LISTVIEW_Command(infoPtr, wParam, lParam);
 
   case WM_NCCREATE:
-    return LISTVIEW_NCCreate(hwnd, (LPCREATESTRUCTW)lParam);
+    return LISTVIEW_NCCreate(hwnd, wParam, (LPCREATESTRUCTW)lParam);
 
   case WM_CREATE:
     return LISTVIEW_Create(hwnd, (LPCREATESTRUCTW)lParam);
@@ -11922,7 +11919,7 @@ static LRESULT LISTVIEW_Command(LISTVIEW_INFO *infoPtr, WPARAM wParam, LPARAM lP
 	    SIZE	  sz;
 
 	    if (!infoPtr->hwndEdit || !hdc) return 0;
-	    GetWindowTextW(infoPtr->hwndEdit, buffer, sizeof(buffer)/sizeof(buffer[0]));
+	    GetWindowTextW(infoPtr->hwndEdit, buffer, ARRAY_SIZE(buffer));
 	    GetWindowRect(infoPtr->hwndEdit, &rect);
 
             /* Select font to get the right dimension of the string */

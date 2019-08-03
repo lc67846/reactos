@@ -1,8 +1,10 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite Loader service control functions
- * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ * PROJECT:     ReactOS kernel-mode tests
+ * LICENSE:     LGPL-2.1+ (https://spdx.org/licenses/LGPL-2.1+)
+ * PURPOSE:     Kernel-Mode Test Suite loader service control functions
+ * COPYRIGHT:   Copyright 2011-2018 Thomas Faber <thomas.faber@reactos.org>
+ *              Copyright 2017 Ged Murphy <gedmurphy@reactos.org>
+ *              Copyright 2018 Serge Gautherie <reactos-git_serge_171003@gautherie.fr>
  */
 
 #include <kmt_test.h>
@@ -10,7 +12,20 @@
 
 #include <assert.h>
 
-#define SERVICE_ACCESS (SERVICE_START | SERVICE_STOP | DELETE)
+#define SERVICE_ACCESS (SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP | DELETE)
+
+/*
+ * This is an internal function not meant for use by the kmtests app,
+ * so we declare it here instead of kmtest.h
+ */
+DWORD
+KmtpCreateService(
+    IN PCWSTR ServiceName,
+    IN PCWSTR ServicePath,
+    IN PCWSTR DisplayName OPTIONAL,
+    IN DWORD ServiceType,
+    OUT SC_HANDLE *ServiceHandle);
+
 
 static SC_HANDLE ScmHandle;
 
@@ -80,32 +95,106 @@ KmtCreateService(
     IN PCWSTR DisplayName OPTIONAL,
     OUT SC_HANDLE *ServiceHandle)
 {
+    return KmtpCreateService(ServiceName,
+                             ServicePath,
+                             DisplayName,
+                             SERVICE_KERNEL_DRIVER,
+                             ServiceHandle);
+}
+
+/**
+ * @name KmtGetServiceStateAsString
+ *
+ * @param ServiceState
+ *        Service state as a number
+ *
+ * @return Service state as a string
+ */
+static
+PCSTR
+KmtGetServiceStateAsString(
+    IN DWORD ServiceState)
+{
+    switch(ServiceState)
+    {
+        case SERVICE_STOPPED:
+            return "STOPPED";
+        case SERVICE_START_PENDING:
+            return "START_PENDING";
+        case SERVICE_STOP_PENDING:
+            return "STOP_PENDING";
+        case SERVICE_RUNNING:
+            return "RUNNING";
+        case SERVICE_CONTINUE_PENDING:
+            return "CONTINUE_PENDING";
+        case SERVICE_PAUSE_PENDING:
+            return "PAUSE_PENDING";
+        case SERVICE_PAUSED:
+            return "PAUSED";
+        default:
+            ok(FALSE, "Unknown service state = %lu\n", ServiceState);
+            return "(Unknown)";
+    }
+}
+
+/**
+ * @name KmtEnsureServiceState
+ *
+ * @param ServiceName
+ *        Name of the service to check,
+ *        or NULL
+ * @param ServiceHandle
+ *        Handle to the service
+ * @param ExpectedServiceState
+ *        State which the service should be in
+ *
+ * @return Win32 error code
+ */
+static
+DWORD
+KmtEnsureServiceState(
+    IN PCWSTR ServiceName OPTIONAL,
+    IN SC_HANDLE ServiceHandle,
+    IN DWORD ExpectedServiceState)
+{
     DWORD Error = ERROR_SUCCESS;
-    WCHAR DriverPath[MAX_PATH];
-    HRESULT result = S_OK;
+    SERVICE_STATUS ServiceStatus;
+    DWORD StartTime = GetTickCount();
+    DWORD Timeout = 10 * 1000;
+    PCWSTR ServiceNameOut = ServiceName ? ServiceName : L"(handle only, no name)";
 
     assert(ServiceHandle);
-    assert(ServiceName && ServicePath);
+    assert(ExpectedServiceState);
 
-    if (!GetModuleFileName(NULL, DriverPath, sizeof DriverPath / sizeof DriverPath[0]))
+    if (!QueryServiceStatus(ServiceHandle, &ServiceStatus))
         error_goto(Error, cleanup);
 
-    assert(wcsrchr(DriverPath, L'\\') != NULL);
-    wcsrchr(DriverPath, L'\\')[1] = L'\0';
+    while (ServiceStatus.dwCurrentState != ExpectedServiceState)
+    {
+        // NB: ServiceStatus.dwWaitHint and ServiceStatus.dwCheckPoint logic could be added, if need be.
 
-    result = StringCbCat(DriverPath, sizeof DriverPath, ServicePath);
-    if (FAILED(result))
-        error_value_goto(Error, result, cleanup);
+        Sleep(1 * 1000);
 
-    if (GetFileAttributes(DriverPath) == INVALID_FILE_ATTRIBUTES)
-        error_goto(Error, cleanup);
+        if (!QueryServiceStatus(ServiceHandle, &ServiceStatus))
+            error_goto(Error, cleanup);
 
-    *ServiceHandle = CreateService(ScmHandle, ServiceName, DisplayName,
-                            SERVICE_ACCESS, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START,
-                            SERVICE_ERROR_NORMAL, DriverPath, NULL, NULL, NULL, NULL, NULL);
+        if (GetTickCount() - StartTime >= Timeout)
+            break;
+    }
 
-    if (!*ServiceHandle)
-        error_goto(Error, cleanup);
+    if (ServiceStatus.dwCurrentState != ExpectedServiceState)
+    {
+        ok(FALSE, "Service = %ls, state = %lu %s (!= %lu %s), waitHint = %lu, checkPoint = %lu\n",
+           ServiceNameOut,
+           ServiceStatus.dwCurrentState, KmtGetServiceStateAsString(ServiceStatus.dwCurrentState),
+           ExpectedServiceState, KmtGetServiceStateAsString(ExpectedServiceState),
+           ServiceStatus.dwWaitHint, ServiceStatus.dwCheckPoint);
+        goto cleanup;
+    }
+
+    trace("Service = %ls, state = %lu %s\n",
+          ServiceNameOut,
+          ExpectedServiceState, KmtGetServiceStateAsString(ExpectedServiceState));
 
 cleanup:
     return Error;
@@ -142,6 +231,10 @@ KmtStartService(
 
     if (!StartService(*ServiceHandle, 0, NULL))
         error_goto(Error, cleanup);
+
+    Error = KmtEnsureServiceState(ServiceName, *ServiceHandle, SERVICE_RUNNING);
+    if (Error)
+        goto cleanup;
 
 cleanup:
     return Error;
@@ -238,6 +331,10 @@ KmtStopService(
     if (!ControlService(*ServiceHandle, SERVICE_CONTROL_STOP, &ServiceStatus))
         error_goto(Error, cleanup);
 
+    Error = KmtEnsureServiceState(ServiceName, *ServiceHandle, SERVICE_STOPPED);
+    if (Error)
+        goto cleanup;
+
 cleanup:
     return Error;
 }
@@ -303,6 +400,50 @@ DWORD KmtCloseService(
         error_goto(Error, cleanup);
 
     *ServiceHandle = NULL;
+
+cleanup:
+    return Error;
+}
+
+
+/*
+ * Private function, not meant for use in kmtests
+ * See KmtCreateService & KmtFltCreateService
+ */
+DWORD
+KmtpCreateService(
+    IN PCWSTR ServiceName,
+    IN PCWSTR ServicePath,
+    IN PCWSTR DisplayName OPTIONAL,
+    IN DWORD ServiceType,
+    OUT SC_HANDLE *ServiceHandle)
+{
+    DWORD Error = ERROR_SUCCESS;
+    WCHAR DriverPath[MAX_PATH];
+    HRESULT result = S_OK;
+
+    assert(ServiceHandle);
+    assert(ServiceName && ServicePath);
+
+    if (!GetModuleFileName(NULL, DriverPath, sizeof DriverPath / sizeof DriverPath[0]))
+        error_goto(Error, cleanup);
+
+    assert(wcsrchr(DriverPath, L'\\') != NULL);
+    wcsrchr(DriverPath, L'\\')[1] = L'\0';
+
+    result = StringCbCat(DriverPath, sizeof DriverPath, ServicePath);
+    if (FAILED(result))
+        error_value_goto(Error, result, cleanup);
+
+    if (GetFileAttributes(DriverPath) == INVALID_FILE_ATTRIBUTES)
+        error_goto(Error, cleanup);
+
+    *ServiceHandle = CreateService(ScmHandle, ServiceName, DisplayName,
+                                   SERVICE_ACCESS, ServiceType, SERVICE_DEMAND_START,
+                                   SERVICE_ERROR_NORMAL, DriverPath, NULL, NULL, NULL, NULL, NULL);
+
+    if (!*ServiceHandle)
+        error_goto(Error, cleanup);
 
 cleanup:
     return Error;

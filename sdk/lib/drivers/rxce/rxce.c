@@ -143,6 +143,7 @@ LIST_ENTRY RxRecurrentWorkItemsList;
 KDPC RxTimerDpc;
 KTIMER RxTimer;
 ULONG RxTimerTickCount;
+FAST_MUTEX RxContextPerFileSerializationMutex;
 #if DBG
 BOOLEAN DumpDispatchRoutine = TRUE;
 #else
@@ -174,13 +175,15 @@ BOOLEAN DumpDispatchRoutine = FALSE;
 
 /* FUNCTIONS ****************************************************************/
 
+/*
+ * @implemented
+ */
 NTSTATUS
 NTAPI
 RxAcquireExclusiveFcbResourceInMRx(
     _Inout_ PMRX_FCB Fcb)
 {
-    UNIMPLEMENTED;
-    return STATUS_NOT_IMPLEMENTED;
+    return RxAcquireExclusiveFcb(NULL, (PFCB)Fcb);
 }
 
 /*
@@ -711,6 +714,65 @@ RxBootstrapWorkerThreadDispatcher(
 
     RxWorkQueue = WorkQueue;
     RxpWorkerThreadDispatcher(RxWorkQueue, NULL);
+}
+
+/*
+ * @implemented
+ */
+VOID
+RxCancelBlockingOperation(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    PFOBX Fobx;
+    BOOLEAN PostRequest;
+
+    PAGED_CODE();
+
+    Fobx = (PFOBX)RxContext->pFobx;
+    PostRequest = FALSE;
+
+    /* Acquire the pipe mutex */
+    ExAcquireFastMutex(&RxContextPerFileSerializationMutex);
+
+    /* If that's a blocking pipe operation which is not the CCB one, then handle it */
+    if (BooleanFlagOn(RxContext->FlagsForLowIo, RXCONTEXT_FLAG4LOWIO_PIPE_SYNC_OPERATION) &&
+        RxContext->RxContextSerializationQLinks.Flink != NULL &&
+        RxContext != CONTAINING_RECORD(&Fobx->Specific.NamedPipe.ReadSerializationQueue, RX_CONTEXT, RxContextSerializationQLinks) &&
+        RxContext != CONTAINING_RECORD(&Fobx->Specific.NamedPipe.WriteSerializationQueue, RX_CONTEXT, RxContextSerializationQLinks))
+    {
+        /* Clear it! */
+        ClearFlag(RxContext->FlagsForLowIo, RXCONTEXT_FLAG4LOWIO_PIPE_SYNC_OPERATION);
+
+        /* Drop it off the list */
+        RemoveEntryList(&RxContext->RxContextSerializationQLinks);
+        RxContext->RxContextSerializationQLinks.Flink = NULL;
+        RxContext->RxContextSerializationQLinks.Blink = NULL;
+
+        /* Set we've been cancelled */
+        RxContext->IoStatusBlock.Status = STATUS_CANCELLED;
+
+        /*
+         * If it's async, we'll post completion, otherwise, we signal to waiters
+         * it's being cancelled
+         */
+        if (BooleanFlagOn(RxContext->Flags, RX_CONTEXT_FLAG_ASYNC_OPERATION))
+        {
+            PostRequest = TRUE;
+        }
+        else
+        {
+            RxSignalSynchronousWaiter(RxContext);
+        }
+    }
+
+    /* Done */
+    ExReleaseFastMutex(&RxContextPerFileSerializationMutex);
+
+    /* Post if async */
+    if (PostRequest)
+    {
+        RxFsdPostRequest(RxContext);
+    }
 }
 
 /*
@@ -2310,7 +2372,7 @@ RxDereferenceAndDeleteRxContext_Real(
         /* Is ShadowCrit still owned? Shouldn't happen! */
         if (RxContext->ShadowCritOwner != 0)
         {
-            DPRINT1("ShadowCritOwner not null! %p\n", (PVOID)RxContext->ShadowCritOwner);
+            DPRINT1("ShadowCritOwner not null! %lx\n", RxContext->ShadowCritOwner);
             ASSERT(FALSE);
         }
 #endif
@@ -4610,6 +4672,17 @@ RxInitializeContext(
 /*
  * @implemented
  */
+VOID
+NTAPI
+RxInitializeDebugSupport(
+    VOID)
+{
+    /* Nothing to do */
+}
+
+/*
+ * @implemented
+ */
 NTSTATUS
 NTAPI
 RxInitializeDispatcher(
@@ -6834,6 +6907,9 @@ RxpUndoScavengerFinalizationMarking(
             --Scavenger->SrvOpensToBeFinalized;
             ListEntry = &((PSRV_OPEN)Instance)->ScavengerFinalizationList;
             break;
+
+        default:
+            return;
     }
 
     /* Also, remove the extra ref from the scavenger */
@@ -7550,6 +7626,32 @@ RxRemoveNameNetFcb(
  * @implemented
  */
 VOID
+RxRemoveOperationFromBlockingQueue(
+    IN OUT PRX_CONTEXT RxContext)
+{
+    /* Acquire the pipe mutex */
+    ExAcquireFastMutex(&RxContextPerFileSerializationMutex);
+
+    /* Is that a blocking serial operation? */
+    if (BooleanFlagOn(RxContext->FlagsForLowIo, RXCONTEXT_FLAG4LOWIO_PIPE_SYNC_OPERATION))
+    {
+        /* Clear it! */
+        ClearFlag(RxContext->FlagsForLowIo, RXCONTEXT_FLAG4LOWIO_PIPE_SYNC_OPERATION);
+
+        /* Drop it off the list */
+        RemoveEntryList(&RxContext->RxContextSerializationQLinks);
+        RxContext->RxContextSerializationQLinks.Flink = NULL;
+        RxContext->RxContextSerializationQLinks.Blink = NULL;
+    }
+
+    /* Done */
+    ExReleaseFastMutex(&RxContextPerFileSerializationMutex);
+}
+
+/*
+ * @implemented
+ */
+VOID
 RxRemovePrefixTableEntry(
     IN OUT PRX_PREFIX_TABLE ThisTable,
     IN OUT PRX_PREFIX_ENTRY Entry)
@@ -7878,7 +7980,7 @@ RxScavengerTimerRoutine(
     {
         /* Done */
         Scavenger->State = RDBSS_SCAVENGER_ACTIVE;
-        KeResetEvent(&Scavenger->ScavengeEvent);
+        KeClearEvent(&Scavenger->ScavengeEvent);
 
         /* Scavenger the entries */
         RxReleaseScavengerMutex();
@@ -7966,7 +8068,7 @@ RxSpinUpRequestsDispatcher(
         {
             ListEntry = &RxDispatcher->SpinUpRequests;
         }
-        KeResetEvent(&RxDispatcher->SpinUpRequestsEvent);
+        KeClearEvent(&RxDispatcher->SpinUpRequestsEvent);
         KeReleaseSpinLock(&RxDispatcher->SpinUpRequestsLock, OldIrql);
 
         while (ListEntry != &RxDispatcher->SpinUpRequests)

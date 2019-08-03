@@ -7,7 +7,7 @@ set(OARCH "armv7-a" CACHE STRING
 "Generate instructions for this CPU type. Specify one of:
  armv5te armv7-a")
 
-set (OPTIMIZE "1" CACHE STRING
+set(OPTIMIZE "1" CACHE STRING
 "What level of optimization to use.
  0 = off
  1 = Default option, optimize for size (-Os) with some additional options
@@ -37,12 +37,6 @@ set(_WINKD_ TRUE CACHE BOOL
 set(_ELF_ FALSE CACHE BOOL
 "Whether to compile support for ELF files.
 Do not enable unless you know what you're doing.")
-
-set(NSWPAT FALSE CACHE BOOL
-"Whether to compile apps/libs with features covered software patents or not.
-If you live in a country where software patents are valid/apply, don't
-enable this (except they/you purchased a license from the patent owner).
-This settings is disabled (0) by default.")
 
 set(BUILD_MP TRUE CACHE BOOL
 "Whether to compile the multi processor versions for ntoskrnl and hal.")

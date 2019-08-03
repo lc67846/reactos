@@ -18,6 +18,12 @@
  */
 
 #include "urlmon_main.h"
+#include "winreg.h"
+#include "shlwapi.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(urlmon);
 
 static const WCHAR feature_control_keyW[] =
     {'S','o','f','t','w','a','r','e','\\',
@@ -582,7 +588,7 @@ static HRESULT load_process_feature(INTERNETFEATURELIST feature)
     BOOL check_hklm = FALSE;
     BOOL enabled;
 
-    if (!GetModuleFileNameW(NULL, module_name, sizeof(module_name)/sizeof(WCHAR))) {
+    if (!GetModuleFileNameW(NULL, module_name, ARRAY_SIZE(module_name))) {
         ERR("Failed to get module file name: %u\n", GetLastError());
         return E_UNEXPECTED;
     }

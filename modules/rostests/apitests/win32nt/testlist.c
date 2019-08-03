@@ -19,7 +19,7 @@ extern void func_NtGdiDeleteObjectApp(void);
 extern void func_NtGdiDoPalette(void);
 extern void func_NtGdiEngCreatePalette(void);
 extern void func_NtGdiEnumFontOpen(void);
-//extern void func_NtGdiExtSelectClipRgn(void);
+extern void func_NtGdiExtSelectClipRgn(void);
 extern void func_NtGdiExtTextOutW(void);
 //extern void func_NtGdiFlushUserBatch(void);
 extern void func_NtGdiGetBitmapBits(void);
@@ -36,6 +36,7 @@ extern void func_NtGdiSelectFont(void);
 extern void func_NtGdiSelectPen(void);
 extern void func_NtGdiSetBitmapBits(void);
 extern void func_NtGdiSetDIBitsToDeviceInternal(void);
+extern void func_NtGdiTransformPoints(void);
 //extern void func_NtUserCallHwnd(void);
 //extern void func_NtUserCallHwndLock(void);
 //extern void func_NtUserCallHwndOpt(void);
@@ -79,7 +80,7 @@ const struct test winetest_testlist[] =
     { "NtGdiDoPalette", func_NtGdiDoPalette },
     { "NtGdiEngCreatePalette", func_NtGdiEngCreatePalette },
     { "NtGdiEnumFontOpen", func_NtGdiEnumFontOpen },
-    //{ "NtGdiExtSelectClipRgn", func_NtGdiExtSelectClipRgn },
+    { "NtGdiExtSelectClipRgn", func_NtGdiExtSelectClipRgn },
     { "NtGdiExtTextOutW", func_NtGdiExtTextOutW },
     //{ "NtGdiFlushUserBatch", func_NtGdiFlushUserBatch },
     { "NtGdiGetBitmapBits", func_NtGdiGetBitmapBits },
@@ -96,6 +97,7 @@ const struct test winetest_testlist[] =
     { "NtGdiSelectPen", func_NtGdiSelectPen },
     { "NtGdiSetBitmapBits", func_NtGdiSetBitmapBits },
     { "NtGdiSetDIBitsToDeviceInternal", func_NtGdiSetDIBitsToDeviceInternal },
+    { "NtGdiTransformPoints", func_NtGdiTransformPoints },
 
     /* ntuser */
     //{ "NtUserCallHwnd", func_NtUserCallHwnd },

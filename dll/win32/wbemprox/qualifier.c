@@ -16,7 +16,20 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define COBJMACROS
+
+#include "config.h"
+#include <stdarg.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+#include "wbemcli.h"
+
+#include "wine/debug.h"
 #include "wbemprox_private.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wbemprox);
 
 struct qualifier_set
 {
@@ -96,8 +109,8 @@ static HRESULT create_qualifier_enum( const WCHAR *class, const WCHAR *member, c
 
     if (!member) member = noneW;
     len = strlenW( class ) + strlenW( member );
-    if (name) len += strlenW( name ) + SIZEOF(fmtW);
-    else len += SIZEOF(fmt2W);
+    if (name) len += strlenW( name ) + ARRAY_SIZE(fmtW);
+    else len += ARRAY_SIZE(fmt2W);
 
     if (!(query = heap_alloc( len * sizeof(WCHAR) ))) return E_OUTOFMEMORY;
     if (name) sprintfW( query, fmtW, class, member, name );

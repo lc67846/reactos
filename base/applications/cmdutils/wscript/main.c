@@ -16,10 +16,25 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "wscript.h"
+#include <stdarg.h>
 
+#define COBJMACROS
+#ifdef __REACTOS__
+#define CONST_VTABLE
+#endif
+
+#include <windef.h>
+#include <winbase.h>
+#include <winreg.h>
+#include <ole2.h>
 #include <shellapi.h>
 #include <activscp.h>
+#include <initguid.h>
+
+#include "wscript.h"
+
+#include <wine/debug.h>
+#include <wine/unicode.h>
 
 #ifdef _WIN64
 
@@ -34,6 +49,8 @@
 #define IActiveScriptParse_ParseScriptText IActiveScriptParse32_ParseScriptText
 
 #endif
+
+WINE_DEFAULT_DEBUG_CHANNEL(wscript);
 
 static const WCHAR wscriptW[] = {'W','S','c','r','i','p','t',0};
 static const WCHAR wshW[] = {'W','S','H',0};
@@ -239,7 +256,7 @@ static BOOL get_engine_clsid(const WCHAR *ext, CLSID *clsid)
     if(res != ERROR_SUCCESS)
         return FALSE;
 
-    size = sizeof(fileid)/sizeof(WCHAR);
+    size = ARRAY_SIZE(fileid);
     res = RegQueryValueW(hkey, NULL, fileid, &size);
     RegCloseKey(hkey);
     if(res != ERROR_SUCCESS)
@@ -252,7 +269,7 @@ static BOOL get_engine_clsid(const WCHAR *ext, CLSID *clsid)
     if(res != ERROR_SUCCESS)
         return FALSE;
 
-    size = sizeof(progid)/sizeof(WCHAR);
+    size = ARRAY_SIZE(progid);
     res = RegQueryValueW(hkey, NULL, progid, &size);
     RegCloseKey(hkey);
     if(res != ERROR_SUCCESS)
@@ -432,8 +449,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdline, int cm
         WINE_FIXME("No file name specified\n");
         return 1;
     }
-    res = GetFullPathNameW(filename, sizeof(scriptFullName)/sizeof(WCHAR), scriptFullName, &filepart);
-    if(!res || res > sizeof(scriptFullName)/sizeof(WCHAR))
+    res = GetFullPathNameW(filename, ARRAY_SIZE(scriptFullName), scriptFullName, &filepart);
+    if(!res || res > ARRAY_SIZE(scriptFullName))
         return 1;
 
     ext = strrchrW(filepart, '.');

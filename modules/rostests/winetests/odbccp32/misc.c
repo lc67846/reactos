@@ -27,6 +27,15 @@
 static const WCHAR abcd_key[] = {'S','o','f','t','w','a','r','e','\\','O','D','B','C','\\','a','b','c','d','.','I','N','I','\\','w','i','n','e','o','d','b','c',0};
 static const WCHAR abcdini_key[] = {'S','o','f','t','w','a','r','e','\\','O','D','B','C','\\','a','b','c','d','.','I','N','I',0 };
 
+static void check_error_(int line, DWORD expect)
+{
+    RETCODE ret;
+    DWORD err;
+    ret = SQLInstallerError(1, &err, NULL, 0, NULL);
+    ok_(__FILE__, line)(ret == SQL_SUCCESS_WITH_INFO, "got %d\n", ret);
+    ok_(__FILE__, line)(err == expect, "expected %u, got %u\n", expect, ret);
+}
+#define check_error(a) check_error_(__LINE__, a)
 
 static void test_SQLConfigMode(void)
 {
@@ -161,6 +170,9 @@ static void test_SQLWritePrivateProfileString(void)
    if(ret)
    {
         HKEY hkey;
+
+        ret = SQLWritePrivateProfileString("wineodbc", "testing" , NULL, "odbc.ini");
+        ok(ret, "SQLWritePrivateProfileString failed\n");
 
         reg_ret = RegOpenKeyExW(HKEY_CURRENT_USER, odbc_key, 0, KEY_READ, &hkey);
         ok(reg_ret == ERROR_SUCCESS, "RegOpenKeyExW failed\n");
@@ -530,7 +542,7 @@ if (0)  /* Crashes on XP. */
     ok(cnt == 0, "SQLRemoveDriver failed %d\n", cnt);
 }
 
-void test_SQLInstallTranslatorEx(void)
+static void test_SQLInstallTranslatorEx(void)
 {
     char path[MAX_PATH];
     char syspath[MAX_PATH];
@@ -605,6 +617,130 @@ void test_SQLInstallTranslatorEx(void)
 
 }
 
+static void test_SQLGetInstalledDrivers(void)
+{
+    char buffer[1000], *p;
+    WORD written, len;
+    BOOL ret, sql_ret;
+    DWORD error_code;
+    int found = 0;
+
+    ret = SQLInstallDriverEx("Wine test\0Driver=test.dll\0\0", NULL, buffer,
+        sizeof(buffer), &written, ODBC_INSTALL_COMPLETE, NULL);
+    ok(ret, "SQLInstallDriverEx failed: %d\n", ret);
+    sql_ret = SQLInstallerErrorW(1, &error_code, NULL, 0, NULL);
+    if (sql_ret && error_code == ODBC_ERROR_WRITING_SYSINFO_FAILED)
+    {
+        skip("not enough privileges\n");
+        return;
+    }
+
+    ret = SQLGetInstalledDrivers(NULL, sizeof(buffer), &written);
+    ok(!ret, "got %d\n", ret);
+    check_error(ODBC_ERROR_INVALID_BUFF_LEN);
+
+    ret = SQLGetInstalledDrivers(buffer, 0, &written);
+    ok(!ret, "got %d\n", ret);
+    check_error(ODBC_ERROR_INVALID_BUFF_LEN);
+
+    ret = SQLGetInstalledDrivers(buffer, 10, &written);
+    ok(ret, "got %d\n", ret);
+    ok(strlen(buffer) == 8, "got len %u\n", lstrlenA(buffer));
+    ok(written == 10, "got written %d\n", written);
+    ok(!buffer[9], "buffer not doubly null-terminated\n");
+
+    ret = SQLGetInstalledDrivers(buffer, sizeof(buffer), &written);
+    ok(ret, "got %d\n", ret);
+    ok(!buffer[written-1] && !buffer[written-2], "buffer not doubly null-terminated\n");
+    len = strlen(buffer);
+
+    for (p = buffer; *p; p += strlen(p) + 1)
+    {
+        if (!strcmp(p, "Wine test"))
+            found = 1;
+    }
+    ok(found, "installed driver not found\n");
+
+    ret = SQLGetInstalledDrivers(buffer, len, &written);
+    ok(ret, "got %d\n", ret);
+    ok(strlen(buffer) == len-2, "expected len %d, got %u\n", len-2, lstrlenA(buffer));
+    ok(written == len, "expected written %d, got %d\n", len, written);
+    ok(!buffer[len-1], "buffer not doubly null-terminated\n");
+
+    ret = SQLGetInstalledDrivers(buffer, len+1, &written);
+    ok(ret, "got %d\n", ret);
+    ok(strlen(buffer) == len-1, "expected len %d, got %u\n", len-1, lstrlenA(buffer));
+    ok(written == len+1, "expected written %d, got %d\n", len+1, written);
+    ok(!buffer[len], "buffer not doubly null-terminated\n");
+
+    ret = SQLGetInstalledDrivers(buffer, len+2, &written);
+    ok(ret, "got %d\n", ret);
+    ok(strlen(buffer) == len, "expected len %d, got %u\n", len, lstrlenA(buffer));
+    ok(written == len+2, "expected written %d, got %d\n", len+2, written);
+    ok(!buffer[len+1], "buffer not doubly null-terminated\n");
+
+    SQLRemoveDriver("Wine test", TRUE, NULL);
+}
+
+static void test_SQLValidDSN(void)
+{
+    static const char *invalid = "[]{}(),;?*=!@\\";
+    char str[10];
+    int i;
+    BOOL ret;
+
+    strcpy(str, "wine10");
+    for(i = 0; i < strlen(invalid); i++)
+    {
+        str[4] = invalid[i];
+        ret = SQLValidDSN(str);
+        ok(!ret, "got %d\n", ret);
+    }
+
+    /* Too large */
+    ret = SQLValidDSN("Wine123456789012345678901234567890");
+    ok(!ret, "got %d\n", ret);
+
+    /* Valid with a space */
+    ret = SQLValidDSN("Wine Vinegar");
+    ok(ret, "got %d\n", ret);
+
+    /* Max DSN name value */
+    ret = SQLValidDSN("12345678901234567890123456789012");
+    ok(ret, "got %d\n", ret);
+}
+
+static void test_SQLValidDSNW(void)
+{
+    static const WCHAR invalid[] = {'[',']','{','}','(',')',',',';','?','*','=','!','@','\\',0};
+    static const WCHAR value[] = { 'w','i','n','e','1','0',0};
+    static const WCHAR too_large[] = { 'W','i','n','e','1','2','3','4','5','6','7','8','9','0','1','2','3','4','5',
+                                   '6','7','8','9','0','1','2','3','4','5','6','7','8','9','0', 0};
+    static const WCHAR with_space[] = { 'W','i','n','e',' ','V','i','n','e','g','a','r', 0};
+    static const WCHAR max_dsn[] = { '1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9','0',
+                                   '1','2','3','4','5','6','7','8','9','0','1','2', 0};
+    WCHAR str[10];
+    int i;
+    BOOL ret;
+
+    lstrcpyW(str, value);
+    for(i = 0; i < lstrlenW(invalid); i++)
+    {
+        str[4] = invalid[i];
+        ret = SQLValidDSNW(str);
+        ok(!ret, "got %d\n", ret);
+    }
+
+    ret = SQLValidDSNW(too_large);
+    ok(!ret, "got %d\n", ret);
+
+    ret = SQLValidDSNW(with_space);
+    ok(ret, "got %d\n", ret);
+
+    ret = SQLValidDSNW(max_dsn);
+    ok(ret, "got %d\n", ret);
+}
+
 START_TEST(misc)
 {
     test_SQLConfigMode();
@@ -615,4 +751,7 @@ START_TEST(misc)
     test_SQLGetPrivateProfileStringW();
     test_SQLInstallDriverEx();
     test_SQLInstallTranslatorEx();
+    test_SQLGetInstalledDrivers();
+    test_SQLValidDSN();
+    test_SQLValidDSNW();
 }

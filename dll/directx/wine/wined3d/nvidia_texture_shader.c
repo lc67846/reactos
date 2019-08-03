@@ -19,6 +19,10 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
+#include "config.h"
+#include "wine/port.h"
+
+#include <stdio.h>
 
 #include "wined3d_private.h"
 
@@ -64,6 +68,9 @@ static void nvts_activate_dimensions(const struct wined3d_state *state, DWORD st
             case GL_TEXTURE_CUBE_MAP_ARB:
                 gl_info->gl_ops.gl.p_glTexEnvi(GL_TEXTURE_SHADER_NV, GL_SHADER_OPERATION_NV, GL_TEXTURE_CUBE_MAP_ARB);
                 checkGLcall("glTexEnvi(GL_TEXTURE_SHADER_NV, GL_SHADER_OPERATION_NV, GL_TEXTURE_CUBE_MAP_ARB)");
+                break;
+            default:
+                FIXME("Unhandled target %#x.\n", state->textures[stage]->target);
                 break;
         }
     }

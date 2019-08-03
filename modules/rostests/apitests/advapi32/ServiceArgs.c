@@ -6,10 +6,7 @@
  *                  Thomas Faber <thomas.faber@reactos.org>
  */
 
-#include <apitest.h>
-#include <winnls.h>
-#include <winsvc.h>
-#include <strsafe.h>
+#include "precomp.h"
 
 static char **argv;
 static int argc;
@@ -32,6 +29,7 @@ static void send_msg(const char *type, const char *msg)
     WriteFile(pipe_handle, buf, strlen(buf)+1, &written, NULL);
 }
 
+#if 0
 static inline void service_trace(const char *msg, ...)
 {
     va_list valist;
@@ -43,6 +41,7 @@ static inline void service_trace(const char *msg, ...)
 
     send_msg("TRACE", buf);
 }
+#endif
 
 static void service_ok(int cnd, const char *msg, ...)
 {
@@ -237,7 +236,7 @@ static SC_HANDLE register_service(PCWSTR extra_args)
 
     trace("service_cmd \"%ls\"\n", service_cmd);
 
-    service = CreateServiceW(scm_handle, service_nameW, service_nameW, GENERIC_ALL,
+    service = CreateServiceW(scm_handle, service_nameW, service_nameW, SERVICE_ALL_ACCESS,
                              SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_IGNORE,
                              service_cmd, NULL, NULL, NULL, NULL, NULL);
     if (!service && GetLastError() == ERROR_ACCESS_DENIED)
@@ -352,11 +351,11 @@ static void test_runner(BOOLEAN unicode, PCWSTR extra_args, int service_argc, vo
     thread = CreateThread(NULL, 0, pipe_thread, NULL, 0, NULL);
     ok(thread != NULL, "CreateThread failed: %lu\n", GetLastError());
     if (!thread)
-        return;
+        goto Quit;
 
     service_handle = register_service(extra_args);
     if (!service_handle)
-        return;
+        goto Quit;
 
     //trace("starting...\n");
 
@@ -371,15 +370,20 @@ static void test_runner(BOOLEAN unicode, PCWSTR extra_args, int service_argc, vo
     CloseServiceHandle(service_handle);
 
     ok(WaitForSingleObject(thread, 10000) == WAIT_OBJECT_0, "Timeout waiting for thread\n");
-    CloseHandle(thread);
-    CloseHandle(pipe_handle);
+
+Quit:
+    if (thread)
+        CloseHandle(thread);
+
+    if (pipe_handle != INVALID_HANDLE_VALUE)
+        CloseHandle(pipe_handle);
 }
 
 START_TEST(ServiceArgs)
 {
     argc = winetest_get_mainargs(&argv);
 
-    scm_handle = OpenSCManagerW(NULL, NULL, GENERIC_ALL);
+    scm_handle = OpenSCManagerW(NULL, NULL, SC_MANAGER_ALL_ACCESS);
     ok(scm_handle != NULL, "OpenSCManager failed: %lu\n", GetLastError());
     if (!scm_handle)
     {

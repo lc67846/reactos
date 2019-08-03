@@ -24,7 +24,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winerror.h"
-#include "wine/winternl.h"
+#include "winternl.h"
 
 static NTSTATUS (WINAPI *pNtQueryObject)(HANDLE,OBJECT_INFORMATION_CLASS,PVOID,ULONG,PULONG);
 

@@ -16,12 +16,40 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+#include "wine/debug.h"
+
+#include <stdarg.h>
+#include <stdlib.h>
+
+#ifdef HAVE_CORESERVICES_CORESERVICES_H
+#define GetCurrentThread MacGetCurrentThread
+#define LoadResource MacLoadResource
+#include <CoreServices/CoreServices.h>
+#undef GetCurrentThread
+#undef LoadResource
+#undef DPRINTF
+#endif
+
+#include "windef.h"
+#include "winbase.h"
+#ifndef __MINGW32__
+#define USE_WS_PREFIX
+#endif
+#include "winsock2.h"
+#include "ws2ipdef.h"
+#include "winhttp.h"
+#include "wincrypt.h"
+#include "winreg.h"
+#define COBJMACROS
+#include "ole2.h"
+#include "dispex.h"
+#include "activscp.h"
+
 #include "winhttp_private.h"
 
-#include <wincrypt.h>
-#include <winreg.h>
-#include <dispex.h>
-#include <activscp.h>
+WINE_DEFAULT_DEBUG_CHANNEL(winhttp);
 
 #define DEFAULT_RESOLVE_TIMEOUT     0
 #define DEFAULT_CONNECT_TIMEOUT     20000
@@ -71,6 +99,7 @@ static void session_destroy( object_header_t *hdr )
     TRACE("%p\n", session);
 
     if (session->unload_event) SetEvent( session->unload_event );
+    if (session->cred_handle_initialized) FreeCredentialsHandle( &session->cred_handle );
 
     LIST_FOR_EACH_SAFE( item, next, &session->cookie_cache )
     {
@@ -155,6 +184,17 @@ static BOOL session_set_option( object_header_t *hdr, DWORD option, LPVOID buffe
         hdr->redirect_policy = policy;
         return TRUE;
     }
+    case WINHTTP_OPTION_SECURE_PROTOCOLS:
+    {
+        if (buflen != sizeof(session->secure_protocols))
+        {
+            set_last_error( ERROR_INSUFFICIENT_BUFFER );
+            return FALSE;
+        }
+        session->secure_protocols = *(DWORD *)buffer;
+        TRACE("0x%x\n", session->secure_protocols);
+        return TRUE;
+    }
     case WINHTTP_OPTION_DISABLE_FEATURE:
         set_last_error( ERROR_WINHTTP_INCORRECT_HANDLE_TYPE );
         return FALSE;
@@ -185,7 +225,7 @@ static BOOL session_set_option( object_header_t *hdr, DWORD option, LPVOID buffe
         return TRUE;
     default:
         FIXME("unimplemented option %u\n", option);
-        set_last_error( ERROR_INVALID_PARAMETER );
+        set_last_error( ERROR_WINHTTP_INVALID_OPTION );
         return FALSE;
     }
 }
@@ -988,8 +1028,8 @@ static BOOL request_set_option( object_header_t *hdr, DWORD option, LPVOID buffe
         return TRUE;
     default:
         FIXME("unimplemented option %u\n", option);
-        set_last_error( ERROR_INVALID_PARAMETER );
-        return TRUE;
+        set_last_error( ERROR_WINHTTP_INVALID_OPTION );
+        return FALSE;
     }
 }
 
@@ -1543,29 +1583,21 @@ BOOL WINAPI WinHttpGetDefaultProxyConfiguration( WINHTTP_PROXY_INFO *info )
     }
     if (!got_from_reg && (envproxy = getenv( "http_proxy" )))
     {
-        char *colon, *http_proxy;
+        char *colon, *http_proxy = NULL;
 
-        if ((colon = strchr( envproxy, ':' )))
+        if (!(colon = strchr( envproxy, ':' ))) http_proxy = envproxy;
+        else
         {
             if (*(colon + 1) == '/' && *(colon + 2) == '/')
             {
-                static const char http[] = "http://";
-
                 /* It's a scheme, check that it's http */
-                if (!strncmp( envproxy, http, strlen( http ) ))
-                    http_proxy = envproxy + strlen( http );
-                else
-                {
-                    WARN("unsupported scheme in $http_proxy: %s\n", envproxy);
-                    http_proxy = NULL;
-                }
+                if (!strncmp( envproxy, "http://", 7 )) http_proxy = envproxy + 7;
+                else WARN("unsupported scheme in $http_proxy: %s\n", envproxy);
             }
-            else
-                http_proxy = envproxy;
+            else http_proxy = envproxy;
         }
-        else
-            http_proxy = envproxy;
-        if (http_proxy)
+
+        if (http_proxy && http_proxy[0])
         {
             WCHAR *http_proxyW;
             int len;
@@ -1578,8 +1610,7 @@ BOOL WINAPI WinHttpGetDefaultProxyConfiguration( WINHTTP_PROXY_INFO *info )
                 info->dwAccessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
                 info->lpszProxy = http_proxyW;
                 info->lpszProxyBypass = NULL;
-                TRACE("http proxy (from environment) = %s\n",
-                    debugstr_w(info->lpszProxy));
+                TRACE("http proxy (from environment) = %s\n", debugstr_w(info->lpszProxy));
             }
         }
     }

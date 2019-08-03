@@ -13,6 +13,7 @@ spec2def(comctl32.dll comctl32.spec ADD_IMPORTLIB)
 list(APPEND SOURCE
     animate.c
     button.c
+    combo.c
     comboex.c
     comctl32undoc.c
     commctrl.c
@@ -20,11 +21,13 @@ list(APPEND SOURCE
     dpa.c
     draglist.c
     dsa.c
+    edit.c
     flatsb.c
     header.c
     hotkey.c
     imagelist.c
     ipaddress.c
+    listbox.c
     listview.c
     monthcal.c
     nativefont.c
@@ -33,16 +36,12 @@ list(APPEND SOURCE
     propsheet.c
     rebar.c
     smoothscroll.c
+    static.c
     status.c
     string.c
     syslink.c
     tab.c
     taskdialog.c
-    theme_button.c
-    theme_combo.c
-    theme_dialog.c
-    theme_edit.c
-    theme_listbox.c
     theme_scrollbar.c
     theming.c
     toolbar.c
@@ -50,9 +49,9 @@ list(APPEND SOURCE
     trackbar.c
     treeview.c
     updown.c
-    comctl32.h)
+    precomp.h)
 
-add_library(comctl32 SHARED
+add_library(comctl32 MODULE
     ${SOURCE}
     stubs.c
     rsrc.rc
@@ -61,8 +60,10 @@ add_library(comctl32 SHARED
 set_module_type(comctl32 win32dll UNICODE)
 target_link_libraries(comctl32 uuid wine ${PSEH_LIB})
 add_delay_importlibs(comctl32 winmm uxtheme)
-add_importlibs(comctl32 user32 gdi32 advapi32 msvcrt kernel32 ntdll)
-add_pch(comctl32 comctl32.h SOURCE)
+add_importlibs(comctl32 user32 gdi32 advapi32 usp10 imm32 msvcrt kernel32 ntdll)
+add_pch(comctl32 precomp.h SOURCE)
 add_cd_file(TARGET comctl32 DESTINATION reactos/system32 FOR all)
-add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/comctl32v5.manifest DESTINATION reactos/winsxs/manifests NAME_ON_CD x86_microsoft.windows.common-controls_6595b64144ccf1df_5.82.2600.2982_none_deadbeef.manifest FOR livecd)
-add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/comctl32.manifest DESTINATION reactos/winsxs/manifests NAME_ON_CD x86_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef.manifest FOR livecd)
+add_cd_file(TARGET comctl32 DESTINATION reactos/winsxs/x86_microsoft.windows.common-controls_6595b64144ccf1df_5.82.2600.2982_none_deadbeef FOR all)
+add_cd_file(TARGET comctl32 DESTINATION reactos/winsxs/x86_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef FOR all)
+add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/x86_microsoft.windows.common-controls_6595b64144ccf1df_5.82.2600.2982_none_deadbeef.manifest DESTINATION reactos/winsxs/manifests FOR all)
+add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/x86_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef.manifest DESTINATION reactos/winsxs/manifests FOR all)

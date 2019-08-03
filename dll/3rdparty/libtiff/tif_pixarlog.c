@@ -1,5 +1,3 @@
-/* $Id: tif_pixarlog.c,v 1.53 2017-05-17 09:53:06 erouault Exp $ */
-
 /*
  * Copyright (c) 1996-1997 Sam Leffler
  * Copyright (c) 1996 Pixar
@@ -25,7 +23,6 @@
  */
 
 #include <precomp.h>
-
 #ifdef PIXARLOG_SUPPORT
 
 /*
@@ -674,6 +671,7 @@ PixarLogSetupDecode(TIFF* tif)
 	TIFFDirectory *td = &tif->tif_dir;
 	PixarLogState* sp = DecoderState(tif);
 	tmsize_t tbuf_size;
+        uint32 strip_height;
 
 	assert(sp != NULL);
 
@@ -682,6 +680,10 @@ PixarLogSetupDecode(TIFF* tif)
 	/* PredictorSetup() fails */
 	if( (sp->state & PLSTATE_INIT) != 0 )
 		return 1;
+
+        strip_height = td->td_rowsperstrip;
+        if( strip_height > td->td_imagelength )
+            strip_height = td->td_imagelength;
 
 	/* Make sure no byte swapping happens on the data
 	 * after decompression. */
@@ -692,7 +694,7 @@ PixarLogSetupDecode(TIFF* tif)
 	sp->stride = (td->td_planarconfig == PLANARCONFIG_CONTIG ?
 	    td->td_samplesperpixel : 1);
 	tbuf_size = multiply_ms(multiply_ms(multiply_ms(sp->stride, td->td_imagewidth),
-				      td->td_rowsperstrip), sizeof(uint16));
+				      strip_height), sizeof(uint16));
 	/* add one more stride in case input ends mid-stride */
 	tbuf_size = add_ms(tbuf_size, sizeof(uint16) * sp->stride);
 	if (tbuf_size == 0)

@@ -17,16 +17,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
+#include <stdarg.h>
 
-//#include <stdarg.h>
-
-#include <wine/test.h>
-#include <winreg.h>
-#include <shlwapi.h>
-#include <shlguid.h>
+#include "wine/test.h"
+#include "shlwapi.h"
+#include "shlguid.h"
 
 #define expect(expected, got) ok( (expected) == (got), "Expected %d, got %d\n", (expected), (got))
 #define expect_hr(expected, got) ok( (expected) == (got), "Expected %08x, got %08x\n", (expected), (got))
@@ -68,7 +63,7 @@ static void test_getstring_bad(void)
        "Unexpected result : %08x\n", hr);
     ok(len == 0xdeadbeef, "got %u\n", len);
 
-    len = sizeof(buf)/sizeof(buf[0]);
+    len = ARRAY_SIZE(buf);
     hr = pAssocQueryStringW(0, ASSOCSTR_EXECUTABLE, dotBad, open, buf, &len);
     ok(hr == E_FAIL ||
        hr == HRESULT_FROM_WIN32(ERROR_NO_ASSOCIATION) /* Win9x/WinMe/NT4/W2K/Vista/W2K8 */ ||
@@ -76,8 +71,8 @@ static void test_getstring_bad(void)
        "Unexpected result : %08x\n", hr);
     if (hr == S_OK)
     {
-        ok(len < sizeof(buf)/sizeof(buf[0]), "got %u\n", len);
-        ok(!lstrcmpiW(buf + len - sizeof(openwith)/sizeof(openwith[0]), openwith), "wrong data\n");
+        ok(len < ARRAY_SIZE(buf), "got %u\n", len);
+        ok(!lstrcmpiW(buf + len - ARRAY_SIZE(openwith), openwith), "wrong data\n");
     }
 
     len = 0xdeadbeef;
@@ -111,7 +106,7 @@ static void test_getstring_bad(void)
        hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) /* Win8 */ ||
        hr == S_FALSE, /* Win10 */
        "Unexpected result : %08x\n", hr);
-    ok((hr == S_FALSE && len < sizeof(buf)/sizeof(buf[0])) || len == 0xdeadbeef,
+    ok((hr == S_FALSE && len < ARRAY_SIZE(buf)) || len == 0xdeadbeef,
        "got hr=%08x and len=%u\n", hr, len);
 
     len = 0xdeadbeef;

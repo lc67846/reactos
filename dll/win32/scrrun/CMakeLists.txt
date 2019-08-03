@@ -9,7 +9,7 @@ list(APPEND SOURCE
     dictionary.c
     filesystem.c
     scrrun.c
-    scrrun_private.h
+    precomp.h
     ${CMAKE_CURRENT_BINARY_DIR}/scrrun_stubs.c)
 
 list(APPEND scrrun_rc_deps
@@ -19,7 +19,7 @@ list(APPEND scrrun_rc_deps
 
 set_source_files_properties(scrrun.rc PROPERTIES OBJECT_DEPENDS "${scrrun_rc_deps}")
 
-add_library(scrrun SHARED
+add_library(scrrun MODULE
     ${SOURCE}
     guid.c
     scrrun.rc
@@ -29,5 +29,5 @@ add_dependencies(scrrun scrrun_idlheader stdole2)
 set_module_type(scrrun win32dll)
 target_link_libraries(scrrun uuid wine)
 add_importlibs(scrrun oleaut32 version advapi32 msvcrt kernel32 ntdll)
-add_pch(scrrun scrrun_private.h SOURCE)
+add_pch(scrrun precomp.h SOURCE)
 add_cd_file(TARGET scrrun DESTINATION reactos/system32 FOR all)

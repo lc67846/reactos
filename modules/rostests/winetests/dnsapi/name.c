@@ -18,14 +18,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <wine/test.h>
+#include <stdarg.h>
 
-//#include <stdarg.h>
+#include "windef.h"
+#include "winbase.h"
+#include "winnls.h"
+#include "windns.h"
 
-//#include "windef.h"
-//#include "winbase.h"
-//#include "winnls.h"
-#include <windns.h>
+#include "wine/test.h"
 
 BOOL WINAPI DnsFlushResolverCacheEntry_A(PCSTR);
 
@@ -146,7 +146,7 @@ static void test_DnsValidateName_A( void )
     status = DnsValidateName_A( NULL, DnsNameDomain );
     ok( status == ERROR_INVALID_NAME, "succeeded unexpectedly\n" );
 
-    for (i = 0; i < sizeof(test_data) / sizeof(test_data[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(test_data); i++)
     {
         status = DnsValidateName_A( test_data[i].name, test_data[i].format );
         ok( status == test_data[i].status || broken(status == test_data[i].status_broken),

@@ -42,9 +42,9 @@ IopInitializeArbiters(VOID)
     return STATUS_SUCCESS;
 }
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 PiInitCacheGroupInformation(VOID)
 {
     HANDLE KeyHandle;
@@ -55,17 +55,6 @@ PiInitCacheGroupInformation(VOID)
     UNICODE_STRING GroupString =
         RTL_CONSTANT_STRING(L"\\Registry\\Machine\\System\\CurrentControlSet"
                             L"\\Control\\ServiceGroupOrder");
-
-    /* ReactOS HACK for SETUPLDR */
-    if (KeLoaderBlock->SetupLdrBlock)
-    {
-        DPRINT1("WARNING!! In PiInitCacheGroupInformation, using ReactOS HACK for SETUPLDR!!\n");
-
-        /* Bogus data */
-        PiInitGroupOrderTableCount = 0;
-        PiInitGroupOrderTable = (PVOID)0xBABEB00B;
-        return STATUS_SUCCESS;
-    }
 
     /* Open the registry key */
     Status = IopOpenRegistryKeyEx(&KeyHandle,
@@ -385,9 +374,9 @@ Exit:
     return Status;
 }
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 IopInitializePlugPlayServices(VOID)
 {
     NTSTATUS Status;
@@ -399,8 +388,8 @@ IopInitializePlugPlayServices(VOID)
 
     /* Initialize locks and such */
     KeInitializeSpinLock(&IopDeviceTreeLock);
-    KeInitializeSpinLock(&IopDeviceRelationsSpinLock);
-    InitializeListHead(&IopDeviceRelationsRequestList);
+    KeInitializeSpinLock(&IopDeviceActionLock);
+    InitializeListHead(&IopDeviceActionRequestList);
 
     /* Get the default interface */
     PnpDefaultInterfaceType = IopDetermineDefaultInterfaceType();

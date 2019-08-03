@@ -36,7 +36,7 @@
 #include "winnls.h"
 #include "winuser.h"
 #include "wine/test.h"
-#include "wine/winternl.h"
+#include "winternl.h"
 
 #ifndef __WINE_WINTERNL_H
 typedef unsigned short RTL_ATOM, *PRTL_ATOM;
@@ -179,6 +179,7 @@ static void test_NtAtom(void)
 
         testThread = CreateThread(NULL, 0, RtlAtomTestThread, &AtomTable, 0, NULL);
         WaitForSingleObject(testThread, INFINITE);
+        CloseHandle(testThread);
 
         Len = 64;
         res = pRtlQueryAtomInAtomTable(AtomTable, Atom2, &RefCount, &PinCount, Name, &Len);

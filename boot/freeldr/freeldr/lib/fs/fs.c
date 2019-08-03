@@ -22,7 +22,6 @@
 
 #include <freeldr.h>
 
-#define NDEBUG
 #include <debug.h>
 
 DBG_DEFAULT_CHANNEL(FILESYSTEM);
@@ -153,6 +152,8 @@ ARC_STATUS ArcOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
                 if (!FileData[DeviceId].FileFuncTable)
 #endif
                     FileData[DeviceId].FileFuncTable = FatMount(DeviceId);
+                if (!FileData[DeviceId].FileFuncTable)
+                    FileData[DeviceId].FileFuncTable = BtrFsMount(DeviceId);
 #ifndef _M_ARM
                 if (!FileData[DeviceId].FileFuncTable)
                     FileData[DeviceId].FileFuncTable = NtfsMount(DeviceId);

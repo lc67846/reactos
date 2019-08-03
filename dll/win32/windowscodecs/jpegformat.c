@@ -16,11 +16,16 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "wincodecs_private.h"
+#include "config.h"
+#include "wine/port.h"
 
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <setjmp.h>
 
 #ifdef SONAME_LIBJPEG
 /* This is a hack, so jpeglib.h does not redefine INT32 and the like*/
@@ -36,6 +41,20 @@
 #undef UINT16
 #undef boolean
 #endif
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+
+#include "wincodecs_private.h"
+
+#include "wine/heap.h"
+#include "wine/debug.h"
+#include "wine/library.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 #ifdef SONAME_LIBJPEG
 WINE_DECLARE_DEBUG_CHANNEL(jpeg);
@@ -373,7 +392,7 @@ static HRESULT WINAPI JpegDecoder_Initialize(IWICBitmapDecoder *iface, IStream *
     This->stride = (This->bpp * This->cinfo.output_width + 7) / 8;
     data_size = This->stride * This->cinfo.output_height;
 
-    This->image_data = HeapAlloc(GetProcessHeap(), 0, data_size);
+    This->image_data = heap_alloc(data_size);
     if (!This->image_data)
     {
         LeaveCriticalSection(&This->lock);
@@ -432,20 +451,9 @@ static HRESULT WINAPI JpegDecoder_GetContainerFormat(IWICBitmapDecoder *iface,
 static HRESULT WINAPI JpegDecoder_GetDecoderInfo(IWICBitmapDecoder *iface,
     IWICBitmapDecoderInfo **ppIDecoderInfo)
 {
-    HRESULT hr;
-    IWICComponentInfo *compinfo;
-
     TRACE("(%p,%p)\n", iface, ppIDecoderInfo);
 
-    hr = CreateComponentInfo(&CLSID_WICJpegDecoder, &compinfo);
-    if (FAILED(hr)) return hr;
-
-    hr = IWICComponentInfo_QueryInterface(compinfo, &IID_IWICBitmapDecoderInfo,
-        (void**)ppIDecoderInfo);
-
-    IWICComponentInfo_Release(compinfo);
-
-    return hr;
+    return get_decoder_info(&CLSID_WICJpegDecoder, ppIDecoderInfo);
 }
 
 static HRESULT WINAPI JpegDecoder_CopyPalette(IWICBitmapDecoder *iface,
@@ -459,7 +467,7 @@ static HRESULT WINAPI JpegDecoder_CopyPalette(IWICBitmapDecoder *iface,
 static HRESULT WINAPI JpegDecoder_GetMetadataQueryReader(IWICBitmapDecoder *iface,
     IWICMetadataQueryReader **reader)
 {
-    FIXME("(%p,%p): stub\n", iface, reader);
+    TRACE("(%p,%p)\n", iface, reader);
 
     if (!reader) return E_INVALIDARG;
 
@@ -636,7 +644,7 @@ static HRESULT WINAPI JpegDecoder_Frame_CopyPixels(IWICBitmapFrameDecode *iface,
 {
     JpegDecoder *This = impl_from_IWICBitmapFrameDecode(iface);
 
-    TRACE("(%p,%p,%u,%u,%p)\n", iface, prc, cbStride, cbBufferSize, pbBuffer);
+    TRACE("(%p,%s,%u,%u,%p)\n", iface, debug_wic_rect(prc), cbStride, cbBufferSize, pbBuffer);
 
     return copy_pixels(This->bpp, This->image_data,
         This->cinfo.output_width, This->cinfo.output_height, This->stride,
@@ -1160,7 +1168,7 @@ static HRESULT WINAPI JpegEncoder_Frame_WriteSource(IWICBitmapFrameEncode *iface
 {
     JpegEncoder *This = impl_from_IWICBitmapFrameEncode(iface);
     HRESULT hr;
-    TRACE("(%p,%p,%p)\n", iface, pIBitmapSource, prc);
+    TRACE("(%p,%p,%s)\n", iface, pIBitmapSource, debug_wic_rect(prc));
 
     if (!This->frame_initialized)
         return WINCODEC_ERR_WRONGSTATE;
@@ -1337,11 +1345,15 @@ static HRESULT WINAPI JpegEncoder_Initialize(IWICBitmapEncoder *iface,
     return S_OK;
 }
 
-static HRESULT WINAPI JpegEncoder_GetContainerFormat(IWICBitmapEncoder *iface,
-    GUID *pguidContainerFormat)
+static HRESULT WINAPI JpegEncoder_GetContainerFormat(IWICBitmapEncoder *iface, GUID *format)
 {
-    FIXME("(%p,%s): stub\n", iface, debugstr_guid(pguidContainerFormat));
-    return E_NOTIMPL;
+    TRACE("(%p,%p)\n", iface, format);
+
+    if (!format)
+        return E_INVALIDARG;
+
+    memcpy(format, &GUID_ContainerFormatJpeg, sizeof(*format));
+    return S_OK;
 }
 
 static HRESULT WINAPI JpegEncoder_GetEncoderInfo(IWICBitmapEncoder *iface, IWICBitmapEncoderInfo **info)
@@ -1402,7 +1414,15 @@ static HRESULT WINAPI JpegEncoder_CreateNewFrame(IWICBitmapEncoder *iface,
 {
     JpegEncoder *This = impl_from_IWICBitmapEncoder(iface);
     HRESULT hr;
-    PROPBAG2 opts[6] = {{0}};
+    static const PROPBAG2 opts[6] =
+    {
+        { PROPBAG2_TYPE_DATA, VT_R4,            0, 0, (LPOLESTR)wszImageQuality },
+        { PROPBAG2_TYPE_DATA, VT_UI1,           0, 0, (LPOLESTR)wszBitmapTransform },
+        { PROPBAG2_TYPE_DATA, VT_I4 | VT_ARRAY, 0, 0, (LPOLESTR)wszLuminance },
+        { PROPBAG2_TYPE_DATA, VT_I4 | VT_ARRAY, 0, 0, (LPOLESTR)wszChrominance },
+        { PROPBAG2_TYPE_DATA, VT_UI1,           0, 0, (LPOLESTR)wszJpegYCrCbSubsampling },
+        { PROPBAG2_TYPE_DATA, VT_BOOL,          0, 0, (LPOLESTR)wszSuppressApp0 },
+    };
 
     TRACE("(%p,%p,%p)\n", iface, ppIFrameEncode, ppIEncoderOptions);
 
@@ -1420,28 +1440,9 @@ static HRESULT WINAPI JpegEncoder_CreateNewFrame(IWICBitmapEncoder *iface,
         return WINCODEC_ERR_NOTINITIALIZED;
     }
 
-    opts[0].pstrName = (LPOLESTR)wszImageQuality;
-    opts[0].vt = VT_R4;
-    opts[0].dwType = PROPBAG2_TYPE_DATA;
-    opts[1].pstrName = (LPOLESTR)wszBitmapTransform;
-    opts[1].vt = VT_UI1;
-    opts[1].dwType = PROPBAG2_TYPE_DATA;
-    opts[2].pstrName = (LPOLESTR)wszLuminance;
-    opts[2].vt = VT_I4|VT_ARRAY;
-    opts[2].dwType = PROPBAG2_TYPE_DATA;
-    opts[3].pstrName = (LPOLESTR)wszChrominance;
-    opts[3].vt = VT_I4|VT_ARRAY;
-    opts[3].dwType = PROPBAG2_TYPE_DATA;
-    opts[4].pstrName = (LPOLESTR)wszJpegYCrCbSubsampling;
-    opts[4].vt = VT_UI1;
-    opts[4].dwType = PROPBAG2_TYPE_DATA;
-    opts[5].pstrName = (LPOLESTR)wszSuppressApp0;
-    opts[5].vt = VT_BOOL;
-    opts[5].dwType = PROPBAG2_TYPE_DATA;
-
     if (ppIEncoderOptions)
     {
-        hr = CreatePropertyBag2(opts, 6, ppIEncoderOptions);
+        hr = CreatePropertyBag2(opts, ARRAY_SIZE(opts), ppIEncoderOptions);
         if (FAILED(hr))
         {
             LeaveCriticalSection(&This->lock);

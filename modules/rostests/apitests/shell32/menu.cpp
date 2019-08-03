@@ -7,6 +7,13 @@
 
 #include "shelltest.h"
 
+#include <shlwapi.h>
+#include <unknownbase.h>
+#include <shlguid_undoc.h>
+
+#define test_S_OK(hres, message) ok(hres == S_OK, "%s (0x%lx instead of S_OK)\n",message, hResult);
+#define test_HRES(hres, hresExpected, message) ok(hres == hresExpected, "%s (0x%lx instead of 0x%lx)\n",message, hResult,hresExpected);
+
 BOOL CheckWindowClass(HWND hwnd, PCWSTR className)
 {
     ULONG size = (wcslen(className) + 1)* sizeof(WCHAR);
@@ -113,7 +120,7 @@ void test_CShellMenu_params()
     hResult = shellMenu->SetMenu(hmenu, NULL, 0);
     test_S_OK(hResult, "SetMenu failed");
 
-    hwndToolbar = (HWND)0xdeadbeef;
+    hwndToolbar = (HWND)UlongToPtr(0xdeadbeef);
     hResult = dockingMenu->GetWindow(&hwndToolbar);
     test_S_OK(hResult, "GetWindow failed");
     ok (hwndToolbar == NULL, "Expected NULL window\n");
@@ -137,7 +144,7 @@ void test_CShellMenu_params()
     hResult = shellMenu->SetShellFolder(NULL, NULL, 0, 0);
     test_HRES(hResult, E_INVALIDARG, "SetShellFolder should fail");
 
-    hwndToolbar = (HWND)0xdeadbeef;
+    hwndToolbar = (HWND)UlongToHandle(0xdeadbeef);
     hResult = dockingMenu->GetWindow(&hwndToolbar);
     test_S_OK(hResult, "GetWindow failed");
     ok (hwndToolbar == NULL, "Expected NULL window\n");

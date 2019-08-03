@@ -18,21 +18,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-//#include "windows.h"
+#include "windows.h"
+#include "wtypes.h"
+#include "ddeml.h"
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
-#include <stdarg.h>
-
-#include <windef.h>
-#include <winbase.h>
-#include <winnls.h>
-#include <ddeml.h>
-#include <ole2.h>
-
-#include <wine/test.h>
+#include "wine/test.h"
 
 /* invalid in all versions */
 #define PROP_INV 0x7f
@@ -199,7 +189,7 @@ static void test_validtypes(void)
     ok(U(propvar).uhVal.QuadPart == 0, "expected 0, got %#x/%#x\n",
        U(propvar).uhVal.u.LowPart, U(propvar).uhVal.u.HighPart);
 
-    for (i = 0; i < sizeof(valid_types)/sizeof(valid_types[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(valid_types); i++)
     {
         VARTYPE vt;
 

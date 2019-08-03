@@ -1,10 +1,7 @@
 /* Automatically generated file; DO NOT EDIT!! */
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-
 #define STANDALONE
-#include "wine/test.h"
+#include <wine/test.h>
 
 extern void func_actctx(void);
 extern void func_atom(void);
@@ -12,7 +9,6 @@ extern void func_change(void);
 extern void func_codepage(void);
 extern void func_comm(void);
 extern void func_console(void);
-extern void func_cpu(void);
 extern void func_debugger(void);
 extern void func_directory(void);
 extern void func_drive(void);

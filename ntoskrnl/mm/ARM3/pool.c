@@ -178,9 +178,9 @@ MiProtectedPoolRemoveEntryList(IN PLIST_ENTRY Entry)
     if (PoolBlink) MiProtectFreeNonPagedPool(PoolBlink, 1);
 }
 
+INIT_FUNCTION
 VOID
 NTAPI
-INIT_FUNCTION
 MiInitializeNonPagedPoolThresholds(VOID)
 {
     PFN_NUMBER Size = MmMaximumNonPagedPoolInPages;
@@ -195,9 +195,9 @@ MiInitializeNonPagedPoolThresholds(VOID)
     ASSERT(MiLowNonPagedPoolThreshold < MiHighNonPagedPoolThreshold);
 }
 
+INIT_FUNCTION
 VOID
 NTAPI
-INIT_FUNCTION
 MiInitializePoolEvents(VOID)
 {
     KIRQL OldIrql;
@@ -270,9 +270,9 @@ MiInitializePoolEvents(VOID)
     KeReleaseQueuedSpinLock(LockQueueMmNonPagedPoolLock, OldIrql);
 }
 
+INIT_FUNCTION
 VOID
 NTAPI
-INIT_FUNCTION
 MiInitializeNonPagedPool(VOID)
 {
     ULONG i;
@@ -433,7 +433,6 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
     PMMPFN Pfn1;
     PVOID BaseVa, BaseVaStart;
     PMMFREE_POOL_ENTRY FreeEntry;
-    PKSPIN_LOCK_QUEUE LockQueue;
 
     //
     // Figure out how big the allocation is in pages
@@ -536,7 +535,7 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
             //
             // Lock the PFN database and loop pages
             //
-            OldIrql = KeAcquireQueuedSpinLock(LockQueuePfnLock);
+            OldIrql = MiAcquirePfnLock();
             do
             {
                 //
@@ -551,7 +550,13 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
                 TempPde.u.Hard.PageFrameNumber = PageFrameNumber;
 #if (_MI_PAGING_LEVELS >= 3)
                 /* On PAE/x64 systems, there's no double-buffering */
-                ASSERT(FALSE);
+                /* Initialize the PFN entry for it */
+                MiInitializePfnForOtherProcess(PageFrameNumber,
+                                               (PMMPTE)PointerPde,
+                                               PFN_FROM_PTE(MiAddressToPte(PointerPde)));
+
+                /* Write the actual PDE now */
+                MI_WRITE_VALID_PDE(PointerPde, TempPde);
 #else
                 //
                 // Save it into our double-buffered system page directory
@@ -562,10 +567,8 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
                 MiInitializePfnForOtherProcess(PageFrameNumber,
                                                (PMMPTE)PointerPde,
                                                MmSystemPageDirectory[(PointerPde - MiAddressToPde(NULL)) / PDE_COUNT]);
-
-                /* Write the actual PDE now */
-//                MI_WRITE_VALID_PDE(PointerPde, TempPde);
 #endif
+
                 //
                 // Move on to the next expansion address
                 //
@@ -577,7 +580,7 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
             //
             // Release the PFN database lock
             //
-            KeReleaseQueuedSpinLock(LockQueuePfnLock, OldIrql);
+            MiReleasePfnLock(OldIrql);
 
             //
             // These pages are now available, clear their availablity bits
@@ -844,8 +847,7 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
     //
     // Lock the PFN database too
     //
-    LockQueue = &KeGetCurrentPrcb()->LockQueue[LockQueuePfnLock];
-    KeAcquireQueuedSpinLockAtDpcLevel(LockQueue);
+    MiAcquirePfnLockAtDpcLevel();
 
     //
     // Loop the pages
@@ -889,7 +891,7 @@ MiAllocatePoolPages(IN POOL_TYPE PoolType,
     //
     // Release the PFN and nonpaged pool lock
     //
-    KeReleaseQueuedSpinLockFromDpcLevel(LockQueue);
+    MiReleasePfnLockFromDpcLevel();
     KeReleaseQueuedSpinLock(LockQueueMmNonPagedPoolLock, OldIrql);
 
     //

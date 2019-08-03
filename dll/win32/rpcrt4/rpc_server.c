@@ -20,9 +20,31 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "precomp.h"
+#include "config.h"
+#include "wine/port.h"
 
-#include <secext.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "winerror.h"
+
+#include "rpc.h"
+#include "rpcndr.h"
+#include "excpt.h"
+
+#include "wine/debug.h"
+#include "wine/exception.h"
+
+#include "rpc_server.h"
+#include "rpc_assoc.h"
+#include "rpc_message.h"
+#include "rpc_defs.h"
+#include "ncastatus.h"
+#include "secext.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(rpc);
 
@@ -1198,7 +1220,8 @@ RPC_STATUS WINAPI RpcServerUnregisterIf( RPC_IF_HANDLE IfSpec, UUID* MgrTypeUuid
 
   EnterCriticalSection(&server_cs);
   LIST_FOR_EACH_ENTRY(cif, &server_interfaces, RpcServerInterface, entry) {
-    if ((!IfSpec || !memcmp(&If->InterfaceId, &cif->If->InterfaceId, sizeof(RPC_SYNTAX_IDENTIFIER))) &&
+    if (((!IfSpec && !(cif->Flags & RPC_IF_AUTOLISTEN)) ||
+        (IfSpec && !memcmp(&If->InterfaceId, &cif->If->InterfaceId, sizeof(RPC_SYNTAX_IDENTIFIER)))) &&
         UuidEqual(MgrTypeUuid, &cif->MgrTypeUuid, &status)) {
       list_remove(&cif->entry);
       TRACE("unregistering cif %p\n", cif);

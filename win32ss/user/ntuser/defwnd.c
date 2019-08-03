@@ -619,14 +619,6 @@ IntDefWindowProc(
          if (!Wnd->spwndOwner) break;
          if (LOWORD(lParam))
          {
-            if (wParam)
-            {
-               if (!(Wnd->state & WNDS_HIDDENPOPUP)) break;
-               Wnd->state &= ~WNDS_HIDDENPOPUP;
-            }
-            else
-                Wnd->state |= WNDS_HIDDENPOPUP;
-
             co_WinPosShowWindow(Wnd, wParam ? SW_SHOWNOACTIVATE : SW_HIDE);
          }
          break;
@@ -787,6 +779,96 @@ IntDefWindowProc(
             if (UserGetKeyState(VK_SHIFT) & 0x8000)
             {
                co_IntSendMessage(UserHMGetHandle(Wnd), WM_CONTEXTMENU, (WPARAM)UserHMGetHandle(Wnd), MAKELPARAM(-1, -1));
+            }
+         }
+         if (IS_KEY_DOWN(gafAsyncKeyState, VK_LWIN) || IS_KEY_DOWN(gafAsyncKeyState, VK_RWIN))
+         {
+            HWND hwndTop = UserGetForegroundWindow();
+            PWND topWnd = UserGetWindowObject(hwndTop);
+            if (topWnd)
+            {
+               if ((topWnd->style & WS_THICKFRAME) == 0)
+               {
+                  return 0;
+               }
+               
+               if (wParam == VK_DOWN)
+               {
+                   if (topWnd->style & WS_MAXIMIZE)
+                       co_IntSendMessage(hwndTop, WM_SYSCOMMAND, SC_RESTORE, lParam);
+                   else
+                       co_IntSendMessage(hwndTop, WM_SYSCOMMAND, SC_MINIMIZE, lParam);
+               }
+               else if (wParam == VK_UP)
+               {
+                  RECT currentRect;
+                  if ((topWnd->InternalPos.NormalRect.right == topWnd->InternalPos.NormalRect.left) || 
+                      (topWnd->InternalPos.NormalRect.top == topWnd->InternalPos.NormalRect.bottom))
+                  {
+                      currentRect = topWnd->rcWindow;
+                  }
+                  else
+                  {
+                      currentRect = topWnd->InternalPos.NormalRect;
+                  }
+                  co_IntSendMessage(hwndTop, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+
+                  // save normal rect if maximazing snapped window
+                  topWnd->InternalPos.NormalRect = currentRect;
+               }
+               else if (wParam == VK_LEFT || wParam == VK_RIGHT)
+               {
+                  RECT snapRect, normalRect, windowRect;
+                  BOOL snapped;
+                  normalRect = topWnd->InternalPos.NormalRect;
+                  snapped = (normalRect.left != 0 && normalRect.right != 0 &&
+                             normalRect.top != 0 && normalRect.bottom != 0);
+
+                  if (topWnd->style & WS_MAXIMIZE)
+                  {
+                     co_IntSendMessage(hwndTop, WM_SYSCOMMAND, SC_RESTORE, lParam);
+                     snapped = FALSE;
+                  }
+                  windowRect = topWnd->rcWindow;
+
+                  UserSystemParametersInfo(SPI_GETWORKAREA, 0, &snapRect, 0);
+                  if (wParam == VK_LEFT)
+                  {
+                     snapRect.right = (snapRect.left + snapRect.right) / 2;
+                  }
+                  else // VK_RIGHT
+                  {
+                     snapRect.left = (snapRect.left + snapRect.right) / 2;
+                  }
+
+                  if (snapped)
+                  {
+                     // if window was snapped but moved to other location - restore normal size
+                     if (!IntEqualRect(&snapRect, &windowRect))
+                     {
+                        RECT empty = {0, 0, 0, 0};
+                        co_WinPosSetWindowPos(topWnd,
+                                              0,
+                                              normalRect.left,
+                                              normalRect.top,
+                                              normalRect.right - normalRect.left,
+                                              normalRect.bottom - normalRect.top,
+                                              0);
+                        topWnd->InternalPos.NormalRect = empty;
+                     }
+                  }
+                  else
+                  {
+                     co_WinPosSetWindowPos(topWnd,
+                                           0,
+                                           snapRect.left,
+                                           snapRect.top,
+                                           snapRect.right - snapRect.left,
+                                           snapRect.bottom - snapRect.top,
+                                           0);
+                     topWnd->InternalPos.NormalRect = windowRect;
+                  }
+               }
             }
          }
          break;
@@ -967,7 +1049,7 @@ IntDefWindowProc(
          if (!hBrush) return 0;
          if (hBrush <= (HBRUSH)COLOR_MENUBAR)
          {
-            hBrush = IntGetSysColorBrush((INT)hBrush);
+            hBrush = IntGetSysColorBrush(HandleToUlong(hBrush));
          }
          if (Wnd->pcls->style & CS_PARENTDC)
          {

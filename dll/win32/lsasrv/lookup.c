@@ -22,13 +22,6 @@ typedef struct _SAMPR_RETURNED_USTRING_ARRAY
     PRPC_UNICODE_STRING Element;
 } SAMPR_RETURNED_USTRING_ARRAY, *PSAMPR_RETURNED_USTRING_ARRAY;
 
-typedef struct _SAMPR_ULONG_ARRAY
-{
-    unsigned long Count;
-    unsigned long *Element;
-} SAMPR_ULONG_ARRAY, *PSAMPR_ULONG_ARRAY;
-
-
 VOID
 NTAPI
 SamIFree_SAMPR_RETURNED_USTRING_ARRAY(PSAMPR_RETURNED_USTRING_ARRAY Ptr);
@@ -189,7 +182,6 @@ LsapInitSids(VOID)
     hInstance = GetModuleHandleW(L"lsasrv.dll");
 
     /* NT Authority */
-
     LsapLoadString(hInstance, IDS_NT_AUTHORITY, szAccountName, ARRAYSIZE(szAccountName));
     LsapLoadString(hInstance, IDS_NT_AUTHORITY, szDomainName, ARRAYSIZE(szDomainName));
     LsapCreateSid(&NtAuthority,

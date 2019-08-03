@@ -18,13 +18,16 @@
 
 #define COBJMACROS
 #define CONST_VTABLE
+#ifndef __REACTOS__
 #define NONAMELESSUNION
+#endif
 
 #include <stdio.h>
 #include <wine/test.h>
 
 #include "winbase.h"
 #include "shlobj.h"
+#include "shellapi.h"
 #include "initguid.h"
 
 DEFINE_GUID(FMTID_Test,0x12345678,0x1234,0x1234,0x12,0x12,0x12,0x12,0x12,0x12,0x12,0x12);
@@ -116,10 +119,10 @@ static HRESULT WINAPI PropertyStorage_ReadMultiple(IPropertyStorage *This, ULONG
         ok(rgpropvar != NULL, "rgpropvar = NULL\n");
 
         ok(rgpspec[0].ulKind == PRSPEC_PROPID, "rgpspec[0].ulKind = %d\n", rgpspec[0].ulKind);
-        ok(rgpspec[0].u.propid == PID_CODEPAGE, "rgpspec[0].propid = %d\n", rgpspec[0].u.propid);
+        ok(rgpspec[0].propid == PID_CODEPAGE, "rgpspec[0].propid = %d\n", rgpspec[0].propid);
 
         rgpropvar[0].vt = VT_I2;
-        rgpropvar[0].u.iVal = 1234;
+        rgpropvar[0].iVal = 1234;
     } else {
         CHECK_EXPECT(ReadMultiple);
 
@@ -130,13 +133,13 @@ static HRESULT WINAPI PropertyStorage_ReadMultiple(IPropertyStorage *This, ULONG
         ok(rgpropvar[0].vt==0 || broken(rgpropvar[0].vt==VT_BSTR), "rgpropvar[0].vt = %d\n", rgpropvar[0].vt);
 
         rgpropvar[0].vt = VT_BSTR;
-        rgpropvar[0].u.bstrVal = (void*)0xdeadbeef;
+        rgpropvar[0].bstrVal = (void*)0xdeadbeef;
         rgpropvar[1].vt = VT_LPSTR;
-        rgpropvar[1].u.pszVal = (void*)0xdeadbeef;
+        rgpropvar[1].pszVal = (void*)0xdeadbeef;
         rgpropvar[2].vt = VT_BYREF|VT_I1;
-        rgpropvar[2].u.pcVal = (void*)0xdeadbeef;
+        rgpropvar[2].pcVal = (void*)0xdeadbeef;
         rgpropvar[3].vt = VT_BYREF|VT_VARIANT;
-        rgpropvar[3].u.pvarVal = (void*)0xdeadbeef;
+        rgpropvar[3].pvarVal = (void*)0xdeadbeef;
     }
 
     return S_OK;
@@ -419,7 +422,7 @@ static void test_SHPropStg_functions(void)
     CHECK_CALLED(WriteMultiple);
 
     read[0].vt = VT_BSTR;
-    read[0].u.bstrVal = (void*)0xdeadbeef;
+    read[0].bstrVal = (void*)0xdeadbeef;
     SET_EXPECT(ReadMultiple);
     SET_EXPECT(ReadMultipleCodePage);
     SET_EXPECT(Stat);
@@ -861,8 +864,15 @@ static void test_DragQueryFile(void)
 
 static void test_SHCreateSessionKey(void)
 {
+    static const WCHAR session_format[] = {
+                'S','o','f','t','w','a','r','e','\\','M','i','c','r','o','s','o','f','t','\\',
+                'W','i','n','d','o','w','s','\\','C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
+                'E','x','p','l','o','r','e','r','\\','S','e','s','s','i','o','n','I','n','f','o','\\','%','u',0};
     HKEY hkey, hkey2;
     HRESULT hr;
+    DWORD session;
+    WCHAR sessionW[ARRAY_SIZE(session_format) + 16];
+    LONG ret;
 
     if (!pSHCreateSessionKey)
     {
@@ -875,8 +885,8 @@ static void test_SHCreateSessionKey(void)
 
     hkey = (HKEY)0xdeadbeef;
     hr = pSHCreateSessionKey(0, &hkey);
-    todo_wine ok(hr == E_ACCESSDENIED, "got 0x%08x\n", hr);
-    todo_wine ok(hkey == NULL, "got %p\n", hkey);
+    ok(hr == E_ACCESSDENIED, "got 0x%08x\n", hr);
+    ok(hkey == NULL, "got %p\n", hkey);
 
     hr = pSHCreateSessionKey(KEY_READ, &hkey);
     ok(hr == S_OK, "got 0x%08x\n", hr);
@@ -887,6 +897,16 @@ static void test_SHCreateSessionKey(void)
 
     RegCloseKey(hkey);
     RegCloseKey(hkey2);
+
+    /* check the registry */
+    ProcessIdToSessionId( GetCurrentProcessId(), &session);
+    if (session)
+    {
+        wsprintfW(sessionW, session_format, session);
+        ret = RegOpenKeyW(HKEY_CURRENT_USER, sessionW, &hkey);
+        ok(!ret, "key not found\n");
+        RegCloseKey(hkey);
+    }
 }
 
 static void test_dragdrophelper(void)

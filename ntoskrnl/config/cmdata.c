@@ -65,7 +65,7 @@ ULONG CmpTypeCount[MaximumType + 1];
 
 HANDLE CmpRegistryRootHandle;
 
-INIT_FUNCTION UNICODE_STRING CmClassName[MaximumClass + 1] =
+INIT_SECTION UNICODE_STRING CmClassName[MaximumClass + 1] =
 {
     RTL_CONSTANT_STRING(L"System"),
     RTL_CONSTANT_STRING(L"Processor"),
@@ -77,7 +77,7 @@ INIT_FUNCTION UNICODE_STRING CmClassName[MaximumClass + 1] =
     RTL_CONSTANT_STRING(L"Undefined")
 };
 
-INIT_FUNCTION UNICODE_STRING CmTypeName[MaximumType + 1] =
+INIT_SECTION UNICODE_STRING CmTypeName[MaximumType + 1] =
 {
     RTL_CONSTANT_STRING(L"System"),
     RTL_CONSTANT_STRING(L"CentralProcessor"),
@@ -123,7 +123,7 @@ INIT_FUNCTION UNICODE_STRING CmTypeName[MaximumType + 1] =
     RTL_CONSTANT_STRING(L"Undefined")
 };
 
-INIT_FUNCTION CMP_MF_TYPE CmpMultifunctionTypes[] =
+INIT_SECTION CMP_MF_TYPE CmpMultifunctionTypes[] =
 {
     {"ISA", Isa, 0},
     {"MCA", MicroChannel, 0},
@@ -136,12 +136,12 @@ INIT_FUNCTION CMP_MF_TYPE CmpMultifunctionTypes[] =
     {NULL, Internal, 0}
 };
 
-INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
+INIT_SECTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
 {
     {
         L"Session Manager",
         L"ProtectionMode",
-        &DummyData,
+        &ObpProtectionMode,
         NULL,
         NULL
     },
@@ -149,7 +149,7 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
     {
         L"Session Manager",
         L"ObjectSecurityMode",
-        &DummyData,
+        &ObpObjectSecurityMode,
         NULL,
         NULL
     },
@@ -157,7 +157,7 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
     {
         L"Session Manager",
         L"LUIDDeviceMapsDisabled",
-        &DummyData,
+        &ObpLUIDDeviceMapsDisabled,
         NULL,
         NULL
     },
@@ -583,6 +583,14 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         L"IdealDpcRate",
         &DummyData,
         NULL,
+        NULL
+    },
+
+    {
+        L"Session Manager\\Kernel",
+        L"ObUnsecureGlobalNames",
+        ObpUnsecureGlobalNamesBuffer,
+        &ObpUnsecureGlobalNamesLength,
         NULL
     },
 

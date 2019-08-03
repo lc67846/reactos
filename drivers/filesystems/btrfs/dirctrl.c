@@ -17,6 +17,49 @@
 
 #include "btrfs_drv.h"
 
+// not currently in mingw
+//#ifndef _MSC_VER
+#define FileIdExtdDirectoryInformation (enum _FILE_INFORMATION_CLASS)60
+#define FileIdExtdBothDirectoryInformation (enum _FILE_INFORMATION_CLASS)63
+
+typedef struct _FILE_ID_EXTD_DIR_INFORMATION {
+    ULONG NextEntryOffset;
+    ULONG FileIndex;
+    LARGE_INTEGER CreationTime;
+    LARGE_INTEGER LastAccessTime;
+    LARGE_INTEGER LastWriteTime;
+    LARGE_INTEGER ChangeTime;
+    LARGE_INTEGER EndOfFile;
+    LARGE_INTEGER AllocationSize;
+    ULONG FileAttributes;
+    ULONG FileNameLength;
+    ULONG EaSize;
+    ULONG ReparsePointTag;
+    FILE_ID_128 FileId;
+    WCHAR FileName[1];
+} FILE_ID_EXTD_DIR_INFORMATION, *PFILE_ID_EXTD_DIR_INFORMATION;
+
+typedef struct _FILE_ID_EXTD_BOTH_DIR_INFORMATION {
+    ULONG NextEntryOffset;
+    ULONG FileIndex;
+    LARGE_INTEGER CreationTime;
+    LARGE_INTEGER LastAccessTime;
+    LARGE_INTEGER LastWriteTime;
+    LARGE_INTEGER ChangeTime;
+    LARGE_INTEGER EndOfFile;
+    LARGE_INTEGER AllocationSize;
+    ULONG FileAttributes;
+    ULONG FileNameLength;
+    ULONG EaSize;
+    ULONG ReparsePointTag;
+    FILE_ID_128 FileId;
+    CCHAR ShortNameLength;
+    WCHAR ShortName[12];
+    WCHAR FileName[1];
+} FILE_ID_EXTD_BOTH_DIR_INFORMATION, *PFILE_ID_EXTD_BOTH_DIR_INFORMATION;
+
+//#endif
+
 enum DirEntryType {
     DirEntryType_File,
     DirEntryType_Self,
@@ -31,16 +74,46 @@ typedef struct {
     dir_child* dc;
 } dir_entry;
 
+ULONG get_reparse_tag_fcb(fcb* fcb) {
+    ULONG tag;
+
+    if (fcb->type == BTRFS_TYPE_SYMLINK)
+        return IO_REPARSE_TAG_SYMLINK;
+    else if (fcb->type == BTRFS_TYPE_DIRECTORY) {
+        if (!fcb->reparse_xattr.Buffer || fcb->reparse_xattr.Length < sizeof(ULONG))
+            return 0;
+
+        RtlCopyMemory(&tag, fcb->reparse_xattr.Buffer, sizeof(ULONG));
+    } else {
+        NTSTATUS Status;
+        ULONG br;
+
+        Status = read_file(fcb, (UINT8*)&tag, 0, sizeof(ULONG), &br, NULL);
+        if (!NT_SUCCESS(Status)) {
+            ERR("read_file returned %08x\n", Status);
+            return 0;
+        }
+    }
+
+    return tag;
+}
+
 ULONG get_reparse_tag(device_extension* Vcb, root* subvol, UINT64 inode, UINT8 type, ULONG atts, BOOL lxss, PIRP Irp) {
     fcb* fcb;
-    ULONG tag = 0, br;
+    ULONG tag = 0;
     NTSTATUS Status;
 
-    if (type == BTRFS_TYPE_SYMLINK) {
-        if (lxss)
-            return IO_REPARSE_TAG_LXSS_SYMLINK;
-        else
-            return IO_REPARSE_TAG_SYMLINK;
+    if (type == BTRFS_TYPE_SYMLINK)
+        return IO_REPARSE_TAG_SYMLINK;
+    else if (lxss) {
+        if (type == BTRFS_TYPE_SOCKET)
+            return IO_REPARSE_TAG_LXSS_SOCKET;
+        else if (type == BTRFS_TYPE_FIFO)
+            return IO_REPARSE_TAG_LXSS_FIFO;
+        else if (type == BTRFS_TYPE_CHARDEV)
+            return IO_REPARSE_TAG_LXSS_CHARDEV;
+        else if (type == BTRFS_TYPE_BLOCKDEV)
+            return IO_REPARSE_TAG_LXSS_BLOCKDEV;
     }
 
     if (type != BTRFS_TYPE_FILE && type != BTRFS_TYPE_DIRECTORY)
@@ -49,7 +122,7 @@ ULONG get_reparse_tag(device_extension* Vcb, root* subvol, UINT64 inode, UINT8 t
     if (!(atts & FILE_ATTRIBUTE_REPARSE_POINT))
         return 0;
 
-    Status = open_fcb(Vcb, subvol, inode, type, NULL, NULL, &fcb, PagedPool, Irp);
+    Status = open_fcb(Vcb, subvol, inode, type, NULL, FALSE, NULL, &fcb, PagedPool, Irp);
     if (!NT_SUCCESS(Status)) {
         ERR("open_fcb returned %08x\n", Status);
         return 0;
@@ -57,26 +130,11 @@ ULONG get_reparse_tag(device_extension* Vcb, root* subvol, UINT64 inode, UINT8 t
 
     ExAcquireResourceSharedLite(fcb->Header.Resource, TRUE);
 
-    if (type == BTRFS_TYPE_DIRECTORY) {
-        if (!fcb->reparse_xattr.Buffer || fcb->reparse_xattr.Length < sizeof(ULONG))
-            goto end;
+    tag = get_reparse_tag_fcb(fcb);
 
-        RtlCopyMemory(&tag, fcb->reparse_xattr.Buffer, sizeof(ULONG));
-    } else {
-        Status = read_file(fcb, (UINT8*)&tag, 0, sizeof(ULONG), &br, NULL);
-        if (!NT_SUCCESS(Status)) {
-            ERR("read_file returned %08x\n", Status);
-            goto end;
-        }
-
-        if (br < sizeof(ULONG))
-            goto end;
-    }
-
-end:
     ExReleaseResourceLite(fcb->Header.Resource);
 
-    free_fcb(Vcb, fcb);
+    free_fcb(fcb);
 
     return tag;
 }
@@ -206,7 +264,9 @@ static NTSTATUS query_dir_item(fcb* fcb, ccb* ccb, void* buf, LONG* len, PIRP Ir
                             IrpSp->Parameters.QueryDirectory.FileInformationClass == FileDirectoryInformation ||
                             IrpSp->Parameters.QueryDirectory.FileInformationClass == FileFullDirectoryInformation ||
                             IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdBothDirectoryInformation ||
-                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdFullDirectoryInformation) {
+                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdFullDirectoryInformation ||
+                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdExtdDirectoryInformation ||
+                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdExtdBothDirectoryInformation) {
 
                             BOOL dotfile = de->name.Length > sizeof(WCHAR) && de->name.Buffer[0] == '.';
 
@@ -216,7 +276,9 @@ static NTSTATUS query_dir_item(fcb* fcb, ccb* ccb, void* buf, LONG* len, PIRP Ir
                         if (IrpSp->Parameters.QueryDirectory.FileInformationClass == FileBothDirectoryInformation ||
                             IrpSp->Parameters.QueryDirectory.FileInformationClass == FileFullDirectoryInformation ||
                             IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdBothDirectoryInformation ||
-                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdFullDirectoryInformation) {
+                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdFullDirectoryInformation ||
+                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdExtdDirectoryInformation ||
+                            IrpSp->Parameters.QueryDirectory.FileInformationClass == FileIdExtdBothDirectoryInformation) {
                             ealen = get_ea_len(fcb->Vcb, r, inode, Irp);
                         }
                     }
@@ -450,6 +512,102 @@ static NTSTATUS query_dir_item(fcb* fcb, ccb* ccb, void* buf, LONG* len, PIRP Ir
             return STATUS_SUCCESS;
         }
 
+#ifndef _MSC_VER
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch"
+#endif
+        case FileIdExtdDirectoryInformation:
+        {
+            FILE_ID_EXTD_DIR_INFORMATION* fiedi = buf;
+
+            TRACE("FileIdExtdDirectoryInformation\n");
+
+            needed = offsetof(FILE_ID_EXTD_DIR_INFORMATION, FileName[0]) + de->name.Length;
+
+            if (needed > *len) {
+                TRACE("buffer overflow - %u > %u\n", needed, *len);
+                return STATUS_BUFFER_OVERFLOW;
+            }
+
+            fiedi->NextEntryOffset = 0;
+            fiedi->FileIndex = 0;
+            fiedi->CreationTime.QuadPart = unix_time_to_win(&ii.otime);
+            fiedi->LastAccessTime.QuadPart = unix_time_to_win(&ii.st_atime);
+            fiedi->LastWriteTime.QuadPart = unix_time_to_win(&ii.st_mtime);
+            fiedi->ChangeTime.QuadPart = unix_time_to_win(&ii.st_ctime);
+            fiedi->EndOfFile.QuadPart = de->type == BTRFS_TYPE_SYMLINK ? 0 : ii.st_size;
+
+            if (de->type == BTRFS_TYPE_SYMLINK)
+                fiedi->AllocationSize.QuadPart = 0;
+            else if (atts & FILE_ATTRIBUTE_SPARSE_FILE)
+                fiedi->AllocationSize.QuadPart = ii.st_blocks;
+            else
+                fiedi->AllocationSize.QuadPart = sector_align(ii.st_size, fcb->Vcb->superblock.sector_size);
+
+            fiedi->FileAttributes = atts;
+            fiedi->FileNameLength = de->name.Length;
+            fiedi->EaSize = ealen;
+            fiedi->ReparsePointTag = get_reparse_tag(fcb->Vcb, r, inode, de->type, atts, ccb->lxss, Irp);
+
+            RtlCopyMemory(&fiedi->FileId.Identifier[0], &fcb->inode, sizeof(UINT64));
+            RtlCopyMemory(&fiedi->FileId.Identifier[sizeof(UINT64)], &fcb->subvol->id, sizeof(UINT64));
+
+            RtlCopyMemory(fiedi->FileName, de->name.Buffer, de->name.Length);
+
+            *len -= needed;
+
+            return STATUS_SUCCESS;
+        }
+
+        case FileIdExtdBothDirectoryInformation:
+        {
+            FILE_ID_EXTD_BOTH_DIR_INFORMATION* fiebdi = buf;
+
+            TRACE("FileIdExtdBothDirectoryInformation\n");
+
+            needed = offsetof(FILE_ID_EXTD_BOTH_DIR_INFORMATION, FileName[0]) + de->name.Length;
+
+            if (needed > *len) {
+                TRACE("buffer overflow - %u > %u\n", needed, *len);
+                return STATUS_BUFFER_OVERFLOW;
+            }
+
+            fiebdi->NextEntryOffset = 0;
+            fiebdi->FileIndex = 0;
+            fiebdi->CreationTime.QuadPart = unix_time_to_win(&ii.otime);
+            fiebdi->LastAccessTime.QuadPart = unix_time_to_win(&ii.st_atime);
+            fiebdi->LastWriteTime.QuadPart = unix_time_to_win(&ii.st_mtime);
+            fiebdi->ChangeTime.QuadPart = unix_time_to_win(&ii.st_ctime);
+            fiebdi->EndOfFile.QuadPart = de->type == BTRFS_TYPE_SYMLINK ? 0 : ii.st_size;
+
+            if (de->type == BTRFS_TYPE_SYMLINK)
+                fiebdi->AllocationSize.QuadPart = 0;
+            else if (atts & FILE_ATTRIBUTE_SPARSE_FILE)
+                fiebdi->AllocationSize.QuadPart = ii.st_blocks;
+            else
+                fiebdi->AllocationSize.QuadPart = sector_align(ii.st_size, fcb->Vcb->superblock.sector_size);
+
+            fiebdi->FileAttributes = atts;
+            fiebdi->FileNameLength = de->name.Length;
+            fiebdi->EaSize = ealen;
+            fiebdi->ReparsePointTag = get_reparse_tag(fcb->Vcb, r, inode, de->type, atts, ccb->lxss, Irp);
+
+            RtlCopyMemory(&fiebdi->FileId.Identifier[0], &fcb->inode, sizeof(UINT64));
+            RtlCopyMemory(&fiebdi->FileId.Identifier[sizeof(UINT64)], &fcb->subvol->id, sizeof(UINT64));
+
+            fiebdi->ShortNameLength = 0;
+
+            RtlCopyMemory(fiebdi->FileName, de->name.Buffer, de->name.Length);
+
+            *len -= needed;
+
+            return STATUS_SUCCESS;
+        }
+
+#ifndef _MSC_VER
+#pragma GCC diagnostic pop
+#endif
+
         case FileNamesInformation:
         {
             FILE_NAMES_INFORMATION* fni = buf;
@@ -587,7 +745,6 @@ static NTSTATUS query_directory(PIRP Irp) {
     BOOL has_wildcard = FALSE, specific_file = FALSE, initial;
     dir_entry de;
     UINT64 newoffset;
-    ANSI_STRING utf8;
     dir_child* dc = NULL;
 
     TRACE("query directory\n");
@@ -596,8 +753,6 @@ static NTSTATUS query_directory(PIRP Irp) {
     fcb = IrpSp->FileObject->FsContext;
     ccb = IrpSp->FileObject->FsContext2;
     fileref = ccb ? ccb->fileref : NULL;
-
-    utf8.Buffer = NULL;
 
     if (!fileref)
         return STATUS_INVALID_PARAMETER;
@@ -627,11 +782,6 @@ static NTSTATUS query_directory(PIRP Irp) {
     if (fileref->fcb == Vcb->dummy_fcb)
         return STATUS_NO_MORE_FILES;
 
-    ExAcquireResourceSharedLite(&Vcb->tree_lock, TRUE);
-    ExAcquireResourceSharedLite(&Vcb->fcb_lock, TRUE);
-
-    TRACE("%S\n", file_desc(IrpSp->FileObject));
-
     if (IrpSp->Flags == 0) {
         TRACE("QD flags: (none)\n");
     } else {
@@ -658,8 +808,6 @@ static NTSTATUS query_directory(PIRP Irp) {
             TRACE("    unknown flags: %u\n", flags);
     }
 
-    initial = !ccb->query_string.Buffer;
-
     if (IrpSp->Flags & SL_RESTART_SCAN) {
         ccb->query_dir_offset = 0;
 
@@ -667,12 +815,17 @@ static NTSTATUS query_directory(PIRP Irp) {
             RtlFreeUnicodeString(&ccb->query_string);
             ccb->query_string.Buffer = NULL;
         }
+
+        ccb->has_wildcard = FALSE;
+        ccb->specific_file = FALSE;
     }
+
+    initial = !ccb->query_string.Buffer;
 
     if (IrpSp->Parameters.QueryDirectory.FileName && IrpSp->Parameters.QueryDirectory.FileName->Length > 1) {
         TRACE("QD filename: %.*S\n", IrpSp->Parameters.QueryDirectory.FileName->Length / sizeof(WCHAR), IrpSp->Parameters.QueryDirectory.FileName->Buffer);
 
-        if (IrpSp->Parameters.QueryDirectory.FileName->Buffer[0] != '*') {
+        if (IrpSp->Parameters.QueryDirectory.FileName->Length > sizeof(WCHAR) || IrpSp->Parameters.QueryDirectory.FileName->Buffer[0] != L'*') {
             specific_file = TRUE;
 
             if (FsRtlDoesNameContainWildCards(IrpSp->Parameters.QueryDirectory.FileName)) {
@@ -690,8 +843,7 @@ static NTSTATUS query_directory(PIRP Irp) {
             ccb->query_string.Buffer = ExAllocatePoolWithTag(PagedPool, IrpSp->Parameters.QueryDirectory.FileName->Length, ALLOC_TAG);
             if (!ccb->query_string.Buffer) {
                 ERR("out of memory\n");
-                Status = STATUS_INSUFFICIENT_RESOURCES;
-                goto end2;
+                return STATUS_INSUFFICIENT_RESOURCES;
             }
 
             ccb->query_string.Length = ccb->query_string.MaximumLength = IrpSp->Parameters.QueryDirectory.FileName->Length;
@@ -707,10 +859,8 @@ static NTSTATUS query_directory(PIRP Irp) {
         if (!(IrpSp->Flags & SL_RESTART_SCAN)) {
             initial = FALSE;
 
-            if (specific_file) {
-                Status = STATUS_NO_MORE_FILES;
-                goto end2;
-            }
+            if (specific_file)
+                return STATUS_NO_MORE_FILES;
         }
     }
 
@@ -719,6 +869,8 @@ static NTSTATUS query_directory(PIRP Irp) {
     }
 
     newoffset = ccb->query_dir_offset;
+
+    ExAcquireResourceSharedLite(&Vcb->tree_lock, TRUE);
 
     ExAcquireResourceSharedLite(&fileref->fcb->nonpaged->dir_children_lock, TRUE);
 
@@ -848,13 +1000,22 @@ static NTSTATUS query_directory(PIRP Irp) {
 
         while (length > 0) {
             switch (IrpSp->Parameters.QueryDirectory.FileInformationClass) {
+#ifndef _MSC_VER
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch"
+#endif
                 case FileBothDirectoryInformation:
                 case FileDirectoryInformation:
                 case FileIdBothDirectoryInformation:
                 case FileFullDirectoryInformation:
                 case FileIdFullDirectoryInformation:
+                case FileIdExtdDirectoryInformation:
+                case FileIdExtdBothDirectoryInformation:
                     length -= length % 8;
                     break;
+#ifndef _MSC_VER
+#pragma GCC diagnostic pop
+#endif
 
                 case FileNamesInformation:
                     length -= length % 4;
@@ -905,14 +1066,9 @@ static NTSTATUS query_directory(PIRP Irp) {
 end:
     ExReleaseResourceLite(&fileref->fcb->nonpaged->dir_children_lock);
 
-end2:
-    ExReleaseResourceLite(&Vcb->fcb_lock);
     ExReleaseResourceLite(&Vcb->tree_lock);
 
     TRACE("returning %08x\n", Status);
-
-    if (utf8.Buffer)
-        ExFreePool(utf8.Buffer);
 
     return Status;
 }
@@ -996,7 +1152,7 @@ end:
 
 _Dispatch_type_(IRP_MJ_DIRECTORY_CONTROL)
 _Function_class_(DRIVER_DISPATCH)
-NTSTATUS drv_directory_control(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
+NTSTATUS NTAPI drv_directory_control(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
     PIO_STACK_LOCATION IrpSp;
     NTSTATUS Status;
     ULONG func;

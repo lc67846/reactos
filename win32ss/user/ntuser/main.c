@@ -26,7 +26,7 @@ NTSTATUS GdiThreadDestroy(PETHREAD Thread);
 
 PSERVERINFO gpsi = NULL; // Global User Server Information.
 
-SHORT gusLanguageID;
+USHORT gusLanguageID;
 PPROCESSINFO ppiScrnSaver;
 PPROCESSINFO gppiList = NULL;
 
@@ -88,13 +88,6 @@ AllocW32Process(IN  PEPROCESS Process,
     *W32Process = ppiCurrent;
     return STATUS_SUCCESS;
 }
-
-#define FreeW32Process(/*Process*/ W32Process) \
-do { \
-    /*PPROCESSINFO W32Process = PsGetProcessWin32Process(Process);*/ \
-    /*ASSERT(W32Process);*/ \
-    IntDereferenceProcessInfo(W32Process); \
-} while(0)
 
 /*
  * Called from IntDereferenceProcessInfo
@@ -165,8 +158,8 @@ UserProcessCreate(PEPROCESS Process)
 
     /* Setup process flags */
     ppiCurrent->W32PF_flags |= W32PF_PROCESSCONNECTED;
-    if ( Process->Peb->ProcessParameters &&
-         Process->Peb->ProcessParameters->WindowFlags & STARTF_SCRNSAVER )
+    if (Process->Peb->ProcessParameters &&
+        (Process->Peb->ProcessParameters->WindowFlags & STARTF_SCREENSAVER))
     {
         ppiScrnSaver = ppiCurrent;
         ppiCurrent->W32PF_flags |= W32PF_SCREENSAVER;
@@ -332,7 +325,7 @@ ExitProcessCallback(PEPROCESS Process)
     ppiCurrent->peProcess = NULL;
 
     /* Finally, dereference */
-    FreeW32Process(/*Process*/ ppiCurrent); // IntDereferenceProcessInfo(ppiCurrent);
+    IntDereferenceProcessInfo(ppiCurrent);
 
     return STATUS_SUCCESS;
 }
@@ -397,18 +390,12 @@ AllocW32Thread(IN  PETHREAD Thread,
     RtlZeroMemory(ptiCurrent, sizeof(*ptiCurrent));
 
     PsSetThreadWin32Thread(Thread, ptiCurrent, NULL);
+    ObReferenceObject(Thread);
     IntReferenceThreadInfo(ptiCurrent);
 
     *W32Thread = ptiCurrent;
     return STATUS_SUCCESS;
 }
-
-#define FreeW32Thread(/*Thread*/ W32Thread) \
-do { \
-    /*PTHREADINFO W32Thread = PsGetThreadWin32Thread(Thread);*/ \
-    /*ASSERT(W32Thread);*/ \
-    IntDereferenceThreadInfo(W32Thread); \
-} while(0)
 
 /*
  * Called from IntDereferenceThreadInfo
@@ -427,6 +414,8 @@ UserDeleteW32Thread(PTHREADINFO pti)
    }
 
    MsqCleanupThreadMsgs(pti);
+
+   ObDereferenceObject(pti->pEThread);
 
    ExFreePoolWithTag(pti, USERTAG_THREADINFO);
 
@@ -454,7 +443,6 @@ InitThreadCallback(PETHREAD Thread)
     int i;
     NTSTATUS Status = STATUS_SUCCESS;
     PTEB pTeb;
-    LARGE_INTEGER LargeTickCount;
     PRTL_USER_PROCESS_PARAMETERS ProcessParams;
 
     Process = Thread->ThreadsProcess;
@@ -515,9 +503,7 @@ InitThreadCallback(PETHREAD Thread)
         goto error;
     }
 
-    KeQueryTickCount(&LargeTickCount);
-    ptiCurrent->timeLast = LargeTickCount.u.LowPart;
-
+    ptiCurrent->timeLast = EngGetTickCount32();
     ptiCurrent->MessageQueue = MsqCreateMessageQueue(ptiCurrent);
     if (ptiCurrent->MessageQueue == NULL)
     {
@@ -532,11 +518,11 @@ InitThreadCallback(PETHREAD Thread)
 
     ptiCurrent->TIF_flags &= ~TIF_INCLEANUP;
 
-    /* CSRSS threads have some special features */
-    if (Process == gpepCSRSS)
-        ptiCurrent->TIF_flags = TIF_CSRSSTHREAD | TIF_DONTATTACHQUEUE;
-
     // FIXME: Flag SYSTEM threads with... TIF_SYSTEMTHREAD !!
+
+    /* CSRSS threads have some special features */
+    if (Process == gpepCSRSS || !gpepCSRSS)
+        ptiCurrent->TIF_flags = TIF_CSRSSTHREAD | TIF_DONTATTACHQUEUE;
 
     ptiCurrent->pcti = &ptiCurrent->cti;
 
@@ -570,9 +556,14 @@ InitThreadCallback(PETHREAD Thread)
        }
     }
 
-    /* Assign a default window station and desktop to the process */
-    /* Do not try to open a desktop or window station before winlogon initializes */
-    if (ptiCurrent->ppi->hdeskStartup == NULL && gpidLogon != 0)
+    /*
+     * Assign a default window station and desktop to the process.
+     * Do not try to open a desktop or window station before the very first
+     * (interactive) window station has been created by Winlogon.
+     */
+    if (!(ptiCurrent->TIF_flags & (TIF_SYSTEMTHREAD | TIF_CSRSSTHREAD)) &&
+        ptiCurrent->ppi->hdeskStartup == NULL &&
+        InputWindowStation != NULL)
     {
         HWINSTA hWinSta = NULL;
         HDESK hDesk = NULL;
@@ -580,10 +571,9 @@ InitThreadCallback(PETHREAD Thread)
         PDESKTOP pdesk;
 
         /*
-         * inherit the thread desktop and process window station (if not yet inherited) from the process startup
-         * info structure. See documentation of CreateProcess()
+         * Inherit the thread desktop and process window station (if not yet inherited)
+         * from the process startup info structure. See documentation of CreateProcess().
          */
-
         Status = STATUS_UNSUCCESSFUL;
         if (ProcessParams && ProcessParams->DesktopInfo.Length > 0)
         {
@@ -594,17 +584,18 @@ InitThreadCallback(PETHREAD Thread)
             RtlInitUnicodeString(&DesktopPath, NULL);
         }
 
-        Status = IntParseDesktopPath(Process,
-                                     &DesktopPath,
-                                     &hWinSta,
-                                     &hDesk);
+        Status = IntResolveDesktop(Process,
+                                   &DesktopPath,
+                                   !!(ProcessParams->WindowFlags & STARTF_INHERITDESKTOP),
+                                   &hWinSta,
+                                   &hDesk);
 
         if (DesktopPath.Buffer)
             ExFreePoolWithTag(DesktopPath.Buffer, TAG_STRING);
 
         if (!NT_SUCCESS(Status))
         {
-            ERR_CH(UserThread, "Failed to assign default dekstop and winsta to process\n");
+            ERR_CH(UserThread, "Failed to assign default desktop and winsta to process\n");
             goto error;
         }
 
@@ -615,7 +606,7 @@ InitThreadCallback(PETHREAD Thread)
             goto error;
         }
 
-        /* Validate the new desktop. */
+        /* Validate the new desktop */
         Status = IntValidateDesktopHandle(hDesk, UserMode, 0, &pdesk);
         if (!NT_SUCCESS(Status))
         {
@@ -624,6 +615,8 @@ InitThreadCallback(PETHREAD Thread)
         }
 
         /* Store the parsed desktop as the initial desktop */
+        ASSERT(ptiCurrent->ppi->hdeskStartup == NULL);
+        ASSERT(Process->UniqueProcessId != gpidLogon);
         ptiCurrent->ppi->hdeskStartup = hDesk;
         ptiCurrent->ppi->rpdeskStartup = pdesk;
     }
@@ -838,10 +831,9 @@ ExitThreadCallback(PETHREAD Thread)
 
     /* The thread is dying */
     PsSetThreadWin32Thread(Thread /*ptiCurrent->pEThread*/, NULL, ptiCurrent);
-    ptiCurrent->pEThread = NULL;
 
-    /* Free the THREADINFO */
-    FreeW32Thread(/*Thread*/ ptiCurrent); // IntDereferenceThreadInfo(ptiCurrent);
+    /* Dereference the THREADINFO */
+    IntDereferenceThreadInfo(ptiCurrent);
 
     return STATUS_SUCCESS;
 }
@@ -897,7 +889,7 @@ DriverUnload(IN PDRIVER_OBJECT DriverObject)
 /*
  * This definition doesn't work
  */
-INIT_SECTION
+INIT_FUNCTION
 NTSTATUS
 APIENTRY
 DriverEntry(
@@ -941,7 +933,7 @@ DriverEntry(
     CalloutData.DesktopOkToCloseProcedure = IntDesktopOkToClose;
     CalloutData.DesktopCloseProcedure = IntDesktopObjectClose;
     CalloutData.DesktopDeleteProcedure = IntDesktopObjectDelete;
-    CalloutData.WindowStationOkToCloseProcedure = IntWinstaOkToClose;
+    CalloutData.WindowStationOkToCloseProcedure = IntWinStaOkToClose;
     // CalloutData.WindowStationCloseProcedure = NULL;
     CalloutData.WindowStationDeleteProcedure = IntWinStaObjectDelete;
     CalloutData.WindowStationParseProcedure = IntWinStaObjectParse;

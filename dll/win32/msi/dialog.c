@@ -19,11 +19,32 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "msipriv.h"
+#define COBJMACROS
+#define NONAMELESSUNION
 
-#include <olectl.h>
-#include <richedit.h>
-#include <shellapi.h>
+#include <stdarg.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "winnls.h"
+#include "msi.h"
+#include "msidefs.h"
+#include "ocidl.h"
+#include "olectl.h"
+#include "richedit.h"
+#include "commctrl.h"
+#include "winreg.h"
+#include "shlwapi.h"
+#include "shellapi.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
+
+#include "msipriv.h"
+#include "msiserver.h"
+#include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msi);
 
@@ -3770,6 +3791,10 @@ static LRESULT WINAPI MSIDialog_WndProc( HWND hwnd, UINT msg,
     case WM_COMMAND:
         return msi_dialog_oncommand( dialog, wParam, (HWND)lParam );
 
+    case WM_CLOSE:
+        /* Simulate escape press */
+        return msi_dialog_oncommand(dialog, 2, NULL);
+
     case WM_ACTIVATE:
         if( LOWORD(wParam) == WA_INACTIVE )
             dialog->hWndFocus = GetFocus();
@@ -3815,9 +3840,12 @@ static UINT dialog_run_message_loop( msi_dialog *dialog )
         return SendMessageW( hMsiHiddenWindow, WM_MSI_DIALOG_CREATE, 0, (LPARAM) dialog );
 
     /* create the dialog window, don't show it yet */
-    style = WS_OVERLAPPED;
+    style = WS_OVERLAPPED | WS_SYSMENU;
     if( dialog->attributes & msidbDialogAttributesVisible )
         style |= WS_VISIBLE;
+
+    if (dialog->parent == NULL && (dialog->attributes & msidbDialogAttributesMinimize))
+        style |= WS_MINIMIZEBOX;
 
     hwnd = CreateWindowW( szMsiDialogClass, dialog->name, style,
                      CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
@@ -4288,7 +4316,7 @@ static UINT event_end_dialog( msi_dialog *dialog, const WCHAR *argument )
 static UINT pending_event_end_dialog( msi_dialog *dialog, const WCHAR *argument )
 {
     dialog->pending_event = event_end_dialog;
-    if (dialog->pending_argument) msi_free( dialog->pending_argument );
+    msi_free( dialog->pending_argument );
     dialog->pending_argument = strdupW( argument );
     return ERROR_SUCCESS;
 }
@@ -4306,7 +4334,7 @@ static UINT event_new_dialog( msi_dialog *dialog, const WCHAR *argument )
 static UINT pending_event_new_dialog( msi_dialog *dialog, const WCHAR *argument )
 {
     dialog->pending_event = event_new_dialog;
-    if (dialog->pending_argument) msi_free( dialog->pending_argument );
+    msi_free( dialog->pending_argument );
     dialog->pending_argument = strdupW( argument );
     return ERROR_SUCCESS;
 }
@@ -4331,7 +4359,7 @@ static UINT event_spawn_dialog( msi_dialog *dialog, const WCHAR *argument )
 static UINT pending_event_spawn_dialog( msi_dialog *dialog, const WCHAR *argument )
 {
     dialog->pending_event = event_spawn_dialog;
-    if (dialog->pending_argument) msi_free( dialog->pending_argument );
+    msi_free( dialog->pending_argument );
     dialog->pending_argument = strdupW( argument );
     return ERROR_SUCCESS;
 }

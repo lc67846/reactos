@@ -1,19 +1,9 @@
 
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.2.1)
+cmake_policy(VERSION 3.2.1)
 
-if(POLICY CMP0017)
-    # Shadow cmake provided modules
-    cmake_policy(SET CMP0017 OLD)
-endif()
-
-if(POLICY CMP0026)
-    # Allow use of the LOCATION property
-    cmake_policy(SET CMP0026 OLD)
-endif()
-
-if(POLICY CMP0051)
-    # List TARGET_OBJECTS in SOURCES target property
-    cmake_policy(SET CMP0051 NEW)
+if(NOT CMAKE_VERSION MATCHES "ReactOS")
+    message(WARNING "Building with \"${CMAKE_COMMAND}\", which is not the custom CMake included in RosBE, might cause build issues...")
 endif()
 
 if(POLICY CMP0058)
@@ -21,24 +11,24 @@ if(POLICY CMP0058)
     cmake_policy(SET CMP0058 OLD)
 endif()
 
+if(POLICY CMP0065)
+    # Do not add flags to export symbols from executables without the ENABLE_EXPORTS target property
+    cmake_policy(SET CMP0065 NEW)
+endif()
+
 project(REACTOS)
 
 # Versioning
 include(sdk/include/reactos/version.cmake)
 
-# Don't escape preprocessor definition values added via add_definitions
-cmake_policy(SET CMP0005 OLD)
-cmake_policy(SET CMP0002 NEW)
-if(POLICY CMP0018)
-    cmake_policy(SET CMP0018 OLD)
-endif()
-
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE ON)
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
+set(CMAKE_SHARED_MODULE_PREFIX "")
 set(CMAKE_SKIP_PREPROCESSED_SOURCE_RULES TRUE)
 set(CMAKE_SKIP_ASSEMBLY_SOURCE_RULES TRUE)
 set(CMAKE_COLOR_MAKEFILE OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 #set_property(GLOBAL PROPERTY RULE_MESSAGES OFF)
 
 if(NOT DEFINED NEW_STYLE_BUILD)
@@ -69,14 +59,16 @@ include(sdk/cmake/compilerflags.cmake)
 
 add_definitions(-D__REACTOS__)
 
+# Double escape, since CMake unescapes before putting it on the command-line, where it's unescaped again by GCC/CL.
+add_definitions(-DREACTOS_SOURCE_DIR="${REACTOS_SOURCE_DIR}")
+add_definitions(-DREACTOS_BINARY_DIR="${REACTOS_BINARY_DIR}")
+
+# There doesn't seem to be a standard for __FILE__ being relative or absolute, so detect it at runtime.
+file(RELATIVE_PATH _PATH_PREFIX ${REACTOS_BINARY_DIR} ${REACTOS_SOURCE_DIR})
+add_compile_flags(-D__RELFILE__="&__FILE__[__FILE__[0] == '.' ? sizeof \\\"${_PATH_PREFIX}\\\" - 1 : sizeof REACTOS_SOURCE_DIR]")
+
 if(MSVC_IDE)
     add_compile_flags("/MP")
-endif()
-
-# We don't need CMake importlib handling.
-# FIXME: Remove the MSVC_IDE condition when the upcoming RosBE lands.
-if(NOT MSVC_IDE)
-    unset(CMAKE_IMPORT_LIBRARY_SUFFIX)
 endif()
 
 # Bison and Flex support
@@ -92,12 +84,17 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     if(MSVC)
         if(ARCH STREQUAL "i386")
-            add_definitions(/D_X86_ /DWIN32 /D_WINDOWS)
+            add_definitions(/D_X86_ /D__i386__ /DWIN32 /D_WINDOWS)
+        elseif(ARCH STREQUAL "amd64")
+            add_definitions(-D_AMD64_ -D__x86_64__ /DWIN32 -D_WINDOWS)
         endif()
         if(MSVC_VERSION GREATER 1699)
             add_definitions(/D_ALLOW_KEYWORD_MACROS)
         endif()
-        add_definitions(/Dinline=__inline)
+        if(NOT USE_CLANG_CL)
+            # FIXME: Inspect
+            add_definitions(/Dinline=__inline)
+        endif()
     endif()
 
     include_directories(sdk/include/host)
@@ -117,6 +114,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     endif()
 
 else()
+    # We don't need CMake importlib handling.
+    unset(CMAKE_IMPORT_LIBRARY_SUFFIX)
 
     if(NEW_STYLE_BUILD)
         include(sdk/cmake/host-tools.cmake)
@@ -134,16 +133,6 @@ else()
 
     #useful stuff!
     include(CMakeParseArguments)
-
-    # Do some cleanup
-    file(REMOVE
-        ${REACTOS_BINARY_DIR}/dependencies.graphml
-        ${REACTOS_BINARY_DIR}/boot/ros_livecd.txt
-        ${REACTOS_BINARY_DIR}/boot/ros_livecd_target.txt
-        ${REACTOS_BINARY_DIR}/boot/ros_minicd.txt
-        ${REACTOS_BINARY_DIR}/boot/ros_minicd_target.txt
-        ${REACTOS_BINARY_DIR}/boot/ros_cab.txt
-        ${REACTOS_BINARY_DIR}/boot/ros_cab_target.txt)
 
     if(NOT NEW_STYLE_BUILD)
         if(NOT DEFINED REACTOS_BUILD_TOOLS_DIR)
@@ -178,11 +167,15 @@ else()
                     -D_WIN32_IE=0x600
                     -D_WIN32_WINNT=0x502
                     -D_WIN32_WINDOWS=0x502
-                    -D_SETUPAPI_VER=0x502)
+                    -D_SETUPAPI_VER=0x502
+                    -DMINGW_HAS_SECURE_API=1)
 
     # Arch Options
     if(ARCH STREQUAL "i386")
-        add_definitions(-D_M_IX86 -D_X86_ -D__i386__ -Di386)
+        if(NOT USE_CLANG_CL)
+            add_definitions(-D_M_IX86)
+        endif()
+        add_definitions(-D_X86_ -D__i386__ -Di386)
     elseif(ARCH STREQUAL "amd64")
         add_definitions(-D_M_AMD64 -D_AMD64_ -D__x86_64__ -D_WIN64)
     elseif(ARCH STREQUAL "arm")
@@ -194,6 +187,7 @@ else()
     endif()
 
     # Other
+    add_definitions(-D_NEW_DELETE_OPERATORS_)
     if(ARCH STREQUAL "i386")
         add_definitions(-DUSE_COMPILER_EXCEPTIONS -D_USE_32BIT_TIME_T)
     elseif(ARCH STREQUAL "amd64")

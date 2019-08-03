@@ -5,13 +5,9 @@
  * PROGRAMMER:      Jérôme Gardou <jerome.gardou@reactos.org>
  */
 
-#include <apitest.h>
+#include "precomp.h"
 
-#define WIN32_NO_STATUS
-#include <winreg.h>
-#include <ndk/rtlfuncs.h>
 #include <ndk/cmfuncs.h>
-#include <ndk/cmtypes.h>
 
 #define IS_HKCR(hk) (((UINT_PTR)hk & 3) == 2)
 
@@ -148,7 +144,7 @@ Test_CreateOpenKey(void)
     ok_key_name(ClassesRootKey, &HKLM_ClassesPath, L"Apitest_HKLM");
 
     /* Try opening it in HKCU */
-    UserKey = (HKEY)0xCAFEF00D;
+    UserKey = (HKEY)(ULONG_PTR)0xCAFEF00DCAFEF00DULL;
     ErrorCode = RegOpenKeyExW(
         HKEY_CURRENT_USER,
         L"Software\\Classes\\Apitest_HKLM",
@@ -190,7 +186,7 @@ Test_CreateOpenKey(void)
     ok(!IS_HKCR(MachineKey), "\n");
 
     /* But not in HKCU */
-    UserKey = (HKEY)0xCAFEF00D;
+    UserKey = (HKEY)(ULONG_PTR)0xCAFEF00DCAFEF00DULL;
     ErrorCode = RegOpenKeyExW(
         HKEY_CURRENT_USER,
         L"Software\\Classes\\Apitest_HKCR",
@@ -209,7 +205,7 @@ Test_CreateOpenKey(void)
     RegCloseKey(MachineKey);
 
     /* Test that it is really not present anymore */
-    MachineKey = (HKEY)0xCAFEF00D;
+    MachineKey = (HKEY)(ULONG_PTR)0xCAFEF00DCAFEF00DULL;
     ErrorCode = RegOpenKeyExW(
         HKEY_LOCAL_MACHINE,
         L"Software\\Classes\\Apitest_HKCR",
@@ -262,7 +258,7 @@ Test_CreateOpenKey(void)
     RegCloseKey(UserKey);
 
     /* Test that it is really not present anymore */
-    UserKey = (HKEY)0xCAFEF00D;
+    UserKey = (HKEY)(ULONG_PTR)0xCAFEF00DCAFEF00DULL;
     ErrorCode = RegOpenKeyExW(
         HKEY_CURRENT_USER,
         L"Software\\Classes\\Apitest_HKCU",

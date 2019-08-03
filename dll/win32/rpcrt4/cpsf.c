@@ -18,15 +18,28 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "precomp.h"
+#include "config.h"
+#include "wine/port.h"
 
-#include <winreg.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 
-#define NO_SHLWAPI_PATH
-#define NO_SHLWAPI_STRFCNS
-#define NO_SHLWAPI_GDI
-#define NO_SHLWAPI_STREAM
-#include <shlwapi.h>
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "winerror.h"
+#include "winreg.h"
+
+#include "objbase.h"
+
+#include "rpcproxy.h"
+
+#include "wine/unicode.h"
+#include "wine/debug.h"
+
+#include "cpsf.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
@@ -266,7 +279,7 @@ HRESULT WINAPI NdrDllRegisterProxy(HMODULE hDll,
   /* register clsid to point to module */
   strcpyW( keyname, clsidW );
   strcatW( keyname, clsid );
-  len = GetModuleFileNameW(hDll, module, sizeof(module)/sizeof(WCHAR));
+  len = GetModuleFileNameW(hDll, module, ARRAY_SIZE(module));
   if (len && len < sizeof(module)) {
       TRACE("registering CLSID %s => %s\n", debugstr_w(clsid), debugstr_w(module));
       if (RegCreateKeyW(HKEY_CLASSES_ROOT, keyname, &key) == ERROR_SUCCESS) {

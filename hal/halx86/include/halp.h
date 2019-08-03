@@ -4,13 +4,6 @@
 
 #pragma once
 
-#if defined(__GNUC__) && !defined(_MINIHAL_)
-#define INIT_SECTION __attribute__((section ("INIT")))
-#else
-#define INIT_SECTION /* Done via alloc_text for MSC */
-#endif
-
-
 #ifdef CONFIG_SMP
 #define HAL_BUILD_TYPE (DBG ? PRCB_BUILD_DEBUG : 0)
 #else
@@ -48,6 +41,10 @@ VOID
 
 #define HAL_APC_REQUEST         0
 #define HAL_DPC_REQUEST         1
+
+/* HAL profiling offsets in KeGetPcr()->HalReserved[] */
+#define HAL_PROFILING_INTERVAL      0
+#define HAL_PROFILING_MULTIPLIER    1
 
 /* CMOS Registers and Ports */
 #define CMOS_CONTROL_PORT       (PUCHAR)0x70
@@ -552,6 +549,7 @@ typedef struct _HalAddressUsage
 PADAPTER_OBJECT NTAPI HalpAllocateAdapterEx(ULONG NumberOfMapRegisters,BOOLEAN IsMaster, BOOLEAN Dma32BitAddresses);
 
 /* sysinfo.c */
+INIT_FUNCTION
 VOID
 NTAPI
 HalpRegisterVector(IN UCHAR Flags,
@@ -559,6 +557,7 @@ HalpRegisterVector(IN UCHAR Flags,
                    IN ULONG SystemVector,
                    IN KIRQL Irql);
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpEnableInterruptHandler(IN UCHAR Flags,
@@ -572,7 +571,7 @@ HalpEnableInterruptHandler(IN UCHAR Flags,
 VOID NTAPI HalpInitializePICs(IN BOOLEAN EnableInterrupts);
 VOID __cdecl HalpApcInterrupt(VOID);
 VOID __cdecl HalpDispatchInterrupt(VOID);
-VOID __cdecl HalpDispatchInterrupt2(VOID);
+PHAL_SW_INTERRUPT_HANDLER __cdecl HalpDispatchInterrupt2(VOID);
 DECLSPEC_NORETURN VOID FASTCALL HalpApcInterrupt2ndEntry(IN PKTRAP_FRAME TrapFrame);
 DECLSPEC_NORETURN VOID FASTCALL HalpDispatchInterrupt2ndEntry(IN PKTRAP_FRAME TrapFrame);
 
@@ -580,7 +579,7 @@ DECLSPEC_NORETURN VOID FASTCALL HalpDispatchInterrupt2ndEntry(IN PKTRAP_FRAME Tr
 extern BOOLEAN HalpProfilingStopped;
 
 /* timer.c */
-VOID NTAPI HalpInitializeClock(VOID);
+INIT_FUNCTION VOID NTAPI HalpInitializeClock(VOID);
 VOID __cdecl HalpClockInterrupt(VOID);
 VOID __cdecl HalpProfileInterrupt(VOID);
 
@@ -592,7 +591,7 @@ HalpCalibrateStallExecution(VOID);
 VOID HalpInitPciBus (VOID);
 
 /* dma.c */
-VOID HalpInitDma (VOID);
+INIT_FUNCTION VOID HalpInitDma (VOID);
 
 /* Non-generic initialization */
 VOID HalpInitPhase0 (PLOADER_PARAMETER_BLOCK LoaderBlock);
@@ -611,12 +610,14 @@ HalpCheckPowerButton(
     VOID
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpRegisterKdSupportFunctions(
     VOID
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpSetupPciDeviceForDebugging(
@@ -624,6 +625,7 @@ HalpSetupPciDeviceForDebugging(
     IN OUT PDEBUG_DEVICE_DESCRIPTOR PciDevice
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpReleasePciDeviceForDebugging(
@@ -633,13 +635,29 @@ HalpReleasePciDeviceForDebugging(
 //
 // Memory routines
 //
-ULONG_PTR
+ULONG64
 NTAPI
 HalpAllocPhysicalMemory(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock,
-    IN ULONG_PTR MaxAddress,
+    IN ULONG64 MaxAddress,
     IN PFN_NUMBER PageCount,
     IN BOOLEAN Aligned
+);
+
+PVOID
+NTAPI
+HalpMapPhysicalMemory64Vista(
+    IN PHYSICAL_ADDRESS PhysicalAddress,
+    IN PFN_COUNT PageCount,
+    IN BOOLEAN FlushCurrentTLB
+);
+
+VOID
+NTAPI
+HalpUnmapVirtualAddressVista(
+    IN PVOID VirtualAddress,
+    IN PFN_COUNT NumberPages,
+    IN BOOLEAN FlushCurrentTLB
 );
 
 PVOID
@@ -707,6 +725,7 @@ HaliHaltSystem(
 //
 // CMOS Routines
 //
+INIT_FUNCTION
 VOID
 NTAPI
 HalpInitializeCmos(
@@ -741,6 +760,12 @@ HalpReleaseCmosSpinLock(
     VOID
 );
 
+VOID
+NTAPI
+HalpInitializeLegacyPICs(
+    VOID
+);
+
 NTSTATUS
 NTAPI
 HalpOpenRegistryKey(
@@ -751,36 +776,42 @@ HalpOpenRegistryKey(
     IN BOOLEAN Create
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpGetNMICrashFlag(
     VOID
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 HalpGetDebugPortTable(
     VOID
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpReportSerialNumber(
     VOID
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 HalpMarkAcpiHal(
     VOID
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpBuildAddressMap(
     VOID
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpReportResourceUsage(
@@ -788,6 +819,7 @@ HalpReportResourceUsage(
     IN INTERFACE_TYPE InterfaceType
 );
 
+INIT_FUNCTION
 ULONG
 NTAPI
 HalpIs16BitPortDecodeSupported(
@@ -808,6 +840,7 @@ KeUpdateSystemTime(
     IN KIRQL OldIrql
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpInitBusHandlers(
@@ -820,6 +853,7 @@ HaliInitPnpDriver(
     VOID
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpDebugPciDumpBus(

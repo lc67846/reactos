@@ -388,10 +388,10 @@ GpStatus WINGDIPAPI GdipWarpPath(GpPath*,GpMatrix*,GDIPCONST GpPointF*,INT,REAL,
 GpStatus WINGDIPAPI GdipWidenPath(GpPath*,GpPen*,GpMatrix*,REAL);
 
 /* HatchBrush */
-GpStatus WINGDIPAPI GdipCreateHatchBrush(HatchStyle,ARGB,ARGB,GpHatch**);
+GpStatus WINGDIPAPI GdipCreateHatchBrush(GpHatchStyle,ARGB,ARGB,GpHatch**);
 GpStatus WINGDIPAPI GdipGetHatchBackgroundColor(GpHatch*,ARGB*);
 GpStatus WINGDIPAPI GdipGetHatchForegroundColor(GpHatch*,ARGB*);
-GpStatus WINGDIPAPI GdipGetHatchStyle(GpHatch*,HatchStyle*);
+GpStatus WINGDIPAPI GdipGetHatchStyle(GpHatch*,GpHatchStyle*);
 
 /* Image */
 GpStatus WINGDIPAPI GdipCloneImage(GpImage*, GpImage**);
@@ -590,6 +590,7 @@ GpStatus WINGDIPAPI GdipSetPathGradientCenterPoint(GpPathGradient*,GpPointF*);
 GpStatus WINGDIPAPI GdipSetPathGradientCenterPointI(GpPathGradient*,GpPoint*);
 GpStatus WINGDIPAPI GdipSetPathGradientFocusScales(GpPathGradient*,REAL,REAL);
 GpStatus WINGDIPAPI GdipSetPathGradientGammaCorrection(GpPathGradient*,BOOL);
+GpStatus WINGDIPAPI GdipSetPathGradientPath(GpPathGradient*,GDIPCONST GpPath*);
 GpStatus WINGDIPAPI GdipSetPathGradientSigmaBlend(GpPathGradient*,REAL,REAL);
 GpStatus WINGDIPAPI GdipSetPathGradientSurroundColorsWithCount(GpPathGradient*,
     GDIPCONST ARGB*,INT*);
@@ -629,7 +630,9 @@ GpStatus WINGDIPAPI GdipGetPenDashOffset(GpPen*,REAL*);
 GpStatus WINGDIPAPI GdipGetPenDashStyle(GpPen*,GpDashStyle*);
 GpStatus WINGDIPAPI GdipGetPenMode(GpPen*,GpPenAlignment*);
 GpStatus WINGDIPAPI GdipGetPenTransform(GpPen *, GpMatrix *);
+GpStatus WINGDIPAPI GdipMultiplyPenTransform(GpPen *,GDIPCONST GpMatrix *,GpMatrixOrder);
 GpStatus WINGDIPAPI GdipResetPenTransform(GpPen*);
+GpStatus WINGDIPAPI GdipRotatePenTransform(GpPen*,REAL,GpMatrixOrder);
 GpStatus WINGDIPAPI GdipScalePenTransform(GpPen*,REAL,REAL,GpMatrixOrder);
 GpStatus WINGDIPAPI GdipSetPenBrushFill(GpPen*,GpBrush*);
 GpStatus WINGDIPAPI GdipSetPenColor(GpPen*,ARGB);
@@ -656,6 +659,7 @@ GpStatus WINGDIPAPI GdipGetPenMiterLimit(GpPen*,REAL*);
 GpStatus WINGDIPAPI GdipGetPenStartCap(GpPen*,GpLineCap*);
 GpStatus WINGDIPAPI GdipGetPenUnit(GpPen*,GpUnit*);
 GpStatus WINGDIPAPI GdipGetPenWidth(GpPen*,REAL*);
+GpStatus WINGDIPAPI GdipTranslatePenTransform(GpPen*,REAL,REAL,GpMatrixOrder);
 
 /* Region */
 GpStatus WINGDIPAPI GdipCloneRegion(GpRegion *, GpRegion **);

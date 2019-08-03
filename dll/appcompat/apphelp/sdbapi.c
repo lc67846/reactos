@@ -4,7 +4,7 @@
  * PURPOSE:     Sdb low level glue layer
  * COPYRIGHT:   Copyright 2011 André Hentschel
  *              Copyright 2013 Mislav Blaževic
- *              Copyright 2015-2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2015-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #include "ntndk.h"
@@ -145,13 +145,13 @@ void WINAPI SdbpFlush(PDB pdb)
     ASSERT(pdb->for_write);
     Status = NtWriteFile(pdb->file, NULL, NULL, NULL, &io,
         pdb->data, pdb->write_iter, NULL, NULL);
-    if( !NT_SUCCESS(Status))
+    if (!NT_SUCCESS(Status))
         SHIM_WARN("failed with 0x%lx\n", Status);
 }
 
 DWORD SdbpStrlen(PCWSTR string)
 {
-    return wcslen(string);
+    return (DWORD)wcslen(string);
 }
 
 DWORD SdbpStrsize(PCWSTR string)
@@ -177,15 +177,22 @@ BOOL WINAPI SdbpOpenMemMappedFile(LPCWSTR path, PMEMMAPPED mapping)
 
     RtlZeroMemory(mapping, sizeof(*mapping));
 
-    if(!RtlDosPathNameToNtPathName_U(path, &FileName, NULL, NULL))
-    {
-        RtlFreeUnicodeString(&FileName);
-        return FALSE;
-    }
+    RtlInitUnicodeString(&FileName, path);
 
     InitializeObjectAttributes(&ObjectAttributes, &FileName, OBJ_CASE_INSENSITIVE, NULL, NULL);
     Status = NtOpenFile(&mapping->file, GENERIC_READ | SYNCHRONIZE, &ObjectAttributes, &IoStatusBlock, FILE_SHARE_READ, FILE_SYNCHRONOUS_IO_NONALERT);
-    RtlFreeUnicodeString(&FileName);
+
+    if (Status == STATUS_OBJECT_NAME_INVALID || Status == STATUS_OBJECT_PATH_SYNTAX_BAD)
+    {
+        if (!RtlDosPathNameToNtPathName_U(path, &FileName, NULL, NULL))
+        {
+            SHIM_ERR("Failed to convert %S to Nt path: 0x%lx\n", path, Status);
+            return FALSE;
+        }
+        InitializeObjectAttributes(&ObjectAttributes, &FileName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+        Status = NtOpenFile(&mapping->file, GENERIC_READ | SYNCHRONIZE, &ObjectAttributes, &IoStatusBlock, FILE_SHARE_READ, FILE_SYNCHRONOUS_IO_NONALERT);
+        RtlFreeUnicodeString(&FileName);
+    }
 
     if (!NT_SUCCESS(Status))
     {
@@ -259,7 +266,7 @@ BOOL WINAPI SdbpCheckTagIDType(PDB pdb, TAGID tagid, WORD type)
     return SdbpCheckTagType(tag, type);
 }
 
-PDB SdbpOpenDatabase(LPCWSTR path, PATH_TYPE type, PDWORD major, PDWORD minor)
+PDB SdbpOpenDatabase(LPCWSTR path, PATH_TYPE type)
 {
     IO_STATUS_BLOCK io;
     FILE_STANDARD_INFORMATION fsi;
@@ -304,8 +311,8 @@ PDB SdbpOpenDatabase(LPCWSTR path, PATH_TYPE type, PDWORD major, PDWORD minor)
         return NULL;
     }
 
-    *major = *(DWORD*)&header[0];
-    *minor = *(DWORD*)&header[4];
+    pdb->major = *(DWORD*)&header[0];
+    pdb->minor = *(DWORD*)&header[4];
 
     return pdb;
 }
@@ -322,13 +329,13 @@ PDB SdbpOpenDatabase(LPCWSTR path, PATH_TYPE type, PDWORD major, PDWORD minor)
 PDB WINAPI SdbOpenDatabase(LPCWSTR path, PATH_TYPE type)
 {
     PDB pdb;
-    DWORD major, minor;
+    TAGID root, name;
 
-    pdb = SdbpOpenDatabase(path, type, &major, &minor);
+    pdb = SdbpOpenDatabase(path, type);
     if (!pdb)
         return NULL;
 
-    if (major != 2 && major != 3)
+    if (pdb->major != 2 && pdb->major != 3)
     {
         SdbCloseDatabase(pdb);
         SHIM_ERR("Invalid shim database version\n");
@@ -336,10 +343,25 @@ PDB WINAPI SdbOpenDatabase(LPCWSTR path, PATH_TYPE type)
     }
 
     pdb->stringtable = SdbFindFirstTag(pdb, TAGID_ROOT, TAG_STRINGTABLE);
-    if(!SdbGetDatabaseID(pdb, &pdb->database_id))
+    if (!SdbGetDatabaseID(pdb, &pdb->database_id))
     {
         SHIM_INFO("Failed to get the database id\n");
     }
+
+    root = SdbFindFirstTag(pdb, TAGID_ROOT, TAG_DATABASE);
+    if (root != TAGID_NULL)
+    {
+        name = SdbFindFirstTag(pdb, root, TAG_NAME);
+        if (name != TAGID_NULL)
+        {
+            pdb->database_name = SdbGetStringTagPtr(pdb, name);
+        }
+    }
+    if (!pdb->database_name)
+    {
+        SHIM_INFO("Failed to get the database name\n");
+    }
+
     return pdb;
 }
 
@@ -390,7 +412,7 @@ BOOL WINAPI SdbGUIDFromString(PCWSTR GuidString, GUID *Guid)
 BOOL WINAPI SdbGUIDToString(CONST GUID *Guid, PWSTR GuidString, SIZE_T Length)
 {
     UNICODE_STRING GuidString_u;
-    if(NT_SUCCESS(RtlStringFromGUID(Guid, &GuidString_u)))
+    if (NT_SUCCESS(RtlStringFromGUID(Guid, &GuidString_u)))
     {
         HRESULT hr = StringCchCopyNW(GuidString, Length, GuidString_u.Buffer, GuidString_u.Length / 2);
         RtlFreeUnicodeString(&GuidString_u);
@@ -438,7 +460,7 @@ BOOL WINAPI SdbGetStandardDatabaseGUID(DWORD Flags, GUID* Guid)
         SHIM_ERR("Cannot obtain database guid for databases other than main\n");
         return FALSE;
     }
-    if(Guid)
+    if (Guid)
     {
         memcpy(Guid, copy_from, sizeof(GUID));
     }
@@ -458,18 +480,60 @@ BOOL WINAPI SdbGetDatabaseVersion(LPCWSTR database, PDWORD VersionHi, PDWORD Ver
 {
     PDB pdb;
 
-    pdb = SdbpOpenDatabase(database, DOS_PATH, VersionHi, VersionLo);
+    pdb = SdbpOpenDatabase(database, DOS_PATH);
     if (pdb)
+    {
+        *VersionHi = pdb->major;
+        *VersionLo = pdb->minor;
         SdbCloseDatabase(pdb);
+    }
 
     return TRUE;
+}
+
+/**
+ * @name SdbGetDatabaseInformation
+ * Get information about the database
+ *
+ * @param pdb           The database
+ * @param information   The returned information
+ * @return TRUE on success
+ */
+BOOL WINAPI SdbGetDatabaseInformation(PDB pdb, PDB_INFORMATION information)
+{
+    if (pdb && information)
+    {
+        information->dwFlags = 0;
+        information->dwMajor = pdb->major;
+        information->dwMinor = pdb->minor;
+        information->Description = pdb->database_name;
+        if (!SdbIsNullGUID(&pdb->database_id))
+        {
+            information->dwFlags |= DB_INFO_FLAGS_VALID_GUID;
+            information->Id = pdb->database_id;
+        }
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/**
+ * @name SdbFreeDatabaseInformation
+ * Free up resources allocated in SdbGetDatabaseInformation
+ *
+ * @param information   The information retrieved from SdbGetDatabaseInformation
+ */
+VOID WINAPI SdbFreeDatabaseInformation(PDB_INFORMATION information)
+{
+    // No-op
 }
 
 
 /**
  * Find the first named child tag.
  *
- * @param [in]  database    The database.
+ * @param [in]  pdb         The database.
  * @param [in]  root        The tag to start at
  * @param [in]  find        The tag type to find
  * @param [in]  nametag     The child of 'find' that contains the name
@@ -524,6 +588,116 @@ TAGREF WINAPI SdbGetLayerTagRef(HSDB hsdb, LPCWSTR layerName)
         }
     }
     return TAGREF_NULL;
+}
+
+
+#ifndef REG_SZ
+#define REG_SZ 1
+#define REG_DWORD 4
+#define REG_QWORD 11
+#endif
+
+
+/**
+ * Retrieve a Data entry
+ *
+ * @param [in]  pdb                     The database.
+ * @param [in]  tiExe                   The tagID to start at
+ * @param [in,opt]  lpszDataName        The name of the Data entry to find, or NULL to return all.
+ * @param [out,opt]  lpdwDataType       Any of REG_SZ, REG_QWORD, REG_DWORD, ...
+ * @param [out]  lpBuffer               The output buffer
+ * @param [in,out,opt]  lpcbBufferSize  The size of lpBuffer in bytes
+ * @param [out,opt]  ptiData            The tagID of the data
+ *
+ * @return  ERROR_SUCCESS
+ */
+DWORD WINAPI SdbQueryDataExTagID(PDB pdb, TAGID tiExe, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize, TAGID *ptiData)
+{
+    TAGID tiData, tiValueType, tiValue;
+    DWORD dwDataType, dwSizeRequired, dwInputSize;
+    LPCWSTR lpStringData;
+    /* Not supported yet */
+    if (!lpszDataName)
+        return ERROR_INVALID_PARAMETER;
+
+    tiData = SdbFindFirstNamedTag(pdb, tiExe, TAG_DATA, TAG_NAME, lpszDataName);
+    if (tiData == TAGID_NULL)
+    {
+        SHIM_INFO("No data tag found\n");
+        return ERROR_NOT_FOUND;
+    }
+
+    if (ptiData)
+        *ptiData = tiData;
+
+    tiValueType = SdbFindFirstTag(pdb, tiData, TAG_DATA_VALUETYPE);
+    if (tiValueType == TAGID_NULL)
+    {
+        SHIM_WARN("Data tag (0x%x) without valuetype\n", tiData);
+        return ERROR_INTERNAL_DB_CORRUPTION;
+    }
+
+    dwDataType = SdbReadDWORDTag(pdb, tiValueType, 0);
+    switch (dwDataType)
+    {
+    case REG_SZ:
+        tiValue = SdbFindFirstTag(pdb, tiData, TAG_DATA_STRING);
+        break;
+    case REG_DWORD:
+        tiValue = SdbFindFirstTag(pdb, tiData, TAG_DATA_DWORD);
+        break;
+    case REG_QWORD:
+        tiValue = SdbFindFirstTag(pdb, tiData, TAG_DATA_QWORD);
+        break;
+    default:
+        /* Not supported (yet) */
+        SHIM_WARN("Unsupported dwDataType=0x%x\n", dwDataType);
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    if (lpdwDataType)
+        *lpdwDataType = dwDataType;
+
+    if (tiValue == TAGID_NULL)
+    {
+        SHIM_WARN("Data tag (0x%x) without data\n", tiData);
+        return ERROR_INTERNAL_DB_CORRUPTION;
+    }
+
+    if (dwDataType != REG_SZ)
+    {
+        dwSizeRequired = SdbGetTagDataSize(pdb, tiValue);
+    }
+    else
+    {
+        lpStringData = SdbpGetString(pdb, tiValue, &dwSizeRequired);
+        if (lpStringData == NULL)
+        {
+            return ERROR_INTERNAL_DB_CORRUPTION;
+        }
+    }
+    if (!lpcbBufferSize)
+        return ERROR_INSUFFICIENT_BUFFER;
+
+    dwInputSize = *lpcbBufferSize;
+    *lpcbBufferSize = dwSizeRequired;
+
+    if (dwInputSize < dwSizeRequired || lpBuffer == NULL)
+    {
+        SHIM_WARN("dwInputSize %u not sufficient to hold %u bytes\n", dwInputSize, dwSizeRequired);
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    if (dwDataType != REG_SZ)
+    {
+        SdbpReadData(pdb, lpBuffer, tiValue + sizeof(TAG), dwSizeRequired);
+    }
+    else
+    {
+        StringCbCopyNW(lpBuffer, dwInputSize, lpStringData, dwSizeRequired);
+    }
+
+    return ERROR_SUCCESS;
 }
 
 

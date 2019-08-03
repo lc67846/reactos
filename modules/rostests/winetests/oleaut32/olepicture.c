@@ -19,32 +19,30 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
-//#include <stdarg.h>
+#include <stdarg.h>
 #include <stdio.h>
-//#include <math.h>
-//#include <float.h>
+#include <math.h>
+#include <float.h>
 
 #define COBJMACROS
 #define CONST_VTABLE
+#ifndef __REACTOS__
 #define NONAMELESSUNION
+#endif
 
-#include <wine/test.h>
-//#include <windef.h>
-//#include <winbase.h>
-//#include <winuser.h>
+#include "wine/test.h"
+#include <windef.h>
+#include <winbase.h>
+#include <winuser.h>
 #include <wingdi.h>
 #include <winnls.h>
-//#include <winerror.h>
-//#include <winnt.h>
-#include <ole2.h>
-//#include <urlmon.h>
-//#include <wtypes.h>
+#include <winerror.h>
+#include <winnt.h>
+
+#include <urlmon.h>
+#include <wtypes.h>
 #include <olectl.h>
-//#include <objidl.h>
+#include <objidl.h>
 
 #define expect_eq(expr, value, type, format) { type ret = (expr); ok((value) == ret, #expr " expected " format " got " format "\n", value, ret); }
 
@@ -514,7 +512,7 @@ static void test_Invoke(void)
     /* DISPID_PICT_RENDER */
     hdc = create_render_dc();
 
-    for (i = 0; i < sizeof(args)/sizeof(args[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(args); i++)
         V_VT(&args[i]) = VT_I4;
 
     V_I4(&args[0]) = 0;
@@ -552,12 +550,61 @@ static void test_Invoke(void)
     IPictureDisp_Release(picdisp);
 }
 
+static HRESULT create_picture(short type, IPicture **pict)
+{
+    PICTDESC desc;
+
+    desc.cbSizeofstruct = sizeof(desc);
+    desc.picType = type;
+
+    switch (type)
+    {
+    case PICTYPE_UNINITIALIZED:
+        return OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (void **)pict);
+
+    case PICTYPE_NONE:
+        break;
+
+    case PICTYPE_BITMAP:
+        desc.bmp.hbitmap = CreateBitmap(1, 1, 1, 1, NULL);
+        desc.bmp.hpal = (HPALETTE)0xbeefdead;
+        break;
+
+    case PICTYPE_ICON:
+        desc.icon.hicon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
+        break;
+
+    case PICTYPE_METAFILE:
+    {
+        HDC hdc = CreateMetaFileA(NULL);
+        desc.wmf.hmeta = CloseMetaFile(hdc);
+        desc.wmf.xExt = 1;
+        desc.wmf.yExt = 1;
+        break;
+    }
+
+    case PICTYPE_ENHMETAFILE:
+    {
+        HDC hdc = CreateEnhMetaFileA(0, NULL, NULL, NULL);
+        desc.emf.hemf = CloseEnhMetaFile(hdc);
+        break;
+    }
+
+    default:
+        ok(0, "picture type %d is not supported\n", type);
+        return E_NOTIMPL;
+    }
+
+    return OleCreatePictureIndirect(&desc, &IID_IPicture, TRUE, (void **)pict);
+}
+
 static void test_OleCreatePictureIndirect(void)
 {
+    PICTDESC desc;
     OLE_HANDLE handle;
     IPicture *pict;
     HRESULT hr;
-    short type;
+    short type, i;
 
 if (0)
 {
@@ -565,20 +612,52 @@ if (0)
     OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, NULL);
 }
 
-    hr = OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (void**)&pict);
-    ok(hr == S_OK, "hr %08x\n", hr);
+    desc.cbSizeofstruct = sizeof(desc);
+    desc.picType = PICTYPE_UNINITIALIZED;
+    pict = (void *)0xdeadbeef;
+    hr = OleCreatePictureIndirect(&desc, &IID_IPicture, TRUE, (void **)&pict);
+    ok(hr == E_UNEXPECTED, "got %#x\n", hr);
+    ok(pict == NULL, "got %p\n", pict);
 
-    type = PICTYPE_NONE;
-    hr = IPicture_get_Type(pict, &type);
-    ok(hr == S_OK, "hr %08x\n", hr);
-    ok(type == PICTYPE_UNINITIALIZED, "type %d\n", type);
+    for (i = PICTYPE_UNINITIALIZED; i <= PICTYPE_ENHMETAFILE; i++)
+    {
+        hr = create_picture(i, &pict);
+        ok(hr == S_OK, "%d: got %#x\n", i, hr);
 
-    handle = 0xdeadbeef;
-    hr = IPicture_get_Handle(pict, &handle);
-    ok(hr == S_OK, "hr %08x\n", hr);
-    ok(handle == 0, "handle %08x\n", handle);
+        type = 0xdead;
+        hr = IPicture_get_Type(pict, &type);
+        ok(hr == S_OK, "%d: got %#x\n", i, hr);
+        ok(type == i, "%d: got %d\n", i, type);
 
-    IPicture_Release(pict);
+        handle = 0xdeadbeef;
+        hr = IPicture_get_Handle(pict, &handle);
+        ok(hr == S_OK, "%d: got %#x\n", i, hr);
+        if (type == PICTYPE_UNINITIALIZED || type == PICTYPE_NONE)
+            ok(handle == 0, "%d: got %#x\n", i, handle);
+        else
+            ok(handle != 0 && handle != 0xdeadbeef, "%d: got %#x\n", i, handle);
+
+        handle = 0xdeadbeef;
+        hr = IPicture_get_hPal(pict, &handle);
+        if (type == PICTYPE_BITMAP)
+        {
+            ok(hr == S_OK, "%d: got %#x\n", i, hr);
+            ok(handle == 0xbeefdead, "%d: got %#x\n", i, handle);
+        }
+        else
+        {
+            ok(hr == E_FAIL, "%d: got %#x\n", i, hr);
+            ok(handle == 0xdeadbeef || handle == 0 /* win64 */, "%d: got %#x\n", i, handle);
+        }
+
+        hr = IPicture_set_hPal(pict, HandleToUlong(GetStockObject(DEFAULT_PALETTE)));
+        if (type == PICTYPE_BITMAP)
+            ok(hr == S_OK, "%d: got %#x\n", i, hr);
+        else
+            ok(hr == E_FAIL, "%d: got %#x\n", i, hr);
+
+        IPicture_Release(pict);
+    }
 }
 
 static void test_apm(void)
@@ -692,7 +771,7 @@ static HRESULT picture_render(IPicture *iface, HDC hdc, LONG x, LONG y, LONG cx,
     IPicture_QueryInterface(iface, &IID_IDispatch, (void**)&disp);
 
     /* This is broken on 64 bits - accepted pointer argument type is still VT_I4 */
-    for (i = 0; i < sizeof(args)/sizeof(args[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(args); i++)
         V_VT(&args[i]) = VT_I4;
 
     /* pack arguments and call */
@@ -735,7 +814,8 @@ static void test_Render(void)
     HDC hdc = create_render_dc();
 
     /* test IPicture::Render return code on uninitialized picture */
-    OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (VOID**)&pic);
+    hres = OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (void **)&pic);
+    ok(hres == S_OK, "Failed to create a picture, hr %#x.\n", hres);
     hres = IPicture_get_Type(pic, &type);
     ok(hres == S_OK, "IPicture_get_Type does not return S_OK, but 0x%08x\n", hres);
     ok(type == PICTYPE_UNINITIALIZED, "Expected type = PICTYPE_UNINITIALIZED, got = %d\n", type);
@@ -761,14 +841,15 @@ static void test_Render(void)
 
     desc.cbSizeofstruct = sizeof(PICTDESC);
     desc.picType = PICTYPE_ICON;
-    desc.u.icon.hicon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
-    if(!desc.u.icon.hicon){
+    desc.icon.hicon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
+    if(!desc.icon.hicon){
         win_skip("LoadIcon failed. Skipping...\n");
         delete_render_dc(hdc);
         return;
     }
 
-    OleCreatePictureIndirect(&desc, &IID_IPicture, TRUE, (VOID**)&pic);
+    hres = OleCreatePictureIndirect(&desc, &IID_IPicture, TRUE, (void **)&pic);
+    ok(hres == S_OK, "Failed to create a picture, hr %#x.\n", hres);
     /* zero dimensions, PICTYPE_ICON */
     hres = picture_render(pic, hdc, 0, 0, 0, 0, 0, 0, 0, 0, NULL);
     ole_expect(hres, CTL_E_INVALIDPROPERTYVALUE);
@@ -794,7 +875,7 @@ static void test_Render(void)
     SetPixelV(hdc, 10, 10, 0x00223344);
     expected = GetPixel(hdc, 0, 0);
 
-    hres = picture_render(pic, hdc, 1, 1, 9, 9, 0, 0, pWidth, -pHeight, NULL);
+    hres = picture_render(pic, hdc, 1, 1, 9, 9, 0, pHeight, pWidth, -pHeight, NULL);
     ole_expect(hres, S_OK);
 
     if(hres != S_OK) goto done;
@@ -822,7 +903,8 @@ static void test_get_Attributes(void)
     short type;
     DWORD attr;
 
-    OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (VOID**)&pic);
+    hres = OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (void **)&pic);
+    ok(hres == S_OK, "Failed to create a picture, hr %#x.\n", hres);
     hres = IPicture_get_Type(pic, &type);
     ok(hres == S_OK, "IPicture_get_Type does not return S_OK, but 0x%08x\n", hres);
     ok(type == PICTYPE_UNINITIALIZED, "Expected type = PICTYPE_UNINITIALIZED, got = %d\n", type);
@@ -843,8 +925,8 @@ static void test_get_Handle(void)
     IPicture *pic;
     HRESULT hres;
 
-    OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (VOID**)&pic);
-
+    hres = OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (void **)&pic);
+    ok(hres == S_OK, "Failed to create a picture, hr %#x.\n", hres);
     hres = IPicture_get_Handle(pic, NULL);
     ole_expect(hres, E_POINTER);
 
@@ -856,7 +938,8 @@ static void test_get_Type(void)
     IPicture *pic;
     HRESULT hres;
 
-    OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (VOID**)&pic);
+    hres = OleCreatePictureIndirect(NULL, &IID_IPicture, TRUE, (void **)&pic);
+    ok(hres == S_OK, "Failed to create a picture, hr %#x.\n", hres);
 
     hres = IPicture_get_Type(pic, NULL);
     ole_expect(hres, E_POINTER);
@@ -894,7 +977,7 @@ static void test_OleLoadPicturePath(void)
         {emptyW, &IID_IPicture, NULL},
     };
 
-    for (i = 0; i < sizeof(invalid_parameters)/sizeof(invalid_parameters[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(invalid_parameters); i++)
     {
         pic = (IPicture *)0xdeadbeef;
         hres = OleLoadPicturePath(invalid_parameters[i].szURLorPath, NULL, 0, 0,
@@ -934,7 +1017,7 @@ static void test_OleLoadPicturePath(void)
     WriteFile(file, bmpimage, sizeof(bmpimage), &size, NULL);
     CloseHandle(file);
 
-    MultiByteToWideChar(CP_ACP, 0, temp_file, -1, temp_fileW + 8, sizeof(temp_fileW)/sizeof(WCHAR) - 8);
+    MultiByteToWideChar(CP_ACP, 0, temp_file, -1, temp_fileW + 8, ARRAY_SIZE(temp_fileW) - 8);
 
     /* Try a normal DOS path. */
     hres = OleLoadPicturePath(temp_fileW + 8, NULL, 0, 0, &IID_IPicture, (void **)&pic);
@@ -1065,14 +1148,14 @@ static void test_himetric(void)
 
     desc.cbSizeofstruct = sizeof(desc);
     desc.picType = PICTYPE_BITMAP;
-    desc.u.bmp.hpal = NULL;
+    desc.bmp.hpal = NULL;
 
     hdc = CreateCompatibleDC(0);
 
     bmp = CreateBitmap(1.9 * GetDeviceCaps(hdc, LOGPIXELSX),
                        1.9 * GetDeviceCaps(hdc, LOGPIXELSY), 1, 1, NULL);
 
-    desc.u.bmp.hbitmap = bmp;
+    desc.bmp.hbitmap = bmp;
 
     /* size in himetric units reported rounded up to next integer value */
     hr = OleCreatePictureIndirect(&desc, &IID_IPicture, FALSE, (void**)&pic);
@@ -1099,7 +1182,7 @@ static void test_himetric(void)
     ok(icon != NULL, "failed to create icon\n");
 
     desc.picType = PICTYPE_ICON;
-    desc.u.icon.hicon = icon;
+    desc.icon.hicon = icon;
 
     hr = OleCreatePictureIndirect(&desc, &IID_IPicture, FALSE, (void**)&pic);
     ok(hr == S_OK, "got 0x%08x\n", hr);
@@ -1138,8 +1221,8 @@ static void test_load_save_bmp(void)
 
     desc.cbSizeofstruct = sizeof(desc);
     desc.picType = PICTYPE_BITMAP;
-    desc.u.bmp.hpal = 0;
-    desc.u.bmp.hbitmap = CreateBitmap(1, 1, 1, 1, NULL);
+    desc.bmp.hpal = 0;
+    desc.bmp.hbitmap = CreateBitmap(1, 1, 1, 1, NULL);
     hr = OleCreatePictureIndirect(&desc, &IID_IPicture, FALSE, (void**)&pic);
     ok(hr == S_OK, "OleCreatePictureIndirect error %#x\n", hr);
 
@@ -1150,7 +1233,7 @@ static void test_load_save_bmp(void)
 
     hr = IPicture_get_Handle(pic, &handle);
     ok(hr == S_OK,"get_Handle error %#8x\n", hr);
-    ok(IntToPtr(handle) == desc.u.bmp.hbitmap, "get_Handle returned wrong handle %#x\n", handle);
+    ok(IntToPtr(handle) == desc.bmp.hbitmap, "get_Handle returned wrong handle %#x\n", handle);
 
     hmem = GlobalAlloc(GMEM_ZEROINIT, 4096);
     hr = CreateStreamOnHGlobal(hmem, FALSE, &dst_stream);
@@ -1190,7 +1273,7 @@ static void test_load_save_bmp(void)
     GlobalUnlock(hmem);
     GlobalFree(hmem);
 
-    DeleteObject(desc.u.bmp.hbitmap);
+    DeleteObject(desc.bmp.hbitmap);
     IPicture_Release(pic);
 }
 
@@ -1210,7 +1293,7 @@ static void test_load_save_icon(void)
 
     desc.cbSizeofstruct = sizeof(desc);
     desc.picType = PICTYPE_ICON;
-    desc.u.icon.hicon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
+    desc.icon.hicon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
     hr = OleCreatePictureIndirect(&desc, &IID_IPicture, FALSE, (void**)&pic);
     ok(hr == S_OK, "OleCreatePictureIndirect error %#x\n", hr);
 
@@ -1221,7 +1304,7 @@ static void test_load_save_icon(void)
 
     hr = IPicture_get_Handle(pic, &handle);
     ok(hr == S_OK,"get_Handle error %#8x\n", hr);
-    ok(IntToPtr(handle) == desc.u.icon.hicon, "get_Handle returned wrong handle %#x\n", handle);
+    ok(IntToPtr(handle) == desc.icon.hicon, "get_Handle returned wrong handle %#x\n", handle);
 
     hmem = GlobalAlloc(GMEM_ZEROINIT, 8192);
     hr = CreateStreamOnHGlobal(hmem, FALSE, &dst_stream);
@@ -1263,7 +1346,7 @@ todo_wine
     GlobalUnlock(hmem);
     GlobalFree(hmem);
 
-    DestroyIcon(desc.u.icon.hicon);
+    DestroyIcon(desc.icon.hicon);
     IPicture_Release(pic);
 }
 
@@ -1397,8 +1480,8 @@ static void test_load_save_emf(void)
 
     desc.cbSizeofstruct = sizeof(desc);
     desc.picType = PICTYPE_ENHMETAFILE;
-    desc.u.emf.hemf = CloseEnhMetaFile(hdc);
-    ok(desc.u.emf.hemf != 0, "CloseEnhMetaFile failed\n");
+    desc.emf.hemf = CloseEnhMetaFile(hdc);
+    ok(desc.emf.hemf != 0, "CloseEnhMetaFile failed\n");
     hr = OleCreatePictureIndirect(&desc, &IID_IPicture, FALSE, (void**)&pic);
     ok(hr == S_OK, "OleCreatePictureIndirect error %#x\n", hr);
 
@@ -1409,7 +1492,7 @@ static void test_load_save_emf(void)
 
     hr = IPicture_get_Handle(pic, &handle);
     ok(hr == S_OK,"get_Handle error %#8x\n", hr);
-    ok(IntToPtr(handle) == desc.u.emf.hemf, "get_Handle returned wrong handle %#x\n", handle);
+    ok(IntToPtr(handle) == desc.emf.hemf, "get_Handle returned wrong handle %#x\n", handle);
 
     hmem = GlobalAlloc(GMEM_MOVEABLE, 0);
     hr = CreateStreamOnHGlobal(hmem, FALSE, &dst_stream);
@@ -1455,7 +1538,7 @@ if (size)
     GlobalUnlock(hmem);
     GlobalFree(hmem);
 
-    DeleteEnhMetaFile(desc.u.emf.hemf);
+    DeleteEnhMetaFile(desc.emf.hemf);
     IPicture_Release(pic);
 }
 

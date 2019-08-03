@@ -16,15 +16,12 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-#include <windef.h>
-#include <winbase.h>
-#include <winuser.h>
-#include <winreg.h>
-#include <wincon.h>
-#include <shlwapi.h>
+#include <windows.h>
+#include <errno.h>
+#include <stdlib.h>
 #include <wine/unicode.h>
 #include <wine/debug.h>
+#include <wine/heap.h>
 #include "reg.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(reg);
@@ -81,9 +78,11 @@ type_rels[] =
     {REG_MULTI_SZ, type_multi_sz},
 };
 
+static const WCHAR newlineW[] = {'\n',0};
+
 void *heap_xalloc(size_t size)
 {
-    void *buf = HeapAlloc(GetProcessHeap(), 0, size);
+    void *buf = heap_alloc(size);
     if (!buf)
     {
         ERR("Out of memory!\n");
@@ -94,12 +93,7 @@ void *heap_xalloc(size_t size)
 
 void *heap_xrealloc(void *buf, size_t size)
 {
-    void *new_buf;
-
-    if (buf)
-        new_buf = HeapReAlloc(GetProcessHeap(), 0, buf, size);
-    else
-        new_buf = HeapAlloc(GetProcessHeap(), 0, size);
+    void *new_buf = heap_realloc(buf, size);
 
     if (!new_buf)
     {
@@ -110,12 +104,7 @@ void *heap_xrealloc(void *buf, size_t size)
     return new_buf;
 }
 
-BOOL heap_free(void *buf)
-{
-    return HeapFree(GetProcessHeap(), 0, buf);
-}
-
-static void output_writeconsole(const WCHAR *str, DWORD wlen)
+void output_writeconsole(const WCHAR *str, DWORD wlen)
 {
     DWORD count, ret;
 
@@ -155,7 +144,7 @@ static void output_formatstring(const WCHAR *fmt, __ms_va_list va_args)
     LocalFree(str);
 }
 
-void __cdecl output_message(unsigned int id, ...)
+void WINAPIV output_message(unsigned int id, ...)
 {
     WCHAR fmt[1024];
     __ms_va_list va_args;
@@ -170,7 +159,7 @@ void __cdecl output_message(unsigned int id, ...)
     __ms_va_end(va_args);
 }
 
-static void __cdecl output_string(const WCHAR *fmt, ...)
+static void WINAPIV output_string(const WCHAR *fmt, ...)
 {
     __ms_va_list va_args;
 
@@ -180,7 +169,7 @@ static void __cdecl output_string(const WCHAR *fmt, ...)
 }
 
 /* ask_confirm() adapted from programs/cmd/builtins.c */
-static BOOL ask_confirm(unsigned int msgid, WCHAR *reg_info)
+BOOL ask_confirm(unsigned int msgid, WCHAR *reg_info)
 {
     HMODULE hmod;
     WCHAR Ybuffer[4];
@@ -614,7 +603,6 @@ static const WCHAR *reg_type_to_wchar(DWORD type)
 static void output_value(const WCHAR *value_name, DWORD type, BYTE *data, DWORD data_size)
 {
     static const WCHAR fmt[] = {' ',' ',' ',' ','%','1',0};
-    static const WCHAR newlineW[] = {'\n',0};
     WCHAR defval[32];
     WCHAR *reg_data;
 
@@ -641,7 +629,7 @@ static void output_value(const WCHAR *value_name, DWORD type, BYTE *data, DWORD 
     output_string(newlineW);
 }
 
-static WCHAR *build_subkey_path(WCHAR *path, DWORD path_len, WCHAR *subkey_name, DWORD subkey_len)
+WCHAR *build_subkey_path(WCHAR *path, DWORD path_len, WCHAR *subkey_name, DWORD subkey_len)
 {
     WCHAR *subkey_path;
     static const WCHAR fmt[] = {'%','s','\\','%','s',0};
@@ -654,8 +642,6 @@ static WCHAR *build_subkey_path(WCHAR *path, DWORD path_len, WCHAR *subkey_name,
 
 static unsigned int num_values_found = 0;
 
-#define MAX_SUBKEY_LEN   257
-
 static int query_value(HKEY key, WCHAR *value_name, WCHAR *path, BOOL recurse)
 {
     LONG rc;
@@ -664,7 +650,6 @@ static int query_value(HKEY key, WCHAR *value_name, WCHAR *path, BOOL recurse)
     DWORD type, path_len, i;
     BYTE *data;
     WCHAR fmt[] = {'%','1','\n',0};
-    WCHAR newlineW[] = {'\n',0};
     WCHAR *subkey_name, *subkey_path;
     HKEY subkey;
 
@@ -744,7 +729,6 @@ static int query_all(HKEY key, WCHAR *path, BOOL recurse)
     WCHAR fmt[] = {'%','1','\n',0};
     WCHAR fmt_path[] = {'%','1','\\','%','2','\n',0};
     WCHAR *value_name, *subkey_name, *subkey_path;
-    WCHAR newlineW[] = {'\n',0};
     BYTE *data;
     HKEY subkey;
 
@@ -825,7 +809,6 @@ static int reg_query(HKEY root, WCHAR *path, WCHAR *key_name, WCHAR *value_name,
                      BOOL value_empty, BOOL recurse)
 {
     HKEY key;
-    WCHAR newlineW[] = {'\n',0};
     int ret;
 
     if (RegOpenKeyExW(root, path, 0, KEY_READ, &key) != ERROR_SUCCESS)
@@ -877,32 +860,41 @@ static WCHAR *get_long_key(HKEY root, WCHAR *path)
     return long_key;
 }
 
-static BOOL parse_registry_key(const WCHAR *key, HKEY *root, WCHAR **path, WCHAR **long_key)
+BOOL parse_registry_key(const WCHAR *key, HKEY *root, WCHAR **path, WCHAR **long_key)
 {
     if (!sane_path(key))
         return FALSE;
 
+    *path = strchrW(key, '\\');
+    if (*path) (*path)++;
+
     *root = path_get_rootkey(key);
     if (!*root)
     {
-        output_message(STRING_INVALID_KEY);
+        if (*path) *(*path - 1) = 0;
+        output_message(STRING_INVALID_SYSTEM_KEY, key);
         return FALSE;
     }
-
-    *path = strchrW(key, '\\');
-    if (*path) (*path)++;
 
     *long_key = get_long_key(*root, *path);
 
     return TRUE;
 }
 
-static BOOL is_help_switch(const WCHAR *s)
+static BOOL is_switch(const WCHAR *s, const WCHAR c)
 {
     if (strlenW(s) > 2)
         return FALSE;
 
-    if ((s[0] == '/' || s[0] == '-') && (s[1] == 'h' || s[1] == '?'))
+    if ((s[0] == '/' || s[0] == '-') && (s[1] == c || s[1] == toupperW(c)))
+        return TRUE;
+
+    return FALSE;
+}
+
+static BOOL is_help_switch(const WCHAR *s)
+{
+    if (is_switch(s, '?') || is_switch(s, 'h'))
         return TRUE;
 
     return FALSE;
@@ -912,6 +904,7 @@ enum operations {
     REG_ADD,
     REG_DELETE,
     REG_IMPORT,
+    REG_EXPORT,
     REG_QUERY,
     REG_INVALID
 };
@@ -923,6 +916,7 @@ static enum operations get_operation(const WCHAR *str, int *op_help)
     static const WCHAR add[] = {'a','d','d',0};
     static const WCHAR delete[] = {'d','e','l','e','t','e',0};
     static const WCHAR import[] = {'i','m','p','o','r','t',0};
+    static const WCHAR export[] = {'e','x','p','o','r','t',0};
     static const WCHAR query[] = {'q','u','e','r','y',0};
 
     static const struct op_info op_array[] =
@@ -930,6 +924,7 @@ static enum operations get_operation(const WCHAR *str, int *op_help)
         { add,     REG_ADD,     STRING_ADD_USAGE },
         { delete,  REG_DELETE,  STRING_DELETE_USAGE },
         { import,  REG_IMPORT,  STRING_IMPORT_USAGE },
+        { export,  REG_EXPORT,  STRING_EXPORT_USAGE },
         { query,   REG_QUERY,   STRING_QUERY_USAGE },
         { NULL,    -1,          0 }
     };
@@ -997,6 +992,9 @@ int wmain(int argc, WCHAR *argvW[])
 
     if (op == REG_IMPORT)
         return reg_import(argvW[2]);
+
+    if (op == REG_EXPORT)
+        return reg_export(argc, argvW);
 
     if (!parse_registry_key(argvW[2], &root, &path, &key_name))
         return 1;

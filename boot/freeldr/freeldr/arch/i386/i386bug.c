@@ -1,7 +1,6 @@
 
 #include <freeldr.h>
 
-#define NDEBUG
 #include <debug.h>
 
 typedef struct _FRAME
@@ -10,7 +9,7 @@ typedef struct _FRAME
     void *Address;
 } FRAME;
 
-char *i386ExceptionDescriptionText[] =
+static const char *i386ExceptionDescriptionText[] =
 {
     "Exception 00: DIVIDE BY ZERO\n\n",
     "Exception 01: DEBUG EXCEPTION\n\n",

@@ -1162,7 +1162,7 @@ SetPolyFillMode(
         if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
         {
             NtGdiFlush(); // Sync up pdcattr from Kernel space.
-            pdcattr->ulDirty_ &= ~(DC_MODE_DIRTY|DC_FONTTEXT_DIRTY);
+            pdcattr->ulDirty_ &= ~DC_MODE_DIRTY;
         }
     }
 
@@ -1230,7 +1230,7 @@ SetGraphicsMode(
         if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
         {
             NtGdiFlush(); // Sync up pdcattr from Kernel space.
-            pdcattr->ulDirty_ &= ~(DC_MODE_DIRTY|DC_FONTTEXT_DIRTY);
+            pdcattr->ulDirty_ &= ~DC_MODE_DIRTY;
         }
     }
 
@@ -1509,7 +1509,7 @@ SelectObject(
     switch (GDI_HANDLE_GET_TYPE(hobj))
     {
         case GDILoObjType_LO_REGION_TYPE:
-            return (HGDIOBJ)ExtSelectClipRgn(hdc, hobj, RGN_COPY);
+            return (HGDIOBJ)UlongToHandle(ExtSelectClipRgn(hdc, hobj, RGN_COPY));
 
         case GDILoObjType_LO_BITMAP_TYPE:
         case GDILoObjType_LO_DIBSECTION_TYPE:

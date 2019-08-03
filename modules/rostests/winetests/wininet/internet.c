@@ -20,16 +20,15 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-//#include <string.h>
+#include <string.h>
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "wininet.h"
+#include "winerror.h"
+#include "winreg.h"
 
-#include <windef.h>
-#include <winbase.h>
-#include <winuser.h>
-#include <wininet.h>
-//#include "winerror.h"
-#include <winreg.h>
-
-#include <wine/test.h>
+#include "wine/test.h"
 
 static BOOL (WINAPI *pCreateUrlCacheContainerA)(DWORD, DWORD, DWORD, DWORD,
                                                 DWORD, DWORD, DWORD, DWORD);
@@ -566,7 +565,7 @@ static void test_cookie_attrs(void)
     DWORD size, state;
     BOOL ret;
 
-    if(!GetProcAddress(GetModuleHandleA("wininet.dll"), "InternetGetSecurityInfoByURLA")) {
+    if(!GetProcAddress(GetModuleHandleA("wininet.dll"), "DeleteWpadCacheForNetworks")) {
         win_skip("Skipping cookie attributes tests. Too old IE.\n");
         return;
     }
@@ -1169,6 +1168,9 @@ static void test_InternetSetOption(void)
     ret = InternetSetOptionA(req, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
     ok(ret == TRUE, "InternetSetOption should've succeeded\n");
 
+    ret = InternetSetOptionA(con, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
+    ok(ret == TRUE, "InternetSetOption should've succeeded\n");
+
     ret = InternetSetOptionA(ses, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
     ok(ret == TRUE, "InternetSetOption should've succeeded\n");
 
@@ -1177,8 +1179,13 @@ static void test_InternetSetOption(void)
 
     SetLastError(0xdeadbeef);
     ret = InternetSetOptionA(req, INTERNET_OPTION_REFRESH, NULL, 0);
-    todo_wine ok(ret == FALSE, "InternetSetOption should've failed\n");
-    todo_wine ok(GetLastError() == ERROR_INTERNET_INCORRECT_HANDLE_TYPE, "GetLastError() = %x\n", GetLastError());
+    ok(ret == FALSE, "InternetSetOption should've failed\n");
+    ok(GetLastError() == ERROR_INTERNET_INCORRECT_HANDLE_TYPE, "GetLastError() = %u\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    ret = InternetSetOptionA(con, INTERNET_OPTION_REFRESH, NULL, 0);
+    ok(ret == FALSE, "InternetSetOption should've failed\n");
+    ok(GetLastError() == ERROR_INTERNET_INCORRECT_HANDLE_TYPE, "GetLastError() = %u\n", GetLastError());
 
     ret = InternetCloseHandle(req);
     ok(ret == TRUE, "InternetCloseHandle failed: 0x%08x\n", GetLastError());
@@ -1812,6 +1819,65 @@ todo_wine
     ok(!buffer[0], "Expected 0 bytes, got %u\n", lstrlenW(buffer));
 }
 
+static void test_format_message(HMODULE hdll)
+{
+    DWORD ret;
+    CHAR out[0x100];
+
+    /* These messages come from wininet and not the system. */
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM , NULL, ERROR_INTERNET_TIMEOUT,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret == 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_TIMEOUT,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_INTERNAL_ERROR,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_INVALID_URL,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_UNRECOGNIZED_SCHEME,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_NAME_NOT_RESOLVED,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_INVALID_OPERATION,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0 || broken(!ret) /* XP, w2k3 */, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_OPERATION_CANCELLED,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_ITEM_NOT_FOUND,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_CANNOT_CONNECT,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_CONNECTION_ABORTED,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_SEC_CERT_DATE_INVALID,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+
+    ret = FormatMessageA(FORMAT_MESSAGE_FROM_HMODULE, hdll, ERROR_INTERNET_SEC_CERT_CN_INVALID,
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), out, sizeof(out), NULL);
+    ok(ret != 0, "FormatMessageA returned %d\n", ret);
+}
+
 /* ############################### */
 
 START_TEST(internet)
@@ -1878,4 +1944,5 @@ START_TEST(internet)
 
     test_InternetSetOption();
     test_end_browser_session();
+    test_format_message(hdll);
 }

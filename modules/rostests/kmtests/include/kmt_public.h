@@ -1,8 +1,10 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite public declarations
- * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ * PROJECT:     ReactOS kernel-mode tests
+ * LICENSE:     LGPL-2.1+ (https://spdx.org/licenses/LGPL-2.1+)
+ * PURPOSE:     Kernel-Mode Test Suite public declarations
+ * COPYRIGHT:   Copyright 2011-2018 Thomas Faber <thomas.faber@reactos.org>
+ *              Copyright 2013 Nikolay Borisov <nib9@aber.ac.uk>
+ *              Copyright 2017 Ged Murphy <gedmurphy@reactos.org>
  */
 
 #ifndef _KMTEST_PUBLIC_H_
@@ -22,6 +24,11 @@
 
 #define IOCTL_KMTEST_USERMODE_AWAIT_REQ \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_READ_DATA)
+
+
+#define KMTFLT_GET_TESTS    0x800
+#define KMTFLT_RUN_TEST     0x801
+
 
 #define KMTEST_DEVICE_NAME L"Kmtest"
 #define KMTEST_DEVICE_DRIVER_PATH L"\\Device\\" KMTEST_DEVICE_NAME

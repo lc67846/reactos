@@ -26,14 +26,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-/* INCLUDES *******************************************************************/
-
 #include <user32.h>
 
-#include <wine/debug.h>
 WINE_DEFAULT_DEBUG_CHANNEL(scrollbar);
-
-/* GLOBAL VARIABLES ***********************************************************/
 
 /* Definitions for scrollbar hit testing [See SCROLLBARINFO in MSDN] */
 #define SCROLL_NOWHERE		0x00    /* Outside the scroll bar */
@@ -105,7 +100,7 @@ IntGetSBData(PWND pwnd, INT Bar)
        case SB_VERT:
          return &pSBInfo->Vert;
        case SB_CTL:
-         if ( pwnd->cbwndExtra != (sizeof(SBWND)-sizeof(WND)) )
+         if ( pwnd->cbwndExtra < (sizeof(SBWND)-sizeof(WND)) )
          {
             ERR("IntGetSBData Wrong Extra bytes for CTL Scrollbar!\n");
             return 0;
@@ -1191,7 +1186,7 @@ ScrollBarWndProc_common(WNDPROC DefWindowProc, HWND Wnd, UINT Msg, WPARAM wParam
      if (!pWnd->fnid)
      {
         TRACE("ScrollBar CTL size %d\n", (sizeof(SBWND)-sizeof(WND)));
-        if ( pWnd->cbwndExtra != (sizeof(SBWND)-sizeof(WND)) )
+        if ( pWnd->cbwndExtra < (sizeof(SBWND)-sizeof(WND)) )
         {
            ERR("Wrong Extra bytes for Scrollbar!\n");
            return 0;
@@ -1464,6 +1459,7 @@ EnableScrollBar( HWND hwnd, UINT nBar, UINT flags )
    }
    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
    {
+       ERR("Got exception in hooked EnableScrollBar!\n");
    }
    _SEH2_END;
 
@@ -1538,6 +1534,7 @@ GetScrollInfo(HWND Wnd, INT SBType, LPSCROLLINFO Info)
    }
    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
    {
+       ERR("Got exception in hooked GetScrollInfo!\n");
    }
    _SEH2_END;
 
@@ -1661,6 +1658,7 @@ SetScrollInfo(HWND Wnd, int SBType, LPCSCROLLINFO Info, BOOL bRedraw)
    }
    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
    {
+       ERR("Got exception in hooked SetScrollInfo!\n");
    }
    _SEH2_END;
 

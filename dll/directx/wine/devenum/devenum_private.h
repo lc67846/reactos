@@ -22,35 +22,28 @@
  * - Private file where devenum globals are declared
  */
 
-#ifndef __WINE_DEVENUM_H
-#define __WINE_DEVENUM_H
+#pragma once
 
 #ifndef RC_INVOKED
 #include <stdarg.h>
 #endif
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
+#include "windef.h"
+#include "winbase.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "winreg.h"
+#include "winerror.h"
 
 #define COBJMACROS
-#define NONAMELESSSTRUCT
-#define NONAMELESSUNION
 
-#include <windef.h>
-#include <winbase.h>
-#include <wingdi.h>
-#include <winreg.h>
-#include <objbase.h>
-#include <oleidl.h>
-#include <strmif.h>
-#include <uuids.h>
-
-#include <wine/debug.h>
-WINE_DEFAULT_DEBUG_CHANNEL(devenum);
+#include "ole2.h"
+#include "strmif.h"
+#include "olectl.h"
+#include "uuids.h"
 
 #ifndef RC_INVOKED
-#include <wine/unicode.h>
+#include "wine/unicode.h"
 #endif
 
 /**********************************************************************
@@ -69,30 +62,40 @@ typedef struct
     IClassFactory IClassFactory_iface;
 } ClassFactoryImpl;
 
+enum device_type
+{
+    DEVICE_FILTER,
+    DEVICE_CODEC,
+};
+
 typedef struct
 {
     IMoniker IMoniker_iface;
     LONG ref;
-    HKEY hkey;
+    CLSID class;
+    BOOL has_class;
+    enum device_type type;
+    WCHAR *name;
 } MediaCatMoniker;
 
 MediaCatMoniker * DEVENUM_IMediaCatMoniker_Construct(void) DECLSPEC_HIDDEN;
-HRESULT DEVENUM_IEnumMoniker_Construct(HKEY hkey, HKEY special_hkey, IEnumMoniker ** ppEnumMoniker) DECLSPEC_HIDDEN;
+HRESULT create_EnumMoniker(REFCLSID class, IEnumMoniker **enum_mon) DECLSPEC_HIDDEN;
 
 extern ClassFactoryImpl DEVENUM_ClassFactory DECLSPEC_HIDDEN;
 extern ICreateDevEnum DEVENUM_CreateDevEnum DECLSPEC_HIDDEN;
 extern IParseDisplayName DEVENUM_ParseDisplayName DECLSPEC_HIDDEN;
 
 /**********************************************************************
- * Private helper function to get AM filter category key location
- */
-HRESULT DEVENUM_GetCategoryKey(REFCLSID clsidDeviceClass, HKEY *pBaseKey, WCHAR *wszRegKeyName, UINT maxLen) DECLSPEC_HIDDEN;
-
-/**********************************************************************
  * Global string constant declarations
  */
-extern const WCHAR clsid_keyname[6] DECLSPEC_HIDDEN;
-extern const WCHAR wszInstanceKeyName[] DECLSPEC_HIDDEN;
-#define CLSID_STR_LEN (sizeof(clsid_keyname) / sizeof(WCHAR))
 
-#endif /* __WINE_DEVENUM_H */
+static const WCHAR backslashW[] = {'\\',0};
+static const WCHAR clsidW[] = {'C','L','S','I','D','\\',0};
+static const WCHAR instanceW[] = {'\\','I','n','s','t','a','n','c','e',0};
+static const WCHAR wszActiveMovieKey[] = {'S','o','f','t','w','a','r','e','\\',
+                                          'M','i','c','r','o','s','o','f','t','\\',
+                                          'A','c','t','i','v','e','M','o','v','i','e','\\',
+                                          'd','e','v','e','n','u','m','\\',0};
+static const WCHAR deviceW[] = {'@','d','e','v','i','c','e',':',0};
+
+extern const WCHAR clsid_keyname[6] DECLSPEC_HIDDEN;

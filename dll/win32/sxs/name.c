@@ -18,7 +18,20 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdarg.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "ole2.h"
+#include "winsxs.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
 #include "sxs_private.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(sxs);
 
 struct name
 {
@@ -316,25 +329,25 @@ static HRESULT parse_displayname( struct name *name, const WCHAR *displayname )
         while (*q && *q != '=') q++;
         if (!*q) return E_INVALIDARG;
         len = q - p;
-        if (len == sizeof(archW)/sizeof(archW[0]) - 1 && !memcmp( p, archW, len * sizeof(WCHAR) ))
+        if (len == ARRAY_SIZE(archW) - 1 && !memcmp( p, archW, len * sizeof(WCHAR) ))
         {
             p = ++q;
             if (!(name->arch = parse_value( p, &len ))) return E_INVALIDARG;
             q += len;
         }
-        else if (len == sizeof(tokenW)/sizeof(tokenW[0]) - 1 && !memcmp( p, tokenW, len * sizeof(WCHAR) ))
+        else if (len == ARRAY_SIZE(tokenW) - 1 && !memcmp( p, tokenW, len * sizeof(WCHAR) ))
         {
             p = ++q;
             if (!(name->token = parse_value( p, &len ))) return E_INVALIDARG;
             q += len;
         }
-        else if (len == sizeof(typeW)/sizeof(typeW[0]) - 1 && !memcmp( p, typeW, len * sizeof(WCHAR) ))
+        else if (len == ARRAY_SIZE(typeW) - 1 && !memcmp( p, typeW, len * sizeof(WCHAR) ))
         {
             p = ++q;
             if (!(name->type = parse_value( p, &len ))) return E_INVALIDARG;
             q += len;
         }
-        else if (len == sizeof(versionW)/sizeof(versionW[0]) - 1 && !memcmp( p, versionW, len * sizeof(WCHAR) ))
+        else if (len == ARRAY_SIZE(versionW) - 1 && !memcmp( p, versionW, len * sizeof(WCHAR) ))
         {
             p = ++q;
             if (!(name->version = parse_value( p, &len ))) return E_INVALIDARG;

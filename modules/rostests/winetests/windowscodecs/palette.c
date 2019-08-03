@@ -20,17 +20,12 @@
 #include <stdarg.h>
 #include <assert.h>
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #define COBJMACROS
 
-#include <windef.h>
-#include <winbase.h>
-#include <objbase.h>
-#include <wincodec.h>
-#include <wine/test.h>
+#include "windef.h"
+#include "objbase.h"
+#include "wincodec.h"
+#include "wine/test.h"
 
 static IWICImagingFactory *factory;
 
@@ -467,7 +462,7 @@ static void test_predefined_palette(void)
     ok(hr == E_INVALIDARG, "expected E_INVALIDARG, got %#x\n", hr);
     IWICPalette_Release(palette);
 
-    for (i = 0; i < sizeof(td)/sizeof(td[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(td); i++)
     {
         hr = IWICImagingFactory_CreatePalette(factory, &palette);
         ok(hr == S_OK, "%u: CreatePalette error %#x\n", i, hr);

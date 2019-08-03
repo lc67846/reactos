@@ -5,8 +5,10 @@
 
 #ifdef _PAE_
 #define _MI_PAGING_LEVELS 3
+#define _MI_HAS_NO_EXECUTE 1
 #else
 #define _MI_PAGING_LEVELS 2
+#define _MI_NO_EXECUTE 0
 #endif
 
 /* Memory layout base addresses */
@@ -20,9 +22,11 @@
 #define HYPER_SPACE_END                                0xC0BFFFFF
 #endif
 #define MI_SYSTEM_CACHE_WS_START                (PVOID)0xC0C00000
+#define MI_SYSTEM_CACHE_START                   (PVOID)0xC1000000
 #define MI_PAGED_POOL_START                     (PVOID)0xE1000000
 #define MI_NONPAGED_POOL_END                    (PVOID)0xFFBE0000
 #define MI_DEBUG_MAPPING                        (PVOID)0xFFBFF000
+#define MI_HIGHEST_SYSTEM_ADDRESS               (PVOID)0xFFFFFFFF
 
 /* FIXME: These are different for PAE */
 #define PTE_BASE    0xC0000000
@@ -102,6 +106,11 @@
 #define MI_IS_PAGE_WRITEABLE(x)    ((x)->u.Hard.Writable == 1)
 #endif
 #define MI_IS_PAGE_COPY_ON_WRITE(x)((x)->u.Hard.CopyOnWrite == 1)
+#ifdef _PAE_
+#define MI_IS_PAGE_EXECUTABLE(x)   ((x)->u.Hard.NoExecute == 0)
+#else
+#define MI_IS_PAGE_EXECUTABLE(x)   TRUE
+#endif
 #define MI_IS_PAGE_DIRTY(x)        ((x)->u.Hard.Dirty == 1)
 #define MI_MAKE_OWNER_PAGE(x)      ((x)->u.Hard.Owner = 1)
 #if !defined(CONFIG_SMP)
@@ -109,6 +118,12 @@
 #else
 #define MI_MAKE_WRITE_PAGE(x)      ((x)->u.Hard.Writable = 1)
 #endif
+
+
+/* Macros to identify the page fault reason from the error code */
+#define MI_IS_NOT_PRESENT_FAULT(FaultCode) !BooleanFlagOn(FaultCode, 0x1)
+#define MI_IS_WRITE_ACCESS(FaultCode) BooleanFlagOn(FaultCode, 0x2)
+#define MI_IS_INSTRUCTION_FETCH(FaultCode) BooleanFlagOn(FaultCode, 0x10)
 
 /* On x86, these two are the same */
 #define MI_WRITE_VALID_PPE MI_WRITE_VALID_PTE

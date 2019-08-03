@@ -93,7 +93,20 @@ KdpGetMemorySizeInMBs(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         }
     }
 
-    return NumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
+    /* Round size up. Assumed to better match actual physical RAM size */
+    return ALIGN_UP_BY(NumberOfPhysicalPages * PAGE_SIZE, 1024 * 1024) / (1024 * 1024);
+}
+
+/* See also: kd64\kdinit.c */
+static VOID
+INIT_FUNCTION
+KdpPrintBanner(IN SIZE_T MemSizeMBs)
+{
+    DPRINT1("-----------------------------------------------------\n");
+    DPRINT1("ReactOS " KERNEL_VERSION_STR " (Build " KERNEL_VERSION_BUILD_STR ") (Commit " KERNEL_VERSION_COMMIT_HASH ")\n");
+    DPRINT1("%u System Processor [%u MB Memory]\n", KeNumberProcessors, MemSizeMBs);
+    DPRINT1("Command Line: %s\n", KeLoaderBlock->LoadOptions);
+    DPRINT1("ARC Paths: %s %s %s %s\n", KeLoaderBlock->ArcBootDeviceName, KeLoaderBlock->NtHalPathName, KeLoaderBlock->ArcHalDeviceName, KeLoaderBlock->NtBootPathName);
 }
 
 /* FILE DEBUG LOG FUNCTIONS **************************************************/
@@ -243,15 +256,9 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
         KeInitializeSpinLock(&KdpDebugLogSpinLock);
 
         /* Display separator + ReactOS version at start of the debug log */
-        DPRINT1("-----------------------------------------------------\n");
-        DPRINT1("ReactOS "KERNEL_VERSION_STR" (Build "KERNEL_VERSION_BUILD_STR")\n");
-        MemSizeMBs = MmNumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
-        DPRINT1("%u System Processor [%u MB Memory]\n", KeNumberProcessors, MemSizeMBs);
-        DPRINT1("Command Line: %s\n", KeLoaderBlock->LoadOptions);
-        DPRINT1("ARC Paths: %s %s %s %s\n", KeLoaderBlock->ArcBootDeviceName,
-                                            KeLoaderBlock->NtHalPathName,
-                                            KeLoaderBlock->ArcHalDeviceName,
-                                            KeLoaderBlock->NtBootPathName);
+        /* Round size up. Assumed to better match actual physical RAM size */
+        MemSizeMBs = ALIGN_UP_BY(MmNumberOfPhysicalPages * PAGE_SIZE, 1024 * 1024) / (1024 * 1024);
+        KdpPrintBanner(MemSizeMBs);
     }
     else if (BootPhase == 2)
     {
@@ -335,7 +342,7 @@ KdpSerialDebugPrint(LPSTR Message,
     }
 
     /* Output the message */
-    while (*pch != 0)
+    while (pch < Message + Length && *pch != '\0')
     {
         if (*pch == '\n')
         {
@@ -381,15 +388,8 @@ KdpSerialInit(PKD_DISPATCH_TABLE DispatchTable,
         InsertTailList(&KdProviders, &DispatchTable->KdProvidersList);
 
         /* Display separator + ReactOS version at start of the debug log */
-        DPRINT1("-----------------------------------------------------\n");
-        DPRINT1("ReactOS "KERNEL_VERSION_STR" (Build "KERNEL_VERSION_BUILD_STR")\n");
         MemSizeMBs = KdpGetMemorySizeInMBs(KeLoaderBlock);
-        DPRINT1("%u System Processor [%u MB Memory]\n", KeNumberProcessors, MemSizeMBs);
-        DPRINT1("Command Line: %s\n", KeLoaderBlock->LoadOptions);
-        DPRINT1("ARC Paths: %s %s %s %s\n", KeLoaderBlock->ArcBootDeviceName,
-                                            KeLoaderBlock->NtHalPathName,
-                                            KeLoaderBlock->ArcHalDeviceName,
-                                            KeLoaderBlock->NtBootPathName);
+        KdpPrintBanner(MemSizeMBs);
     }
     else if (BootPhase == 2)
     {
@@ -414,7 +414,7 @@ KdpScreenPrint(LPSTR Message,
     KIRQL OldIrql;
     PCHAR pch = (PCHAR) Message;
 
-    while (*pch)
+    while (pch < Message + Length && *pch)
     {
         if(*pch == '\b')
         {
@@ -556,15 +556,9 @@ KdpScreenInit(PKD_DISPATCH_TABLE DispatchTable,
         KeInitializeSpinLock(&KdpDmesgLogSpinLock);
 
         /* Display separator + ReactOS version at start of the debug log */
-        DPRINT1("-----------------------------------------------------\n");
-        DPRINT1("ReactOS "KERNEL_VERSION_STR" (Build "KERNEL_VERSION_BUILD_STR")\n");
-        MemSizeMBs = MmNumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
-        DPRINT1("%u System Processor [%u MB Memory]\n", KeNumberProcessors, MemSizeMBs);
-        DPRINT1("Command Line: %s\n", KeLoaderBlock->LoadOptions);
-        DPRINT1("ARC Paths: %s %s %s %s\n", KeLoaderBlock->ArcBootDeviceName,
-                                            KeLoaderBlock->NtHalPathName,
-                                            KeLoaderBlock->ArcHalDeviceName,
-                                            KeLoaderBlock->NtBootPathName);
+        /* Round size up. Assumed to better match actual physical RAM size */
+        MemSizeMBs = ALIGN_UP_BY(MmNumberOfPhysicalPages * PAGE_SIZE, 1024 * 1024) / (1024 * 1024);
+        KdpPrintBanner(MemSizeMBs);
     }
     else if (BootPhase == 2)
     {
@@ -576,13 +570,38 @@ KdpScreenInit(PKD_DISPATCH_TABLE DispatchTable,
 
 ULONG
 NTAPI
-KdpPrintString(LPSTR String,
-               ULONG Length)
+KdpPrintString(
+    _In_reads_bytes_(Length) PCHAR UnsafeString,
+    _In_ ULONG Length,
+    _In_ KPROCESSOR_MODE PreviousMode)
 {
     PLIST_ENTRY CurrentEntry;
     PKD_DISPATCH_TABLE CurrentTable;
+    PCHAR String;
+    CHAR StringBuffer[512];
 
     if (!KdpDebugMode.Value) return 0;
+
+    Length = min(Length, sizeof(StringBuffer));
+
+    if (PreviousMode != KernelMode)
+    {
+        _SEH2_TRY
+        {
+            ProbeForRead(UnsafeString, Length, 1);
+            String = StringBuffer;
+            RtlCopyMemory(String, UnsafeString, Length);
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+        _SEH2_END;
+    }
+    else
+    {
+        String = UnsafeString;
+    }
 
     /* Call the registered handlers */
     CurrentEntry = KdProviders.Flink;

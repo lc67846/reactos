@@ -18,19 +18,43 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "editor.h"
+#include "config.h"
+#include "wine/port.h"
 
+#define COBJMACROS
+
+#include "editor.h"
+#include "ole2.h"
+#include "oleauto.h"
+#include "richole.h"
+#include "tom.h"
+#include "imm.h"
+#include "textserv.h"
+#include "wine/debug.h"
+#include "editstr.h"
 
 #ifdef __i386__  /* thiscall functions are i386-specific */
 
-#define THISCALL(func) __thiscall_ ## func
+#define THISCALL(func) (void *) __thiscall_ ## func
+#ifdef _MSC_VER
 #define DEFINE_THISCALL_WRAPPER(func,args) \
-   extern typeof(func) THISCALL(func); \
-   __ASM_STDCALL_FUNC(__thiscall_ ## func, args, \
+    __declspec(naked) HRESULT __thiscall_##func(void) \
+    { \
+        __asm pop eax \
+        __asm push ecx \
+        __asm push eax \
+        __asm jmp func \
+    }
+#else /* _MSC_VER */
+#define DEFINE_THISCALL_WRAPPER(func,args) \
+   extern HRESULT __thiscall_ ## func(void); \
+   __ASM_GLOBAL_FUNC(__thiscall_ ## func, \
                    "popl %eax\n\t" \
                    "pushl %ecx\n\t" \
                    "pushl %eax\n\t" \
                    "jmp " __ASM_NAME(#func) __ASM_STDCALL(args) )
+#endif /* _MSC_VER */
+
 #else /* __i386__ */
 
 #define THISCALL(func) func
@@ -66,12 +90,13 @@ static HRESULT WINAPI ITextServicesImpl_QueryInterface(IUnknown *iface, REFIID r
       *ppv = &This->IUnknown_inner;
    else if (IsEqualIID(riid, &IID_ITextServices))
       *ppv = &This->ITextServices_iface;
-   else if (IsEqualIID(riid, &IID_IRichEditOle) || IsEqualIID(riid, &IID_ITextDocument)) {
+   else if (IsEqualIID(riid, &IID_IRichEditOle) || IsEqualIID(riid, &IID_ITextDocument) ||
+            IsEqualIID(riid, &IID_ITextDocument2Old)) {
       if (!This->editor->reOle)
          if (!CreateIRichEditOle(This->outer_unk, This->editor, (void **)(&This->editor->reOle)))
             return E_OUTOFMEMORY;
-      if (IsEqualIID(riid, &IID_ITextDocument))
-         ME_GetITextDocumentInterface(This->editor->reOle, ppv);
+      if (IsEqualIID(riid, &IID_ITextDocument) || IsEqualIID(riid, &IID_ITextDocument2Old))
+         ME_GetITextDocument2OldInterface(This->editor->reOle, ppv);
       else
          *ppv = This->editor->reOle;
    } else {
@@ -170,11 +195,16 @@ DECLSPEC_HIDDEN HRESULT WINAPI fnTextSrv_TxGetHScroll(ITextServices *iface, LONG
 {
    ITextServicesImpl *This = impl_from_ITextServices(iface);
 
-   *plMin = This->editor->horz_si.nMin;
-   *plMax = This->editor->horz_si.nMax;
-   *plPos = This->editor->horz_si.nPos;
-   *plPage = This->editor->horz_si.nPage;
-   *pfEnabled = (This->editor->styleFlags & WS_HSCROLL) != 0;
+   if (plMin)
+      *plMin = This->editor->horz_si.nMin;
+   if (plMax)
+      *plMax = This->editor->horz_si.nMax;
+   if (plPos)
+      *plPos = This->editor->horz_si.nPos;
+   if (plPage)
+      *plPage = This->editor->horz_si.nPage;
+   if (pfEnabled)
+      *pfEnabled = (This->editor->styleFlags & WS_HSCROLL) != 0;
    return S_OK;
 }
 
@@ -183,11 +213,16 @@ DECLSPEC_HIDDEN HRESULT WINAPI fnTextSrv_TxGetVScroll(ITextServices *iface, LONG
 {
    ITextServicesImpl *This = impl_from_ITextServices(iface);
 
-   *plMin = This->editor->vert_si.nMin;
-   *plMax = This->editor->vert_si.nMax;
-   *plPos = This->editor->vert_si.nPos;
-   *plPage = This->editor->vert_si.nPage;
-   *pfEnabled = (This->editor->styleFlags & WS_VSCROLL) != 0;
+   if (plMin)
+      *plMin = This->editor->vert_si.nMin;
+   if (plMax)
+      *plMax = This->editor->vert_si.nMax;
+   if (plPos)
+      *plPos = This->editor->vert_si.nPos;
+   if (plPage)
+      *plPage = This->editor->vert_si.nPage;
+   if (pfEnabled)
+      *pfEnabled = (This->editor->styleFlags & WS_VSCROLL) != 0;
    return S_OK;
 }
 

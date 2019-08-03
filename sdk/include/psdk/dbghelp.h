@@ -173,6 +173,55 @@ typedef enum
     NumSymTypes
 } SYM_TYPE;
 
+#ifdef _NO_CVCONST_H
+enum SymTagEnum
+{
+    SymTagNull,
+    SymTagExe,
+    SymTagCompiland,
+    SymTagCompilandDetails,
+    SymTagCompilandEnv,
+    SymTagFunction,
+    SymTagBlock,
+    SymTagData,
+    SymTagAnnotation,
+    SymTagLabel,
+    SymTagPublicSymbol,
+    SymTagUDT,
+    SymTagEnum,
+    SymTagFunctionType,
+    SymTagPointerType,
+    SymTagArrayType,
+    SymTagBaseType,
+    SymTagTypedef,
+    SymTagBaseClass,
+    SymTagFriend,
+    SymTagFunctionArgType,
+    SymTagFuncDebugStart,
+    SymTagFuncDebugEnd,
+    SymTagUsingNamespace,
+    SymTagVTableShape,
+    SymTagVTable,
+    SymTagCustom,
+    SymTagThunk,
+    SymTagCustomType,
+    SymTagManagedType,
+    SymTagDimension,
+    SymTagCallSite,
+    SymTagInlineSite,
+    SymTagBaseInterface,
+    SymTagVectorType,
+    SymTagMatrixType,
+    SymTagHLSLType,
+    SymTagCaller,
+    SymTagCallee,
+    SymTagExport,
+    SymTagHeapAllocationSite,
+    SymTagCoffGroup,
+    SymTagMax
+};
+#endif // _NO_CVCONST_H
+
 #if !defined(_IMAGEHLP_SOURCE_) && defined(_IMAGEHLP64)
 #define IMAGEHLP_SYMBOL IMAGEHLP_SYMBOL64
 #define IMAGEHLP_SYMBOLW IMAGEHLP_SYMBOLW64
@@ -901,9 +950,9 @@ MiniDumpWriteDump(
   _In_ DWORD,
   _In_ HANDLE,
   _In_ MINIDUMP_TYPE,
-  _In_opt_ const PMINIDUMP_EXCEPTION_INFORMATION,
-  _In_opt_ const PMINIDUMP_USER_STREAM_INFORMATION,
-  _In_opt_ const PMINIDUMP_CALLBACK_INFORMATION);
+  _In_opt_ PMINIDUMP_EXCEPTION_INFORMATION,
+  _In_opt_ PMINIDUMP_USER_STREAM_INFORMATION,
+  _In_opt_ PMINIDUMP_CALLBACK_INFORMATION);
 
 BOOL
 WINAPI
@@ -1057,6 +1106,13 @@ BOOL WINAPI SymUnloadModule64(_In_ HANDLE, _In_ DWORD64);
 #define SYMFLAG_THUNK            0x00002000
 #define SYMFLAG_TLSREL           0x00004000
 #define SYMFLAG_SLOT             0x00008000
+#define SYMFLAG_ILREL            0x00010000
+#define SYMFLAG_METADATA         0x00020000
+#define SYMFLAG_CLR_TOKEN        0x00040000
+#define SYMFLAG_NULL             0x00080000
+#define SYMFLAG_FUNC_NO_RETURN   0x00100000
+#define SYMFLAG_SYNTHETIC_ZEROBASE 0x00200000
+#define SYMFLAG_PUBLIC_CODE      0x00400000
 
 #define MAX_SYM_NAME    2000
 

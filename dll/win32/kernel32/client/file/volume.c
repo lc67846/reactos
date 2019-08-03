@@ -87,7 +87,7 @@ GetVolumeInformationA(IN LPCSTR lpRootPathName,
     /* If caller wants file system name, allocate a buffer to receive it */
     if (lpFileSystemNameBuffer != NULL)
     {
-        FileSystemNameU.MaximumLength = sizeof(WCHAR) * (nVolumeNameSize + 1);
+        FileSystemNameU.MaximumLength = sizeof(WCHAR) * (nFileSystemNameSize + 1);
         FileSystemNameU.Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0,
 	                                             FileSystemNameU.MaximumLength);
         if (FileSystemNameU.Buffer == NULL)
@@ -252,6 +252,10 @@ GetVolumeInformationW(IN LPCWSTR lpRootPathName,
     {
         RootPathName = lpRootPathName;
     }
+
+    /* Convert length to bytes */
+    nVolumeNameSize *= sizeof(WCHAR);
+    nFileSystemNameSize *= sizeof(WCHAR);
 
     /* Convert to NT name */
     if (!RtlDosPathNameToNtPathName_U(RootPathName, &NtPathName, NULL, NULL))

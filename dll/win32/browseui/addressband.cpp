@@ -64,9 +64,13 @@ void CAddressBand::FocusChange(BOOL bFocus)
 
 HRESULT STDMETHODCALLTYPE CAddressBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO *pdbi)
 {
+    if (!m_hWnd || !pdbi)  return E_FAIL;  /* Verify window exists */
     if (pdbi->dwMask & DBIM_MINSIZE)
     {
-        pdbi->ptMinSize.x = 100;
+        if (fGoButtonShown)
+            pdbi->ptMinSize.x = 100;
+        else
+            pdbi->ptMinSize.x = 150;
         pdbi->ptMinSize.y = 22;
     }
     if (pdbi->dwMask & DBIM_MAXSIZE)
@@ -81,7 +85,10 @@ HRESULT STDMETHODCALLTYPE CAddressBand::GetBandInfo(DWORD dwBandID, DWORD dwView
     }
     if (pdbi->dwMask & DBIM_ACTUAL)
     {
-        pdbi->ptActual.x = 100;
+        if (fGoButtonShown)
+            pdbi->ptActual.x = 100;
+        else
+            pdbi->ptActual.x = 150;
         pdbi->ptActual.y = 22;
     }
     if (pdbi->dwMask & DBIM_TITLE)
@@ -290,7 +297,8 @@ HRESULT STDMETHODCALLTYPE CAddressBand::OnWinEvent(
     HRESULT                                 hResult;
     RECT                                    rect;
 
-    *theResult = 0;
+    if (theResult)
+        *theResult = 0;
 
     switch (uMsg)
     {
@@ -407,8 +415,17 @@ LRESULT CAddressBand::OnTipText(UINT idControl, NMHDR *notifyHeader, BOOL &bHand
 {
     if (notifyHeader->hwndFrom == fGoButton)
     {
-        // TODO
-        // Go to "destination path"
+        WCHAR szText[MAX_PATH];
+        WCHAR szFormat[MAX_PATH];
+        LPNMTBGETINFOTIP pGIT = (LPNMTBGETINFOTIP)notifyHeader;
+
+        if (::GetWindowTextW(fEditControl, szText, _countof(szText)))
+        {
+            LoadStringW(_AtlBaseModule.GetResourceInstance(), IDS_GOBUTTONTIPTEMPLATE, szFormat, _countof(szFormat));
+            wnsprintf(pGIT->pszText, pGIT->cchTextMax, szFormat, szText);
+        }
+        else
+            *pGIT->pszText = 0;
     }
     return 0;
 }
@@ -504,6 +521,7 @@ LRESULT CAddressBand::OnWindowPosChanging(UINT uMsg, WPARAM wParam, LPARAM lPara
     positionInfoCopy = *reinterpret_cast<WINDOWPOS *>(lParam);
     newHeight = positionInfoCopy.cy;
     newWidth = positionInfoCopy.cx;
+
     SendMessage(fGoButton, TB_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&buttonBounds));
 
     buttonWidth = buttonBounds.right - buttonBounds.left;

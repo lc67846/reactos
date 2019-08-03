@@ -92,6 +92,12 @@ static BOOLEAN KdbpCmdHelp(ULONG Argc, PCHAR Argv[]);
 static BOOLEAN KdbpCmdDmesg(ULONG Argc, PCHAR Argv[]);
 
 BOOLEAN ExpKdbgExtPool(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtPoolUsed(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtPoolFind(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtFileCache(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtDefWrites(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtIrpFind(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtHandle(ULONG Argc, PCHAR Argv[]);
 
 #ifdef __ROS_DWARF__
 static BOOLEAN KdbpCmdPrintStruct(ULONG Argc, PCHAR Argv[]);
@@ -183,7 +189,13 @@ static const struct
     { "dmesg", "dmesg", "Display debug messages on screen, with navigation on pages.", KdbpCmdDmesg },
     { "kmsg", "kmsg", "Kernel dmesg. Alias for dmesg.", KdbpCmdDmesg },
     { "help", "help", "Display help screen.", KdbpCmdHelp },
-    { "!pool", "!pool [Address [Flags]]", "Display information about pool allocations.", ExpKdbgExtPool }
+    { "!pool", "!pool [Address [Flags]]", "Display information about pool allocations.", ExpKdbgExtPool },
+    { "!poolused", "!poolused [Flags [Tag]]", "Display pool usage.", ExpKdbgExtPoolUsed },
+    { "!poolfind", "!poolfind Tag [Pool]", "Search for pool tag allocations.", ExpKdbgExtPoolFind },
+    { "!filecache", "!filecache", "Display cache usage.", ExpKdbgExtFileCache },
+    { "!defwrites", "!defwrites", "Display cache write values.", ExpKdbgExtDefWrites },
+    { "!irpfind", "!irpfind [Pool [startaddress [criteria data]]]", "Lists IRPs potentially matching criteria", ExpKdbgExtIrpFind },
+    { "!handle", "!handle [Handle]", "Displays info about handles", ExpKdbgExtHandle },
 };
 
 /* FUNCTIONS *****************************************************************/
@@ -837,7 +849,7 @@ KdbpCmdRegs(
     ULONG Argc,
     PCHAR Argv[])
 {
-    PKTRAP_FRAME Tf = &KdbCurrentTrapFrame->Tf;
+    PCONTEXT Tf = &KdbCurrentTrapFrame->Tf;
     INT i;
     static const PCHAR EflagsBits[32] = { " CF", NULL, " PF", " BIT3", " AF", " BIT5",
                                           " ZF", " SF", " TF", " IF", " DF", " OF",
@@ -856,7 +868,7 @@ KdbpCmdRegs(
                   "   ESI  0x%08x   EDI  0x%08x\n"
                   "   EBP  0x%08x\n",
                   Tf->SegCs & 0xFFFF, Tf->Eip,
-                  Tf->HardwareSegSs, Tf->HardwareEsp,
+                  Tf->SegSs, Tf->Esp,
                   Tf->Eax, Tf->Ebx,
                   Tf->Ecx, Tf->Edx,
                   Tf->Esi, Tf->Edi,
@@ -954,7 +966,7 @@ KdbpCmdRegs(
         KdbpPrint("GS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
                   Tf->SegGs, Tf->SegGs >> 3, (Tf->SegGs & (1 << 2)) ? 'L' : 'G', Tf->SegGs & 3);
         KdbpPrint("SS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->HardwareSegSs, Tf->HardwareSegSs >> 3, (Tf->HardwareSegSs & (1 << 2)) ? 'L' : 'G', Tf->HardwareSegSs & 3);
+                  Tf->SegSs, Tf->SegSs >> 3, (Tf->SegSs & (1 << 2)) ? 'L' : 'G', Tf->SegSs & 3);
     }
     else /* dregs */
     {
@@ -974,7 +986,7 @@ KdbpCmdRegs(
 
 static BOOLEAN
 KdbpTrapFrameFromPrevTss(
-    PKTRAP_FRAME TrapFrame)
+    PCONTEXT TrapFrame)
 {
     ULONG_PTR Eip, Ebp;
     KDESCRIPTOR Gdtr;
@@ -1063,7 +1075,7 @@ KdbpCmdBackTrace(
     ULONGLONG Result = 0;
     ULONG_PTR Frame = KdbCurrentTrapFrame->Tf.Ebp;
     ULONG_PTR Address;
-    KTRAP_FRAME TrapFrame;
+    CONTEXT TrapFrame;
 
     if (Argc >= 2)
     {
@@ -2112,7 +2124,7 @@ KdbpCmdPcr(
               "  Tib.FiberData/Version:     0x%08x\n"
               "  Tib.ArbitraryUserPointer:  0x%08x\n"
               "  Tib.Self:                  0x%08x\n"
-              "  Self:                      0x%08x\n"
+              "  SelfPcr:                   0x%08x\n"
               "  PCRCB:                     0x%08x\n"
               "  Irql:                      0x%02x\n"
               "  IRR:                       0x%08x\n"
@@ -2133,7 +2145,7 @@ KdbpCmdPcr(
               "  InterruptMode:             0x%08x\n",
               Pcr->NtTib.ExceptionList, Pcr->NtTib.StackBase, Pcr->NtTib.StackLimit,
               Pcr->NtTib.SubSystemTib, Pcr->NtTib.FiberData, Pcr->NtTib.ArbitraryUserPointer,
-              Pcr->NtTib.Self, Pcr->Self, Pcr->Prcb, Pcr->Irql, Pcr->IRR, Pcr->IrrActive,
+              Pcr->NtTib.Self, Pcr->SelfPcr, Pcr->Prcb, Pcr->Irql, Pcr->IRR, Pcr->IrrActive,
               Pcr->IDR, Pcr->KdVersionBlock, Pcr->IDT, Pcr->GDT, Pcr->TSS,
               Pcr->MajorVersion, Pcr->MinorVersion, Pcr->SetMember, Pcr->StallScaleFactor,
               Pcr->Number, Pcr->SecondLevelCacheAssociativity,
@@ -2650,15 +2662,16 @@ KdbpPrint(
         {
             while ((p2 = strrchr(p, '\x1b'))) /* Look for escape character */
             {
+                size_t len = strlen(p2);
                 if (p2[1] == '[')
                 {
                     j = 2;
                     while (!isalpha(p2[j++]));
-                    strcpy(p2, p2 + j);
+                    memmove(p2, p2 + j, len + 1 - j);
                 }
                 else
                 {
-                    strcpy(p2, p2 + 1);
+                    memmove(p2, p2 + 1, len);
                 }
             }
         }
@@ -2995,15 +3008,16 @@ KdbpPager(
         {
             while ((p2 = strrchr(p, '\x1b'))) /* Look for escape character */
             {
+                size_t len = strlen(p2);
                 if (p2[1] == '[')
                 {
                     j = 2;
                     while (!isalpha(p2[j++]));
-                    strcpy(p2, p2 + j);
+                    memmove(p2, p2 + j, len + 1 - j);
                 }
                 else
                 {
-                    strcpy(p2, p2 + 1);
+                    memmove(p2, p2 + 1, len);
                 }
             }
         }
@@ -3622,7 +3636,7 @@ KdbpCliInit(VOID)
     }
 
     /* Load file into memory */
-    Status = ZwReadFile(hFile, 0, 0, 0, &Iosb, FileBuffer, FileSize, 0, 0);
+    Status = ZwReadFile(hFile, NULL, NULL, NULL, &Iosb, FileBuffer, FileSize, NULL, NULL);
     ZwClose(hFile);
 
     if (!NT_SUCCESS(Status) && Status != STATUS_END_OF_FILE)
@@ -3660,17 +3674,67 @@ KdpSerialDebugPrint(
 STRING KdpPromptString = RTL_CONSTANT_STRING("kdb:> ");
 extern KSPIN_LOCK KdpSerialSpinLock;
 
-ULONG
+USHORT
 NTAPI
-KdpPrompt(IN LPSTR InString,
-          IN USHORT InStringLength,
-          OUT LPSTR OutString,
-          IN USHORT OutStringLength)
+KdpPrompt(
+    _In_reads_bytes_(InStringLength) PCHAR UnsafeInString,
+    _In_ USHORT InStringLength,
+    _Out_writes_bytes_(OutStringLength) PCHAR UnsafeOutString,
+    _In_ USHORT OutStringLength,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ PKTRAP_FRAME TrapFrame,
+    _In_ PKEXCEPTION_FRAME ExceptionFrame)
 {
     USHORT i;
     CHAR Response;
     ULONG DummyScanCode;
     KIRQL OldIrql;
+    PCHAR InString;
+    PCHAR OutString;
+    CHAR InStringBuffer[512];
+    CHAR OutStringBuffer[512];
+
+    /* Normalize the lengths */
+    InStringLength = min(InStringLength,
+                         sizeof(InStringBuffer));
+    OutStringLength = min(OutStringLength,
+                          sizeof(OutStringBuffer));
+
+    /* Check if we need to verify the string */
+    if (PreviousMode != KernelMode)
+    {
+        /* Handle user-mode buffers safely */
+        _SEH2_TRY
+        {
+            /* Probe the prompt */
+            ProbeForRead(UnsafeInString,
+                         InStringLength,
+                         1);
+
+            /* Capture prompt */
+            InString = InStringBuffer;
+            RtlCopyMemory(InString,
+                          UnsafeInString,
+                          InStringLength);
+
+            /* Probe and make room for response */
+            ProbeForWrite(UnsafeOutString,
+                          OutStringLength,
+                          1);
+            OutString = OutStringBuffer;
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            /* Bad string pointer, bail out */
+            _SEH2_YIELD(return 0);
+        }
+        _SEH2_END;
+    }
+    else
+    {
+        InString = UnsafeInString;
+        OutString = UnsafeOutString;
+    }
 
     /* Acquire the printing spinlock without waiting at raised IRQL */
     while (TRUE)
@@ -3778,6 +3842,24 @@ KdpPrompt(IN LPSTR InString,
 
     /* Lower IRQL back */
     KeLowerIrql(OldIrql);
+
+    /* Copy back response if required */
+    if (PreviousMode != KernelMode)
+    {
+        _SEH2_TRY
+        {
+            /* Safely copy back response to user mode */
+            RtlCopyMemory(UnsafeOutString,
+                          OutString,
+                          i);
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            /* String became invalid after we exited, fail */
+            _SEH2_YIELD(return 0);
+        }
+        _SEH2_END;
+    }
 
     /* Return the length  */
     return i;

@@ -2,10 +2,12 @@
  * PROJECT:     ReactOS Spooler API
  * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
  * PURPOSE:     Functions related to Printers and printing
- * COPYRIGHT:   Copyright 2015-2017 Colin Finck (colin@reactos.org)
+ * COPYRIGHT:   Copyright 2015-2018 Colin Finck (colin@reactos.org)
  */
 
 #include "precomp.h"
+#include <marshalling/printers.h>
+#include <marshalling/printerdrivers.h>
 
 // Local Constants
 
@@ -13,114 +15,6 @@
     Ok, I admit that this has historical reasons. It's still not straightforward in any way though! */
 static const WCHAR wszWindowsKey[] = L"Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows";
 static const WCHAR wszDeviceValue[] = L"Device";
-
-static void
-_MarshallUpPrinterInfo(PBYTE* ppPrinterInfo, DWORD Level)
-{
-    // Replace relative offset addresses in the output by absolute pointers and advance to the next structure.
-    if (Level == 0)
-    {
-        PPRINTER_INFO_STRESS pPrinterInfo0 = (PPRINTER_INFO_STRESS)(*ppPrinterInfo);
-
-        pPrinterInfo0->pPrinterName = (PWSTR)((ULONG_PTR)pPrinterInfo0->pPrinterName + (ULONG_PTR)pPrinterInfo0);
-
-        if (pPrinterInfo0->pServerName)
-            pPrinterInfo0->pServerName = (PWSTR)((ULONG_PTR)pPrinterInfo0->pServerName + (ULONG_PTR)pPrinterInfo0);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_STRESS);
-    }
-    else if (Level == 1)
-    {
-        PPRINTER_INFO_1W pPrinterInfo1 = (PPRINTER_INFO_1W)(*ppPrinterInfo);
-
-        pPrinterInfo1->pName = (PWSTR)((ULONG_PTR)pPrinterInfo1->pName + (ULONG_PTR)pPrinterInfo1);
-        pPrinterInfo1->pDescription = (PWSTR)((ULONG_PTR)pPrinterInfo1->pDescription + (ULONG_PTR)pPrinterInfo1);
-        pPrinterInfo1->pComment = (PWSTR)((ULONG_PTR)pPrinterInfo1->pComment + (ULONG_PTR)pPrinterInfo1);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_1W);
-    }
-    else if (Level == 2)
-    {
-        PPRINTER_INFO_2W pPrinterInfo2 = (PPRINTER_INFO_2W)(*ppPrinterInfo);
-
-        pPrinterInfo2->pPrinterName = (PWSTR)((ULONG_PTR)pPrinterInfo2->pPrinterName + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pShareName = (PWSTR)((ULONG_PTR)pPrinterInfo2->pShareName + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pPortName = (PWSTR)((ULONG_PTR)pPrinterInfo2->pPortName + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pDriverName = (PWSTR)((ULONG_PTR)pPrinterInfo2->pDriverName + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pComment = (PWSTR)((ULONG_PTR)pPrinterInfo2->pComment + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pLocation = (PWSTR)((ULONG_PTR)pPrinterInfo2->pLocation + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pDevMode = (PDEVMODEW)((ULONG_PTR)pPrinterInfo2->pDevMode + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pSepFile = (PWSTR)((ULONG_PTR)pPrinterInfo2->pSepFile + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pPrintProcessor = (PWSTR)((ULONG_PTR)pPrinterInfo2->pPrintProcessor + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pDatatype = (PWSTR)((ULONG_PTR)pPrinterInfo2->pDatatype + (ULONG_PTR)pPrinterInfo2);
-        pPrinterInfo2->pParameters = (PWSTR)((ULONG_PTR)pPrinterInfo2->pParameters + (ULONG_PTR)pPrinterInfo2);
-
-        if (pPrinterInfo2->pServerName)
-            pPrinterInfo2->pServerName = (PWSTR)((ULONG_PTR)pPrinterInfo2->pServerName + (ULONG_PTR)pPrinterInfo2);
-
-        if (pPrinterInfo2->pSecurityDescriptor)
-            pPrinterInfo2->pSecurityDescriptor = (PSECURITY_DESCRIPTOR)((ULONG_PTR)pPrinterInfo2->pSecurityDescriptor + (ULONG_PTR)pPrinterInfo2);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_2W);
-    }
-    else if (Level == 3)
-    {
-        PPRINTER_INFO_3 pPrinterInfo3 = (PPRINTER_INFO_3)(*ppPrinterInfo);
-
-        pPrinterInfo3->pSecurityDescriptor = (PSECURITY_DESCRIPTOR)((ULONG_PTR)pPrinterInfo3->pSecurityDescriptor + (ULONG_PTR)pPrinterInfo3);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_3);
-    }
-    else if (Level == 4)
-    {
-        PPRINTER_INFO_4W pPrinterInfo4 = (PPRINTER_INFO_4W)(*ppPrinterInfo);
-
-        pPrinterInfo4->pPrinterName = (PWSTR)((ULONG_PTR)pPrinterInfo4->pPrinterName + (ULONG_PTR)pPrinterInfo4);
-
-        if (pPrinterInfo4->pServerName)
-            pPrinterInfo4->pServerName = (PWSTR)((ULONG_PTR)pPrinterInfo4->pServerName + (ULONG_PTR)pPrinterInfo4);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_4W);
-    }
-    else if (Level == 5)
-    {
-        PPRINTER_INFO_5W pPrinterInfo5 = (PPRINTER_INFO_5W)(*ppPrinterInfo);
-
-        pPrinterInfo5->pPrinterName = (PWSTR)((ULONG_PTR)pPrinterInfo5->pPrinterName + (ULONG_PTR)pPrinterInfo5);
-        pPrinterInfo5->pPortName = (PWSTR)((ULONG_PTR)pPrinterInfo5->pPortName + (ULONG_PTR)pPrinterInfo5);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_5W);
-    }
-    else if (Level == 6)
-    {
-        *ppPrinterInfo += sizeof(PRINTER_INFO_6);
-    }
-    else if (Level == 7)
-    {
-        PPRINTER_INFO_7W pPrinterInfo7 = (PPRINTER_INFO_7W)(*ppPrinterInfo);
-
-        if (pPrinterInfo7->pszObjectGUID)
-            pPrinterInfo7->pszObjectGUID = (PWSTR)((ULONG_PTR)pPrinterInfo7->pszObjectGUID + (ULONG_PTR)pPrinterInfo7);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_7W);
-    }
-    else if (Level == 8)
-    {
-        PPRINTER_INFO_8W pPrinterInfo8 = (PPRINTER_INFO_8W)(*ppPrinterInfo);
-
-        pPrinterInfo8->pDevMode = (PDEVMODEW)((ULONG_PTR)pPrinterInfo8->pDevMode + (ULONG_PTR)pPrinterInfo8);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_8W);
-    }
-    else if (Level == 9)
-    {
-        PPRINTER_INFO_9W pPrinterInfo9 = (PPRINTER_INFO_9W)(*ppPrinterInfo);
-
-        pPrinterInfo9->pDevMode = (PDEVMODEW)((ULONG_PTR)pPrinterInfo9->pDevMode + (ULONG_PTR)pPrinterInfo9);
-
-        *ppPrinterInfo += sizeof(PRINTER_INFO_9W);
-    }
-}
 
 static DWORD
 _StartDocPrinterSpooled(PSPOOLER_HANDLE pHandle, PDOC_INFO_1W pDocInfo1, PADDJOB_INFO_1W pAddJobInfo1)
@@ -212,9 +106,26 @@ _StartDocPrinterWithRPC(PSPOOLER_HANDLE pHandle, PDOC_INFO_1W pDocInfo1)
     return dwErrorCode;
 }
 
+BOOL WINAPI
+AbortPrinter(HANDLE hPrinter)
+{
+    TRACE("AbortPrinter(%p)\n", hPrinter);
+    UNIMPLEMENTED;
+    return FALSE;
+}
+
+HANDLE WINAPI
+AddPrinterA(PSTR pName, DWORD Level, PBYTE pPrinter)
+{
+    TRACE("AddPrinterA(%s, %lu, %p)\n", pName, Level, pPrinter);
+    UNIMPLEMENTED;
+    return NULL;
+}
+
 HANDLE WINAPI
 AddPrinterW(PWSTR pName, DWORD Level, PBYTE pPrinter)
 {
+    TRACE("AddPrinterW(%S, %lu, %p)\n", pName, Level, pPrinter);
     UNIMPLEMENTED;
     return NULL;
 }
@@ -224,6 +135,8 @@ ClosePrinter(HANDLE hPrinter)
 {
     DWORD dwErrorCode;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
+
+    TRACE("ClosePrinter(%p)\n", hPrinter);
 
     // Sanity checks.
     if (!pHandle)
@@ -256,28 +169,123 @@ Cleanup:
     return (dwErrorCode == ERROR_SUCCESS);
 }
 
+BOOL WINAPI
+DeletePrinter(HANDLE hPrinter)
+{
+    TRACE("DeletePrinter(%p)\n", hPrinter);
+    UNIMPLEMENTED;
+    return FALSE;
+}
+
 DWORD WINAPI
 DeviceCapabilitiesA(LPCSTR pDevice, LPCSTR pPort, WORD fwCapability, LPSTR pOutput, const DEVMODEA* pDevMode)
 {
+    TRACE("DeviceCapabilitiesA(%s, %s, %hu, %p, %p)\n", pDevice, pPort, fwCapability, pOutput, pDevMode);
+    UNIMPLEMENTED;
     return 0;
 }
 
 DWORD WINAPI
 DeviceCapabilitiesW(LPCWSTR pDevice, LPCWSTR pPort, WORD fwCapability, LPWSTR pOutput, const DEVMODEW* pDevMode)
 {
+    TRACE("DeviceCapabilitiesW(%S, %S, %hu, %p, %p)\n", pDevice, pPort, fwCapability, pOutput, pDevMode);
+    UNIMPLEMENTED;
     return 0;
 }
 
 LONG WINAPI
 DocumentPropertiesA(HWND hWnd, HANDLE hPrinter, LPSTR pDeviceName, PDEVMODEA pDevModeOutput, PDEVMODEA pDevModeInput, DWORD fMode)
 {
-    return 0;
+    TRACE("DocumentPropertiesA(%p, %p, %s, %p, %p, %lu)\n", hWnd, hPrinter, pDeviceName, pDevModeOutput, pDevModeInput, fMode);
+    UNIMPLEMENTED;
+    return -1;
+}
+
+static PRINTER_INFO_9W * get_devmodeW(HANDLE hprn)
+{
+    PRINTER_INFO_9W *pi9 = NULL;
+    DWORD needed = 0;
+    BOOL res;
+
+    res = GetPrinterW(hprn, 9, NULL, 0, &needed);
+    if (!res && (GetLastError() == ERROR_INSUFFICIENT_BUFFER))
+    {
+        pi9 = HeapAlloc(hProcessHeap, 0, needed);
+        res = GetPrinterW(hprn, 9, (LPBYTE)pi9, needed, &needed);
+    }
+
+    if (res)
+        return pi9;
+
+    ERR("GetPrinterW failed with %u\n", GetLastError());
+    HeapFree(hProcessHeap, 0, pi9);
+    return NULL;
 }
 
 LONG WINAPI
 DocumentPropertiesW(HWND hWnd, HANDLE hPrinter, LPWSTR pDeviceName, PDEVMODEW pDevModeOutput, PDEVMODEW pDevModeInput, DWORD fMode)
 {
-    return 0;
+    HANDLE hUseHandle = NULL;
+    PRINTER_INFO_9W *pi9 = NULL;
+    LONG Result = -1, Length;
+
+    TRACE("DocumentPropertiesW(%p, %p, %S, %p, %p, %lu)\n", hWnd, hPrinter, pDeviceName, pDevModeOutput, pDevModeInput, fMode);
+    if (hPrinter)
+    {
+        hUseHandle = hPrinter;
+    }
+    else if (!OpenPrinterW(pDeviceName, &hUseHandle, NULL))
+    {
+        ERR("No handle, and no usable printer name passed in\n");
+        return -1;
+    }
+
+    pi9 = get_devmodeW(hUseHandle);
+
+    if (pi9)
+    {
+        Length = pi9->pDevMode->dmSize + pi9->pDevMode->dmDriverExtra;
+        // See wineps.drv PSDRV_ExtDeviceMode
+        if (fMode)
+        {
+            Result = 1; /* IDOK */
+
+            if (fMode & DM_IN_BUFFER)
+            {
+                FIXME("Merge pDevModeInput with pi9, write back to driver!\n");
+                // See wineps.drv PSDRV_MergeDevmodes
+            }
+
+            if (fMode & DM_IN_PROMPT)
+            {
+                FIXME("Show property sheet!\n");
+                Result = 2; /* IDCANCEL */
+            }
+
+            if (fMode & (DM_OUT_BUFFER | DM_OUT_DEFAULT))
+            {
+                if (pDevModeOutput)
+                {
+                    memcpy(pDevModeOutput, pi9->pDevMode, pi9->pDevMode->dmSize + pi9->pDevMode->dmDriverExtra);
+                }
+                else
+                {
+                    ERR("No pDevModeOutput\n");
+                    Result = -1;
+                }
+            }
+        }
+        else
+        {
+            Result = Length;
+        }
+
+        HeapFree(hProcessHeap, 0, pi9);
+    }
+
+    if (hUseHandle && !hPrinter)
+        ClosePrinter(hUseHandle);
+    return Result;
 }
 
 BOOL WINAPI
@@ -285,6 +293,8 @@ EndDocPrinter(HANDLE hPrinter)
 {
     DWORD dwErrorCode;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
+
+    TRACE("EndDocPrinter(%p)\n", hPrinter);
 
     // Sanity checks.
     if (!pHandle)
@@ -339,6 +349,8 @@ EndPagePrinter(HANDLE hPrinter)
     DWORD dwErrorCode;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
 
+    TRACE("EndPagePrinter(%p)\n", hPrinter);
+
     // Sanity checks.
     if (!pHandle)
     {
@@ -374,6 +386,7 @@ Cleanup:
 BOOL WINAPI
 EnumPrintersA(DWORD Flags, PSTR Name, DWORD Level, PBYTE pPrinterEnum, DWORD cbBuf, PDWORD pcbNeeded, PDWORD pcReturned)
 {
+    TRACE("EnumPrintersA(%lu, %s, %lu, %p, %lu, %p, %p)\n", Flags, Name, Level, pPrinterEnum, cbBuf, pcbNeeded, pcReturned);
     return FALSE;
 }
 
@@ -381,6 +394,8 @@ BOOL WINAPI
 EnumPrintersW(DWORD Flags, PWSTR Name, DWORD Level, PBYTE pPrinterEnum, DWORD cbBuf, PDWORD pcbNeeded, PDWORD pcReturned)
 {
     DWORD dwErrorCode;
+
+    TRACE("EnumPrintersW(%lu, %S, %lu, %p, %lu, %p, %p)\n", Flags, Name, Level, pPrinterEnum, cbBuf, pcbNeeded, pcReturned);
 
     // Dismiss invalid levels already at this point.
     if (Level == 3 || Level > 5)
@@ -406,11 +421,9 @@ EnumPrintersW(DWORD Flags, PWSTR Name, DWORD Level, PBYTE pPrinterEnum, DWORD cb
 
     if (dwErrorCode == ERROR_SUCCESS)
     {
-        DWORD i;
-        PBYTE p = pPrinterEnum;
-
-        for (i = 0; i < *pcReturned; i++)
-            _MarshallUpPrinterInfo(&p, Level);
+        // Replace relative offset addresses in the output by absolute pointers.
+        ASSERT(Level <= 9);
+        MarshallUpStructuresArray(cbBuf, pPrinterEnum, *pcReturned, pPrinterInfoMarshalling[Level]->pInfo, pPrinterInfoMarshalling[Level]->cbStructureSize, TRUE);
     }
 
 Cleanup:
@@ -419,10 +432,20 @@ Cleanup:
 }
 
 BOOL WINAPI
+FlushPrinter(HANDLE hPrinter, PVOID pBuf, DWORD cbBuf, PDWORD pcWritten, DWORD cSleep)
+{
+    TRACE("FlushPrinter(%p, %p, %lu, %p, %lu)\n", hPrinter, pBuf, cbBuf, pcWritten, cSleep);
+    UNIMPLEMENTED;
+    return FALSE;
+}
+
+BOOL WINAPI
 GetDefaultPrinterA(LPSTR pszBuffer, LPDWORD pcchBuffer)
 {
     DWORD dwErrorCode;
     PWSTR pwszBuffer = NULL;
+
+    TRACE("GetDefaultPrinterA(%p, %p)\n", pszBuffer, pcchBuffer);
 
     // Sanity check.
     if (!pcchBuffer)
@@ -449,6 +472,9 @@ GetDefaultPrinterA(LPSTR pszBuffer, LPDWORD pcchBuffer)
         goto Cleanup;
     }
 
+    // We successfully got a string in pwszBuffer, so convert the Unicode string to ANSI.
+    WideCharToMultiByte(CP_ACP, 0, pwszBuffer, -1, pszBuffer, *pcchBuffer, NULL, NULL);
+
     dwErrorCode = ERROR_SUCCESS;
 
 Cleanup:
@@ -468,6 +494,8 @@ GetDefaultPrinterW(LPWSTR pszBuffer, LPDWORD pcchBuffer)
     HKEY hWindowsKey = NULL;
     PWSTR pwszDevice = NULL;
     PWSTR pwszComma;
+
+    TRACE("GetDefaultPrinterW(%p, %p)\n", pszBuffer, pcchBuffer);
 
     // Sanity check.
     if (!pcchBuffer)
@@ -551,25 +579,80 @@ Cleanup:
 BOOL WINAPI
 GetPrinterA(HANDLE hPrinter, DWORD Level, LPBYTE pPrinter, DWORD cbBuf, LPDWORD pcbNeeded)
 {
+    TRACE("GetPrinterA(%p, %lu, %p, %lu, %p)\n", hPrinter, Level, pPrinter, cbBuf, pcbNeeded);
     return FALSE;
 }
 
 BOOL WINAPI
 GetPrinterDriverA(HANDLE hPrinter, LPSTR pEnvironment, DWORD Level, LPBYTE pDriverInfo, DWORD cbBuf, LPDWORD pcbNeeded)
 {
+    TRACE("GetPrinterDriverA(%p, %s, %lu, %p, %lu, %p)\n", hPrinter, pEnvironment, Level, pDriverInfo, cbBuf, pcbNeeded);
     return FALSE;
 }
 
 BOOL WINAPI
 GetPrinterDriverW(HANDLE hPrinter, LPWSTR pEnvironment, DWORD Level, LPBYTE pDriverInfo, DWORD cbBuf, LPDWORD pcbNeeded)
 {
-    return FALSE;
+    DWORD dwErrorCode;
+    PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
+
+    TRACE("GetPrinterDriverW(%p, %S, %lu, %p, %lu, %p)\n", hPrinter, pEnvironment, Level, pDriverInfo, cbBuf, pcbNeeded);
+
+    // Sanity checks.
+    if (!pHandle)
+    {
+        dwErrorCode = ERROR_INVALID_HANDLE;
+        goto Cleanup;
+    }
+
+    // Dismiss invalid levels already at this point.
+    if (Level > 8 || Level < 1)
+    {
+        dwErrorCode = ERROR_INVALID_LEVEL;
+        goto Cleanup;
+    }
+
+    if (cbBuf && pDriverInfo)
+        ZeroMemory(pDriverInfo, cbBuf);
+
+    // Do the RPC call
+    RpcTryExcept
+    {
+        dwErrorCode = _RpcGetPrinterDriver(pHandle->hPrinter, pEnvironment, Level, pDriverInfo, cbBuf, pcbNeeded);
+    }
+    RpcExcept(EXCEPTION_EXECUTE_HANDLER)
+    {
+        dwErrorCode = RpcExceptionCode();
+        ERR("_RpcGetPrinter failed with exception code %lu!\n", dwErrorCode);
+    }
+    RpcEndExcept;
+
+    if (dwErrorCode == ERROR_SUCCESS)
+    {
+        // Replace relative offset addresses in the output by absolute pointers.
+        ASSERT(Level <= 3);
+        MarshallUpStructure(cbBuf, pDriverInfo, pPrinterDriverMarshalling[Level]->pInfo, pPrinterDriverMarshalling[Level]->cbStructureSize, TRUE);
+    }
+
+Cleanup:
+    SetLastError(dwErrorCode);
+    return (dwErrorCode == ERROR_SUCCESS);
 }
 
 BOOL WINAPI
 GetPrinterW(HANDLE hPrinter, DWORD Level, LPBYTE pPrinter, DWORD cbBuf, LPDWORD pcbNeeded)
 {
     DWORD dwErrorCode;
+    PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
+
+    TRACE("GetPrinterW(%p, %lu, %p, %lu, %p)\n", hPrinter, Level, pPrinter, cbBuf, pcbNeeded);
+
+    // Sanity checks.
+    if (!pHandle)
+    {
+        dwErrorCode = ERROR_INVALID_HANDLE;
+        goto Cleanup;
+    }
 
     // Dismiss invalid levels already at this point.
     if (Level > 9)
@@ -584,7 +667,7 @@ GetPrinterW(HANDLE hPrinter, DWORD Level, LPBYTE pPrinter, DWORD cbBuf, LPDWORD 
     // Do the RPC call
     RpcTryExcept
     {
-        dwErrorCode = _RpcGetPrinter(hPrinter, Level, pPrinter, cbBuf, pcbNeeded);
+        dwErrorCode = _RpcGetPrinter(pHandle->hPrinter, Level, pPrinter, cbBuf, pcbNeeded);
     }
     RpcExcept(EXCEPTION_EXECUTE_HANDLER)
     {
@@ -595,8 +678,9 @@ GetPrinterW(HANDLE hPrinter, DWORD Level, LPBYTE pPrinter, DWORD cbBuf, LPDWORD 
 
     if (dwErrorCode == ERROR_SUCCESS)
     {
-        PBYTE p = pPrinter;
-        _MarshallUpPrinterInfo(&p, Level);
+        // Replace relative offset addresses in the output by absolute pointers.
+        ASSERT(Level <= 9);
+        MarshallUpStructure(cbBuf, pPrinter, pPrinterInfoMarshalling[Level]->pInfo, pPrinterInfoMarshalling[Level]->cbStructureSize, TRUE);
     }
 
 Cleanup:
@@ -611,6 +695,8 @@ OpenPrinterA(LPSTR pPrinterName, LPHANDLE phPrinter, LPPRINTER_DEFAULTSA pDefaul
     DWORD cch;
     PWSTR pwszPrinterName = NULL;
     PRINTER_DEFAULTSW wDefault = { 0 };
+
+    TRACE("OpenPrinterA(%s, %p, %p)\n", pPrinterName, phPrinter, pDefault);
 
     if (pPrinterName)
     {
@@ -677,6 +763,8 @@ OpenPrinterW(LPWSTR pPrinterName, LPHANDLE phPrinter, LPPRINTER_DEFAULTSW pDefau
     WINSPOOL_DEVMODE_CONTAINER DevModeContainer = { 0 };
     ACCESS_MASK AccessRequired = 0;
 
+    TRACE("OpenPrinterW(%S, %p, %p)\n", pPrinterName, phPrinter, pDefault);
+
     // Sanity check
     if (!phPrinter)
     {
@@ -734,6 +822,8 @@ ReadPrinter(HANDLE hPrinter, PVOID pBuf, DWORD cbBuf, PDWORD pNoBytesRead)
     DWORD dwErrorCode;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
 
+    TRACE("ReadPrinter(%p, %p, %lu, %p)\n", hPrinter, pBuf, cbBuf, pNoBytesRead);
+
     // Sanity checks.
     if (!pHandle)
     {
@@ -759,8 +849,17 @@ Cleanup:
 }
 
 BOOL WINAPI
+ResetPrinterA(HANDLE hPrinter, PPRINTER_DEFAULTSA pDefault)
+{
+    TRACE("ResetPrinterA(%p, %p)\n", hPrinter, pDefault);
+    UNIMPLEMENTED;
+    return FALSE;
+}
+
+BOOL WINAPI
 ResetPrinterW(HANDLE hPrinter, PPRINTER_DEFAULTSW pDefault)
 {
+    TRACE("ResetPrinterW(%p, %p)\n", hPrinter, pDefault);
     UNIMPLEMENTED;
     return FALSE;
 }
@@ -771,6 +870,8 @@ SetDefaultPrinterA(LPCSTR pszPrinter)
     BOOL bReturnValue = FALSE;
     DWORD cch;
     PWSTR pwszPrinter = NULL;
+
+    TRACE("SetDefaultPrinterA(%s)\n", pszPrinter);
 
     if (pszPrinter)
     {
@@ -810,6 +911,8 @@ SetDefaultPrinterW(LPCWSTR pszPrinter)
     HKEY hWindowsKey = NULL;
     PWSTR pwszDeviceValueData = NULL;
     WCHAR wszPrinter[MAX_PRINTER_NAME + 1];
+
+    TRACE("SetDefaultPrinterW(%S)\n", pszPrinter);
 
     // Open the Devices registry key.
     dwErrorCode = (DWORD)RegOpenKeyExW(HKEY_CURRENT_USER, wszDevicesKey, 0, KEY_READ, &hDevicesKey);
@@ -908,8 +1011,17 @@ Cleanup:
 }
 
 BOOL WINAPI
+SetPrinterA(HANDLE hPrinter, DWORD Level, PBYTE pPrinter, DWORD Command)
+{
+    TRACE("SetPrinterA(%p, %lu, %p, %lu)\n", hPrinter, Level, pPrinter, Command);
+    UNIMPLEMENTED;
+    return FALSE;
+}
+
+BOOL WINAPI
 SetPrinterW(HANDLE hPrinter, DWORD Level, PBYTE pPrinter, DWORD Command)
 {
+    TRACE("SetPrinterW(%p, %lu, %p, %lu)\n", hPrinter, Level, pPrinter, Command);
     UNIMPLEMENTED;
     return FALSE;
 }
@@ -922,6 +1034,8 @@ StartDocPrinterA(HANDLE hPrinter, DWORD Level, PBYTE pDocInfo)
     DWORD dwErrorCode;
     DWORD dwReturnValue = 0;
     PDOC_INFO_1A pDocInfo1 = (PDOC_INFO_1A)pDocInfo;
+
+    TRACE("StartDocPrinterA(%p, %lu, %p)\n", hPrinter, Level, pDocInfo);
 
     // Only check the minimum required for accessing pDocInfo.
     // Additional sanity checks are done in StartDocPrinterW.
@@ -1013,6 +1127,8 @@ StartDocPrinterW(HANDLE hPrinter, DWORD Level, PBYTE pDocInfo)
     PDOC_INFO_1W pDocInfo1 = (PDOC_INFO_1W)pDocInfo;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
 
+    TRACE("StartDocPrinterW(%p, %lu, %p)\n", hPrinter, Level, pDocInfo);
+
     // Sanity checks.
     if (!pHandle)
     {
@@ -1097,6 +1213,8 @@ StartPagePrinter(HANDLE hPrinter)
     DWORD dwErrorCode;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
 
+    TRACE("StartPagePrinter(%p)\n", hPrinter);
+
     // Sanity checks.
     if (!pHandle)
     {
@@ -1126,6 +1244,8 @@ WritePrinter(HANDLE hPrinter, PVOID pBuf, DWORD cbBuf, PDWORD pcWritten)
 {
     DWORD dwErrorCode;
     PSPOOLER_HANDLE pHandle = (PSPOOLER_HANDLE)hPrinter;
+
+    TRACE("WritePrinter(%p, %p, %lu, %p)\n", hPrinter, pBuf, cbBuf, pcWritten);
 
     // Sanity checks.
     if (!pHandle)
@@ -1178,5 +1298,6 @@ Cleanup:
 BOOL WINAPI
 XcvDataW(HANDLE hXcv, PCWSTR pszDataName, PBYTE pInputData, DWORD cbInputData, PBYTE pOutputData, DWORD cbOutputData, PDWORD pcbOutputNeeded, PDWORD pdwStatus)
 {
+    TRACE("XcvDataW(%p, %S, %p, %lu, %p, %lu, %p, %p)\n", hXcv, pszDataName, pInputData, cbInputData, pOutputData, cbOutputData, pcbOutputNeeded, pdwStatus);
     return FALSE;
 }

@@ -18,20 +18,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-//#include <stdio.h>
-
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
+#include <stdio.h>
 
 #define COBJMACROS
 
-#include <wine/test.h>
-#include <objbase.h>
-#include <bits.h>
-#include <initguid.h>
-#include <bits2_0.h>
-#include <bits2_5.h>
+#include "wine/test.h"
+#include "bits.h"
+#include "initguid.h"
+#include "bits2_0.h"
+#include "bits2_5.h"
 
 /* Globals used by many tests */
 static const WCHAR test_displayName[] = {'T', 'e', 's', 't', 0};
@@ -266,10 +261,10 @@ static void test_GetProgress_preTransfer(void)
     hres = IBackgroundCopyJob_GetProgress(test_job, &progress);
     ok(hres == S_OK, "GetProgress failed: 0x%08x\n", hres);
 
-    ok(progress.BytesTotal == 0, "Incorrect BytesTotal: %x%08x\n",
-       (DWORD)(progress.BytesTotal >> 32), (DWORD)progress.BytesTotal);
-    ok(progress.BytesTransferred == 0, "Incorrect BytesTransferred: %x%08x\n",
-       (DWORD)(progress.BytesTransferred >> 32), (DWORD)progress.BytesTransferred);
+    ok(progress.BytesTotal == 0, "Incorrect BytesTotal: %s\n",
+       wine_dbgstr_longlong(progress.BytesTotal));
+    ok(progress.BytesTransferred == 0, "Incorrect BytesTransferred: %s\n",
+       wine_dbgstr_longlong(progress.BytesTransferred));
     ok(progress.FilesTotal == 0, "Incorrect FilesTotal: %u\n", progress.FilesTotal);
     ok(progress.FilesTransferred == 0, "Incorrect FilesTransferred %u\n", progress.FilesTransferred);
 }

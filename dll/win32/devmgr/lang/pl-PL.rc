@@ -163,7 +163,7 @@ BEGIN
     EDITTEXT IDC_DEVLOCATION, 100, 67, 145, 12, NOT WS_TABSTOP | NOT WS_BORDER | ES_AUTOHSCROLL | ES_READONLY
     GROUPBOX "Stan urządzenia", IDC_DEVSTATUSGROUP, 7, 83, 238, 100
     EDITTEXT IDC_DEVSTATUS, 14, 96, 224, 61, NOT WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL
-    PUSHBUTTON "&Rozwiązywanie problemów...", IDC_DEVPROBLEM, 148, 163, 90, 15
+    PUSHBUTTON "&Rozwiązywanie problemów...", IDC_DEVPROBLEM, 98, 163, 140, 15
     LTEXT "&Użycie urządzenia:", IDC_DEVUSAGELABEL, 7, 188, 222, 8, WS_DISABLED
     COMBOBOX IDC_DEVUSAGE, 7, 198, 239, 40, CBS_DROPDOWNLIST | WS_VSCROLL | WS_DISABLED
 END
@@ -184,9 +184,13 @@ BEGIN
     LTEXT "Podpis cyfrowy:", -1, 37, 81, 60, 8, SS_NOPREFIX
     EDITTEXT IDC_DIGITALSIGNER, 100, 81, 145, 12, NOT WS_TABSTOP | NOT WS_BORDER | ES_AUTOHSCROLL | ES_READONLY
     PUSHBUTTON "&Szczegóły sterownika...", IDC_DRIVERDETAILS, 7, 106, 90, 15
-    LTEXT "Wyświetla informacje szczegółowe.", -1, 106, 110, 154, 17, SS_NOPREFIX
-    PUSHBUTTON "Akt&ualizuj sterownik...", IDC_UPDATEDRIVER, 7, 126, 90, 15
-    LTEXT "Aktualizuje oprogramowanie sterownika.", -1, 106, 130, 154, 17, SS_NOPREFIX
+    LTEXT "Wyświetla informacje szczegółowe.", -1, 106, 110, 132, 17, SS_NOPREFIX
+    PUSHBUTTON "Akt&ualizuj sterownik...", IDC_UPDATEDRIVER, 7, 134, 90, 15
+    LTEXT "Aktualizuje oprogramowanie sterownika.", -1, 106, 138, 132, 17, SS_NOPREFIX
+    PUSHBUTTON "&Przywróć sterownik", IDC_ROLLBACKDRIVER, 7, 162, 90, 15
+    LTEXT "Przywraca poprzednio zainstalowany sterownik, jeśli po zaktualizowaniu sterownika urządzenie nie działa.", -1, 106, 162, 132, 25, SS_NOPREFIX
+    PUSHBUTTON "&Odinstaluj", IDC_UNINSTALLDRIVER, 7, 190, 90, 15
+    LTEXT "Odinstalowuje sterownik (zaawansowane).", -1, 106, 194, 132, 17, SS_NOPREFIX
 END
 
 IDD_DRIVERDETAILS DIALOGEX 0, 0, 224, 230

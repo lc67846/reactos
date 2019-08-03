@@ -13,6 +13,7 @@
 #include <winreg.h>
 #include <wingdi.h>
 #include <wincon.h>
+#include <windowsx.h>
 #include <tchar.h>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -47,6 +48,9 @@ INT_PTR CALLBACK EnvironmentDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPAR
 INT_PTR CALLBACK StartRecDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK VirtMemDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK LicenceDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+
+/* System information */
+BOOL GetSystemName(PWSTR pBuf, SIZE_T cchBuf);
 
 typedef struct _PAGEFILE
 {

@@ -1,8 +1,8 @@
 /*
  * PROJECT:     xml2sdb
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
- * PURPOSE:     .
- * COPYRIGHT:   Copyright 2016,2017 Mark Jansen (mark.jansen@reactos.org)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Define mapping of all shim database types to xml
+ * COPYRIGHT:   Copyright 2016-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #pragma once
@@ -14,9 +14,9 @@
 
 #include <typedefs.h>
 #include <guiddef.h>
-#include "sdbtypes.h"
+#include <sdbtypes.h>
 #include "sdbwrite.h"
-#include "sdbtagid.h"
+#include <sdbtagid.h>
 
 namespace tinyxml2
 {
@@ -51,6 +51,17 @@ struct ShimRef
     std::list<InExclude> InExcludes;
 };
 
+struct FlagRef
+{
+    FlagRef() : FlagTagid(0) { ; }
+
+    bool fromXml(XMLHandle dbNode);
+    bool toSdb(PDB pdb, Database& db);
+
+    std::string Name;
+    TAGID FlagTagid;
+};
+
 struct Shim
 {
     Shim() : Tagid(0) { ; }
@@ -65,6 +76,37 @@ struct Shim
     std::list<InExclude> InExcludes;
 };
 
+struct Flag
+{
+    Flag() : Tagid(0), KernelFlags(0), UserFlags(0), ProcessParamFlags(0) { ; }
+
+    bool fromXml(XMLHandle dbNode);
+    bool toSdb(PDB pdb, Database& db);
+
+    std::string Name;
+    TAGID Tagid;
+    QWORD KernelFlags;
+    QWORD UserFlags;
+    QWORD ProcessParamFlags;
+};
+
+
+struct Data
+{
+    Data() : Tagid(0), DataType(0), DWordData(0), QWordData(0) { ; }
+
+    bool fromXml(XMLHandle dbNode);
+    bool toSdb(PDB pdb, Database& db);
+
+    std::string Name;
+    TAGID Tagid;
+    DWORD DataType;
+
+    std::string StringData;
+    DWORD DWordData;
+    QWORD QWordData;
+};
+
 struct Layer
 {
     Layer() : Tagid(0) { ; }
@@ -75,11 +117,13 @@ struct Layer
     std::string Name;
     TAGID Tagid;
     std::list<ShimRef> ShimRefs;
+    std::list<FlagRef> FlagRefs;
+    std::list<Data> Datas;
 };
 
 struct MatchingFile
 {
-    MatchingFile() : Size(0), Checksum(0) {;}
+    MatchingFile() : Size(0), Checksum(0), LinkDate(0), LinkerVersion(0) {;}
 
     bool fromXml(XMLHandle dbNode);
     bool toSdb(PDB pdb, Database& db);
@@ -93,12 +137,12 @@ struct MatchingFile
     std::string ProductVersion;
     std::string FileVersion;
     std::string BinFileVersion;
-    std::string LinkDate;
+    DWORD LinkDate;
     std::string VerLanguage;
     std::string FileDescription;
     std::string OriginalFilename;
     std::string UptoBinFileVersion;
-    std::string LinkerVersion;
+    DWORD LinkerVersion;
 };
 
 struct Exe
@@ -115,12 +159,14 @@ struct Exe
     TAGID Tagid;
     std::list<MatchingFile> MatchingFiles;
     std::list<ShimRef> ShimRefs;
+    std::list<FlagRef> FlagRefs;
 };
 
 struct Library
 {
     std::list<InExclude> InExcludes;
     std::list<Shim> Shims;
+    std::list<Flag> Flags;
 };
 
 struct Database
@@ -135,6 +181,7 @@ struct Database
     void WriteBinary(PDB pdb, TAG tag, const GUID& guid, bool always = false);
     void WriteBinary(PDB pdb, TAG tag, const std::vector<BYTE>& data, bool always = false);
     void WriteDWord(PDB pdb, TAG tag, DWORD value, bool always = false);
+    void WriteQWord(PDB pdb, TAG tag, QWORD value, bool always = false);
     TAGID BeginWriteListTag(PDB pdb, TAG tag);
     BOOL EndWriteListTag(PDB pdb, TAGID tagid);
 
@@ -161,6 +208,17 @@ struct Database
         return FindPatchTagid(sdbstring(name.begin(), name.end()));
     }
 
+    void InsertFlagTagid(const sdbstring& name, TAGID tagid);
+    inline void InsertFlagTagid(const std::string& name, TAGID tagid)
+    {
+        InsertFlagTagid(sdbstring(name.begin(), name.end()), tagid);
+    }
+    TAGID FindFlagTagid(const sdbstring& name);
+    inline TAGID FindFlagTagid(const std::string& name)
+    {
+        return FindFlagTagid(sdbstring(name.begin(), name.end()));
+    }
+
     std::string Name;
     GUID ID;
 
@@ -171,5 +229,6 @@ struct Database
 private:
     std::map<sdbstring, TAGID> KnownShims;
     std::map<sdbstring, TAGID> KnownPatches;
+    std::map<sdbstring, TAGID> KnownFlags;
 };
 

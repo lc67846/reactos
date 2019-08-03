@@ -1,9 +1,9 @@
 /*
  * PROJECT:         ReactOS On-Screen Keyboard
  * LICENSE:         GPL - See COPYING in the top level directory
- * FILE:            base/applications/osk/osk.h
  * PURPOSE:         On screen keyboard.
- * PROGRAMMERS:     Denis ROBERT
+ * COPYRIGHT:       Denis ROBERT
+ *                  Copyright 2019 Bișoc George (fraizeraust99 at gmail dot com)
  */
 
 #ifndef _OSK_H
@@ -12,9 +12,12 @@
 /* INCLUDES ******************************************************************/
 
 #include <stdio.h>
-#include <tchar.h>
 
 #include <windows.h>
+#include <commctrl.h>
+#include <debug.h>
+#include <uxtheme.h>
+#include <vsstyle.h>
 
 #include "main.h"
 

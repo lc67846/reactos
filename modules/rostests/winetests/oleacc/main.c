@@ -20,10 +20,10 @@
 
 #define COBJMACROS
 
-#include <wine/test.h>
+#include "wine/test.h"
 #include <stdio.h>
 
-//#include "initguid.h"
+#include "initguid.h"
 #include <oleacc.h>
 
 #define DEFINE_EXPECT(func) \
@@ -410,7 +410,7 @@ static void test_getroletext(void)
         memset(buff2W, 0, sizeof(buff2W));
 
         ret = GetRoleTextW(role, NULL, 0);
-        GetRoleTextW(role, buff2W, sizeof(buff2W)/sizeof(WCHAR));
+        GetRoleTextW(role, buff2W, ARRAY_SIZE(buff2W));
         ok(ret == lstrlenW(buff2W),
            "GetRoleTextW: returned length doesn't match returned buffer for role %d\n", role);
     }

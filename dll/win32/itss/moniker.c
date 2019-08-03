@@ -20,9 +20,25 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "precomp.h"
+#include "config.h"
 
-#include <oleidl.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "ole2.h"
+
+#include "wine/itss.h"
+#include "wine/unicode.h"
+#include "wine/debug.h"
+
+#include "itsstor.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(itss);
 
 /*****************************************************************************/
 
@@ -271,7 +287,7 @@ static HRESULT WINAPI ITS_IMonikerImpl_GetDisplayName(
     ITS_IMonikerImpl *This = impl_from_IMoniker(iface);
     static const WCHAR szFormat[] = {
         'm','s','-','i','t','s',':','%','s',':',':','%','s',0 };
-    DWORD len = sizeof szFormat / sizeof(WCHAR);
+    DWORD len;
     LPWSTR str;
 
     TRACE("%p %p %p %p\n", iface, pbc, pmkToLeft, ppszDisplayName);
@@ -419,7 +435,7 @@ static HRESULT WINAPI ITS_IParseDisplayNameImpl_ParseDisplayName(
 {
     static const WCHAR szPrefix[] = { 
         '@','M','S','I','T','S','t','o','r','e',':',0 };
-    const DWORD prefix_len = (sizeof szPrefix/sizeof szPrefix[0])-1;
+    const DWORD prefix_len = ARRAY_SIZE(szPrefix)-1;
     DWORD n;
 
     ITS_IParseDisplayNameImpl *This = impl_from_IParseDisplayName(iface);

@@ -1,8 +1,11 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite test framework declarations
- * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ * PROJECT:     ReactOS kernel-mode tests
+ * LICENSE:     LGPL-2.1+ (https://spdx.org/licenses/LGPL-2.1+)
+ * PURPOSE:     Kernel-Mode Test Suite test framework declarations
+ * COPYRIGHT:   Copyright 2011-2018 Thomas Faber <thomas.faber@reactos.org>
+ *              Copyright 2013 Nikolay Borisov <nib9@aber.ac.uk>
+ *              Copyright 2014-2016 Pierre Schweitzer <pierre@reactos.org>
+ *              Copyright 2017 Ged Murphy <gedmurphy@reactos.org>
  */
 
 /* Inspired by Wine C unit tests, Copyright (C) 2002 Alexandre Julliard
@@ -117,6 +120,32 @@ NTSTATUS TestEntry(IN PDRIVER_OBJECT DriverObject, IN PCUNICODE_STRING RegistryP
 VOID TestUnload(IN PDRIVER_OBJECT DriverObject);
 #endif /* defined KMT_STANDALONE_DRIVER */
 
+#ifdef KMT_FILTER_DRIVER
+#ifndef KMT_KERNEL_MODE
+#define KMT_KERNEL_MODE
+#endif
+
+NTSTATUS KmtFilterRegisterCallbacks(_In_ CONST FLT_OPERATION_REGISTRATION *OperationRegistration);
+
+typedef enum
+{
+    TESTENTRY_NO_REGISTER_FILTER    = 0x01,
+    TESTENTRY_NO_CREATE_COMMS_PORT  = 0x02,
+    TESTENTRY_NO_START_FILTERING    = 0x04,
+    TESTENTRY_NO_INSTANCE_SETUP     = 0x08,
+    TESTENTRY_NO_QUERY_TEARDOWN     = 0x10,
+    TESTENTRY_NO_ALL                = 0xFF
+} KMT_MINIFILTER_FLAGS;
+
+VOID TestFilterUnload(_In_ ULONG Flags);
+NTSTATUS TestInstanceSetup(_In_ PCFLT_RELATED_OBJECTS FltObjects, _In_ FLT_INSTANCE_SETUP_FLAGS Flags, _In_ DEVICE_TYPE VolumeDeviceType, _In_ FLT_FILESYSTEM_TYPE VolumeFilesystemType, _In_ PUNICODE_STRING VolumeName, _In_ ULONG RealSectorSize, _In_ ULONG SectorSize);
+VOID TestQueryTeardown(_In_ PCFLT_RELATED_OBJECTS FltObjects, _In_ FLT_INSTANCE_QUERY_TEARDOWN_FLAGS Flags);
+
+NTSTATUS KmtFilterRegisterComms(_In_ PFLT_CONNECT_NOTIFY ConnectNotifyCallback, _In_ PFLT_DISCONNECT_NOTIFY DisconnectNotifyCallback, _In_opt_ PFLT_MESSAGE_NOTIFY MessageNotifyCallback, _In_ LONG MaxClientConnections);
+
+#endif/* defined KMT_FILTER_DRIVER */
+
+
 #ifdef KMT_KERNEL_MODE
 /* Device Extension layout */
 typedef struct
@@ -150,6 +179,22 @@ DWORD KmtSendStringToDriver(IN DWORD ControlCode, IN PCSTR String);
 DWORD KmtSendWStringToDriver(IN DWORD ControlCode, IN PCWSTR String);
 DWORD KmtSendUlongToDriver(IN DWORD ControlCode, IN DWORD Value);
 DWORD KmtSendBufferToDriver(IN DWORD ControlCode, IN OUT PVOID Buffer OPTIONAL, IN DWORD InLength, IN OUT PDWORD OutLength);
+
+
+DWORD KmtFltCreateService(_In_z_ PCWSTR ServiceName, _In_z_ PCWSTR DisplayName, _Out_ SC_HANDLE *ServiceHandle);
+DWORD KmtFltDeleteService(_In_opt_z_ PCWSTR ServiceName, _Inout_ SC_HANDLE *ServiceHandle);
+DWORD KmtFltAddAltitude(_In_z_ LPWSTR Altitude);
+DWORD KmtFltLoadDriver(_In_ BOOLEAN EnableDriverLoadPrivlege, _In_ BOOLEAN RestartIfRunning, _In_ BOOLEAN ConnectComms, _Out_ HANDLE *hPort);
+DWORD KmtFltUnloadDriver(_In_ HANDLE *hPort, _In_ BOOLEAN DisonnectComms);
+DWORD KmtFltConnectComms(_Out_ HANDLE *hPort);
+DWORD KmtFltDisconnectComms(_In_ HANDLE hPort);
+DWORD KmtFltRunKernelTest(_In_ HANDLE hPort, _In_z_ PCSTR TestName);
+DWORD KmtFltSendToDriver(_In_ HANDLE hPort, _In_ DWORD Message);
+DWORD KmtFltSendStringToDriver(_In_ HANDLE hPort, _In_ DWORD Message, _In_ PCSTR String);
+DWORD KmtFltSendWStringToDriver(_In_ HANDLE hPort, _In_ DWORD Message, _In_ PCWSTR String);
+DWORD KmtFltSendUlongToDriver(_In_ HANDLE hPort, _In_ DWORD Message, _In_ DWORD Value);
+DWORD KmtFltSendBufferToDriver(_In_ HANDLE hPort, _In_ DWORD Message, _In_reads_bytes_(BufferSize) LPVOID Buffer, _In_ DWORD BufferSize, _Out_writes_bytes_to_opt_(dwOutBufferSize, *lpBytesReturned) LPVOID lpOutBuffer, _In_ DWORD dwOutBufferSize, _Out_opt_ LPDWORD lpBytesReturned);
+
 #else /* if !defined KMT_KERNEL_MODE && !defined KMT_USER_MODE */
 #error either KMT_KERNEL_MODE or KMT_USER_MODE must be defined
 #endif /* !defined KMT_KERNEL_MODE && !defined KMT_USER_MODE */

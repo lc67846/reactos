@@ -25,7 +25,6 @@ list(APPEND SOURCE
     olepropframe.c
     recinfo.c
     safearray.c
-    tmarshal.c
     typelib.c
     usrmarshal.c
     varformat.c
@@ -37,7 +36,7 @@ if(MSVC)
     add_asm_files(oleaut32_asm msvc.S)
 endif()
 
-add_library(oleaut32 SHARED
+add_library(oleaut32 MODULE
     ${SOURCE}
     ${oleaut32_asm}
     oleaut32.rc

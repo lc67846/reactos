@@ -18,17 +18,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #include <stdio.h>
-#include <windef.h>
-#include <winbase.h>
-#include <winreg.h>
-#include <objbase.h>
+#include <windows.h>
 #include <advpub.h>
-#include <wine/test.h>
+#include "wine/test.h"
 
 static HMODULE hAdvPack;
 /* function pointers */
@@ -98,7 +91,11 @@ static void test_RunSetupCommand(void)
     ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got %d\n", hr);
 
     /* try to run a nonexistent exe */
+#ifdef __REACTOS__
+    hexe = (HANDLE)(ULONG_PTR)0xdeadbeefdeadbeefull;
+#else
     hexe = (HANDLE)0xdeadbeef;
+#endif
     hr = pRunSetupCommand(NULL, "idontexist.exe", "Install", systemdir, "Title", &hexe, 0, NULL);
     ok(hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
        "Expected HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND), got %d\n", hr);
@@ -106,7 +103,11 @@ static void test_RunSetupCommand(void)
     ok(!TerminateProcess(hexe, 0), "Expected TerminateProcess to fail\n");
 
     /* try a bad directory */
+#ifdef __REACTOS__
+    hexe = (HANDLE)(ULONG_PTR)0xdeadbeefdeadbeefull;
+#else
     hexe = (HANDLE)0xdeadbeef;
+#endif
     hr = pRunSetupCommand(NULL, "winver.exe", "Install", "non\\existent\\directory", "Title", &hexe, 0, NULL);
     ok(hr == HRESULT_FROM_WIN32(ERROR_DIRECTORY),
        "Expected HRESULT_FROM_WIN32(ERROR_DIRECTORY), got %d\n", hr);
@@ -114,14 +115,26 @@ static void test_RunSetupCommand(void)
     ok(!TerminateProcess(hexe, 0), "Expected TerminateProcess to fail\n");
 
     /* try to run an exe with the RSC_FLAG_INF flag */
+#ifdef __REACTOS__
+    hexe = (HANDLE)(ULONG_PTR)0xdeadbeefdeadbeefull;
+#else
     hexe = (HANDLE)0xdeadbeef;
+#endif
     hr = pRunSetupCommand(NULL, "winver.exe", "Install", systemdir, "Title", &hexe, RSC_FLAG_INF | RSC_FLAG_QUIET, NULL);
     ok(is_spapi_err(hr), "Expected a setupapi error, got %d\n", hr);
+#ifdef __REACTOS__
+    ok(hexe == (HANDLE)(ULONG_PTR)0xdeadbeefdeadbeefull, "Expected hexe to be 0xdeadbeef\n");
+#else
     ok(hexe == (HANDLE)0xdeadbeef, "Expected hexe to be 0xdeadbeef\n");
+#endif
     ok(!TerminateProcess(hexe, 0), "Expected TerminateProcess to fail\n");
 
     /* run winver.exe */
+#ifdef __REACTOS__
+    hexe = (HANDLE)(ULONG_PTR)0xdeadbeefdeadbeefull;
+#else
     hexe = (HANDLE)0xdeadbeef;
+#endif
     hr = pRunSetupCommand(NULL, "winver.exe", "Install", systemdir, "Title", &hexe, 0, NULL);
     ok(hr == S_ASYNCHRONOUS, "Expected S_ASYNCHRONOUS, got %d\n", hr);
     ok(hexe != NULL, "Expected hexe to be non-NULL\n");

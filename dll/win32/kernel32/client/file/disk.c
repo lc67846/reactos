@@ -19,7 +19,6 @@
  */
 
 #include <k32.h>
-#include <strsafe.h>
 
 #define NDEBUG
 #include <debug.h>
@@ -116,8 +115,8 @@ GetLogicalDrives(VOID)
     /* Get the Device Map for this Process */
     Status = NtQueryInformationProcess(NtCurrentProcess(),
                                        ProcessDeviceMap,
-                                       &ProcessDeviceMapInfo,
-                                       sizeof(ProcessDeviceMapInfo),
+                                       &ProcessDeviceMapInfo.Query,
+                                       sizeof(ProcessDeviceMapInfo.Query),
                                        NULL);
 
     /* Return the Drive Map */
@@ -125,6 +124,11 @@ GetLogicalDrives(VOID)
     {
         BaseSetLastNTError(Status);
         return 0;
+    }
+
+    if (ProcessDeviceMapInfo.Query.DriveMap == 0)
+    {
+        SetLastError(ERROR_SUCCESS);
     }
 
     return ProcessDeviceMapInfo.Query.DriveMap;
@@ -553,9 +557,10 @@ GetDriveTypeW(IN LPCWSTR lpRootPathName)
         PROCESS_DEVICEMAP_INFORMATION DeviceMap;
 
         /* Query the device map */
-        Status = NtQueryInformationProcess(NtCurrentProcess(), ProcessDeviceMap,
-                                           &DeviceMap,
-                                           sizeof(PROCESS_DEVICEMAP_INFORMATION),
+        Status = NtQueryInformationProcess(NtCurrentProcess(),
+                                           ProcessDeviceMap,
+                                           &DeviceMap.Query,
+                                           sizeof(DeviceMap.Query),
                                            NULL);
         /* Zero output if we failed */
         if (!NT_SUCCESS(Status))

@@ -551,13 +551,11 @@ VOID FASTCALL
 IntCoalesceMouseMove(PTHREADINFO pti)
 {
     MSG Msg;
-    LARGE_INTEGER LargeTickCount;
 
     // Force time stamp to update, keeping message time in sync.
     if (gdwMouseMoveTimeStamp == 0)
     {
-       KeQueryTickCount(&LargeTickCount);
-       gdwMouseMoveTimeStamp = MsqCalculateMessageTime(&LargeTickCount);
+        gdwMouseMoveTimeStamp = EngGetTickCount32();
     }
 
     // Build mouse move message.
@@ -581,7 +579,6 @@ IntCoalesceMouseMove(PTHREADINFO pti)
 VOID FASTCALL
 co_MsqInsertMouseMessage(MSG* Msg, DWORD flags, ULONG_PTR dwExtraInfo, BOOL Hook)
 {
-   LARGE_INTEGER LargeTickCount;
    MSLLHOOKSTRUCT MouseHookData;
 //   PDESKTOP pDesk;
    PWND pwnd, pwndDesktop;
@@ -590,8 +587,7 @@ co_MsqInsertMouseMessage(MSG* Msg, DWORD flags, ULONG_PTR dwExtraInfo, BOOL Hook
    PUSER_MESSAGE_QUEUE MessageQueue;
    PSYSTEM_CURSORINFO CurInfo;
 
-   KeQueryTickCount(&LargeTickCount);
-   Msg->time = MsqCalculateMessageTime(&LargeTickCount);
+   Msg->time = EngGetTickCount32();
 
    MouseHookData.pt.x = LOWORD(Msg->lParam);
    MouseHookData.pt.y = HIWORD(Msg->lParam);
@@ -751,7 +747,7 @@ MsqCreateMessage(LPMSG Msg)
 VOID FASTCALL
 MsqDestroyMessage(PUSER_MESSAGE Message)
 {
-   TRACE("Post Destroy %d\n",PostMsgCount)
+   TRACE("Post Destroy %d\n",PostMsgCount);
    if (Message->pti == NULL)
    {
       ERR("Double Free Message\n");
@@ -1151,7 +1147,7 @@ co_MsqSendMessage(PTHREADINFO ptirec,
    }
 
    Timeout.QuadPart = Int32x32To64(-10000,uTimeout); // Pass SMTO test with a TO of 0x80000000.
-   TRACE("Timeout val %lld\n",Timeout.QuadPart)
+   TRACE("Timeout val %lld\n",Timeout.QuadPart);
 
    Message->Msg.hwnd = Wnd;
    Message->Msg.message = Msg;
@@ -2197,11 +2193,7 @@ co_MsqWaitForNewMessages(PTHREADINFO pti, PWND WndFilter,
 BOOL FASTCALL
 MsqIsHung(PTHREADINFO pti)
 {
-   LARGE_INTEGER LargeTickCount;
-
-   KeQueryTickCount(&LargeTickCount);
-
-   if ((LargeTickCount.u.LowPart - pti->timeLast) > MSQ_HUNG &&
+    if (EngGetTickCount32() - pti->timeLast > MSQ_HUNG &&
        !(pti->pcti->fsWakeMask & QS_INPUT) &&
        !PsGetThreadFreezeCount(pti->pEThread) &&
        !(pti->ppi->W32PF_flags & W32PF_APPSTARTING))

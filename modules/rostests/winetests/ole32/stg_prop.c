@@ -15,25 +15,10 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #include <stdio.h>
-
-#include <windef.h>
-#include <winbase.h>
-#include <winuser.h>
 #define COBJMACROS
-#include <objbase.h>
-#include <wine/test.h>
-//#include "initguid.h"
-
-DEFINE_GUID(GUID_NULL,0,0,0,0,0,0,0,0,0,0,0);
-DEFINE_GUID(FMTID_SummaryInformation,0xF29F85E0,0x4FF9,0x1068,0xAB,0x91,0x08,0x00,0x2B,0x27,0xB3,0xD9);
-DEFINE_GUID(FMTID_DocSummaryInformation,0xD5CDD502,0x2E9C,0x101B,0x93,0x97,0x08,0x00,0x2B,0x2C,0xF9,0xAE);
-DEFINE_GUID(FMTID_UserDefinedProperties,0xD5CDD505,0x2E9C,0x101B,0x93,0x97,0x08,0x00,0x2B,0x2C,0xF9,0xAE);
+#include "objbase.h"
+#include "wine/test.h"
 
 #ifndef PID_BEHAVIOR
 #define PID_BEHAVIOR 0x80000003

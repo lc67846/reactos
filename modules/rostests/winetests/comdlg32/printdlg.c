@@ -22,23 +22,23 @@
 
 #define COBJMACROS
 #define CONST_VTABLE
-#define WIN32_NO_STATUS
 
-#include <wine/test.h>
-
-//#include <stdarg.h>
+#include <stdarg.h>
 #include <stdio.h>
 
-//#include "windef.h"
-//#include "winbase.h"
-//#include "winerror.h"
-#include <wingdi.h>
-#include <winuser.h>
-#include <objbase.h>
+#include "windef.h"
+#include "winbase.h"
+#include "winerror.h"
+#include "wingdi.h"
+#include "winuser.h"
+#include "objbase.h"
 
-#include <cderr.h>
-#include <commdlg.h>
-#include <dlgs.h>
+#include "cderr.h"
+#include "commdlg.h"
+#include "dlgs.h"
+#include "winspool.h"
+
+#include "wine/test.h"
 
 /* ########################### */
 

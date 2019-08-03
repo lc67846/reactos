@@ -20,7 +20,6 @@
 
 #include <freeldr.h>
 
-#define NDEBUG
 #include <debug.h>
 
 DBG_DEFAULT_CHANNEL(FILESYSTEM);
@@ -267,12 +266,12 @@ BOOLEAN FatOpenVolume(PFAT_VOLUME_INFO Volume, PFAT_BOOTSECTOR BootSector, ULONG
     {
         Volume->BytesPerSector = 512;
         Volume->SectorsPerCluster = SWAPD(FatXVolumeBootSector->SectorsPerCluster);
-        Volume->FatSectorStart = (4096 / Volume->BytesPerSector);
+        Volume->FatSectorStart = (0x1000 / Volume->BytesPerSector);
         Volume->ActiveFatSectorStart = Volume->FatSectorStart;
         Volume->NumberOfFats = 1;
         FatSize = (ULONG)(PartitionSectorCount / Volume->SectorsPerCluster *
                   (Volume->FatType == FATX16 ? 2 : 4));
-        Volume->SectorsPerFat = (((FatSize + 4095) / 4096) * 4096) / Volume->BytesPerSector;
+        Volume->SectorsPerFat = ROUND_UP(FatSize, 0x1000) / Volume->BytesPerSector;
 
         Volume->RootDirSectorStart = Volume->FatSectorStart + Volume->NumberOfFats * Volume->SectorsPerFat;
         Volume->RootDirSectors = FatXVolumeBootSector->SectorsPerCluster;
@@ -721,6 +720,7 @@ static BOOLEAN FatXSearchDirectoryBufferForFile(PFAT_VOLUME_INFO Volume, PVOID D
             /*
              * We found the entry, now fill in the FAT_FILE_INFO struct
              */
+            FatFileInfoPointer->Attributes = DirEntry->Attr;
             FatFileInfoPointer->FileSize = DirEntry->Size;
             FatFileInfoPointer->FilePointer = 0;
 
@@ -1411,14 +1411,12 @@ ARC_STATUS FatGetFileInformation(ULONG FileId, FILEINFORMATION* Information)
 {
     PFAT_FILE_INFO FileHandle = FsGetDeviceSpecific(FileId);
 
-    RtlZeroMemory(Information, sizeof(FILEINFORMATION));
+    RtlZeroMemory(Information, sizeof(*Information));
     Information->EndingAddress.LowPart = FileHandle->FileSize;
     Information->CurrentAddress.LowPart = FileHandle->FilePointer;
 
-    TRACE("FatGetFileInformation() FileSize = %d\n",
-        Information->EndingAddress.LowPart);
-    TRACE("FatGetFileInformation() FilePointer = %d\n",
-        Information->CurrentAddress.LowPart);
+    TRACE("FatGetFileInformation(%lu) -> FileSize = %lu, FilePointer = 0x%lx\n",
+          FileId, Information->EndingAddress.LowPart, Information->CurrentAddress.LowPart);
 
     return ESUCCESS;
 }

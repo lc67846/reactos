@@ -28,6 +28,8 @@
 #include <msidefs.h>
 #include <sddl.h>
 #include <fci.h>
+#include <shellapi.h>
+#include <objidl.h>
 
 #include "wine/test.h"
 

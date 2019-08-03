@@ -13,6 +13,16 @@
 static const CLASS_AND_INTERFACES ExpectedInterfaces[] =
 {
     {
+        ID_NAME(CLSID_ActiveDesktop),
+        {
+            {    0x0,   &IID_IActiveDesktop },
+            {    0x0,       &IID_IUnknown },
+            {    0x4,   &IID_IActiveDesktopP },
+            {    0x8,   &IID_IADesktopP2 },
+            {    0xc,   &IID_IPropertyBag },
+        }
+    },
+    {
         ID_NAME(CLSID_CDBurn),
         {
             {    0x0,   &IID_IObjectWithSite },
@@ -27,7 +37,7 @@ static const CLASS_AND_INTERFACES ExpectedInterfaces[] =
             {   0x24,   &IID_ICDBurn },
             {   0x28,   &IID_ICDBurnPriv },
             {   0x2c,   &IID_IPersistPropertyBag },
-            {   0x30,   &IID_IDriveFolderExt },
+            {   0x30,   &IID_IDriveFolderExtOld },
             {   0x34,   &IID_INamespaceWalkCB },
             {   0x3c,   &IID_IServiceProvider },
             {   0x40,   &IID_ITransferAdviseSinkPriv },
@@ -611,6 +621,14 @@ static const CLASS_AND_INTERFACES ExpectedInterfaces[] =
             {    0x4,   &IID_IShellMenu2 },
             {    0x8,   &IID_IObjectWithSite },
             {    0xc,   &IID_IServiceProvider },
+        }
+    },
+    {
+        ID_NAME(CLSID_UserNotification),
+        {
+            {    0x0,   &IID_IUserNotification },
+            {    0x0,       &IID_IUnknown },
+//          {    0x4,   &IID_IUserNotification2 },  // On Vista+
         }
     },
 };

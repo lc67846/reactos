@@ -21,6 +21,7 @@
 #include "initguid.h"
 #include "wmsdk.h"
 #include "wine/debug.h"
+#include "wine/heap.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wmvcore);
 
@@ -1490,7 +1491,7 @@ static HRESULT WINAPI headerinfo_AddScript(IWMHeaderInfo3 *iface, LPCWSTR_WMSDK_
         LPCWSTR_WMSDK_TYPE_SAFE command, QWORD script_time)
 {
     WMReader *This = impl_from_IWMHeaderInfo3(iface);
-    FIXME("%p, %s, %p, %s\n", This, debugstr_w(type), debugstr_w(command), wine_dbgstr_longlong(script_time));
+    FIXME("%p, %s, %s, %s\n", This, debugstr_w(type), debugstr_w(command), wine_dbgstr_longlong(script_time));
     return E_NOTIMPL;
 }
 
@@ -2132,6 +2133,7 @@ static HRESULT WINAPI WMProfileManager_QueryInterface(IWMProfileManager *iface, 
         TRACE("(%p)->(IID_IWMProfileManager %p)\n", This, ppv);
         *ppv = &This->IWMProfileManager_iface;
     }else {
+        FIXME("Unsupported iface %s\n", debugstr_guid(riid));
         *ppv = NULL;
         return E_NOINTERFACE;
     }

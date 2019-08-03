@@ -16,8 +16,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "vbscript.h"
+#include <assert.h>
 
+#include "vbscript.h"
+#include "parse.h"
+#include "parser.tab.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(vbscript);
 WINE_DECLARE_DEBUG_CHANNEL(vbscript_disas);
 
 typedef struct _statement_ctx_t {
@@ -1739,6 +1746,8 @@ void release_vbscode(vbscode_t *code)
     for(i=0; i < code->bstr_cnt; i++)
         SysFreeString(code->bstr_pool[i]);
 
+    if(code->context)
+        IDispatch_Release(code->context);
     heap_pool_free(&code->heap);
 
     heap_free(code->bstr_pool);
@@ -1751,7 +1760,7 @@ static vbscode_t *alloc_vbscode(compile_ctx_t *ctx, const WCHAR *source)
 {
     vbscode_t *ret;
 
-    ret = heap_alloc(sizeof(*ret));
+    ret = heap_alloc_zero(sizeof(*ret));
     if(!ret)
         return NULL;
 
@@ -1773,19 +1782,8 @@ static vbscode_t *alloc_vbscode(compile_ctx_t *ctx, const WCHAR *source)
 
     ret->option_explicit = ctx->parser.option_explicit;
 
-    ret->bstr_pool = NULL;
-    ret->bstr_pool_size = 0;
-    ret->bstr_cnt = 0;
-    ret->pending_exec = FALSE;
-
     ret->main_code.type = FUNC_GLOBAL;
-    ret->main_code.name = NULL;
     ret->main_code.code_ctx = ret;
-    ret->main_code.vars = NULL;
-    ret->main_code.var_cnt = 0;
-    ret->main_code.array_cnt = 0;
-    ret->main_code.arg_cnt = 0;
-    ret->main_code.args = NULL;
 
     list_init(&ret->entry);
     return ret;

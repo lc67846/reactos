@@ -16,6 +16,7 @@
 
 /* PRIVATE FUNCTIONS **********************************************************/
 
+INIT_FUNCTION
 VOID
 NTAPI
 HalpRegisterKdSupportFunctions(VOID)
@@ -26,8 +27,13 @@ HalpRegisterKdSupportFunctions(VOID)
 
     /* Register memory functions */
 #ifndef _MINIHAL_
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+    KdMapPhysicalMemory64 = HalpMapPhysicalMemory64Vista;
+    KdUnmapVirtualAddress = HalpUnmapVirtualAddressVista;
+#else
     KdMapPhysicalMemory64 = HalpMapPhysicalMemory64;
     KdUnmapVirtualAddress = HalpUnmapVirtualAddress;
+#endif
 #endif
 
     /* Register ACPI stub */

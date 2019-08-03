@@ -16,10 +16,17 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <math.h>
+#include <assert.h>
+
 #include "jscript.h"
+#include "engine.h"
+#include "parser.h"
 
-#include <wine/rbtree.h>
+#include "wine/rbtree.h"
+#include "wine/debug.h"
 
+WINE_DEFAULT_DEBUG_CHANNEL(jscript);
 WINE_DECLARE_DEBUG_CHANNEL(jscript_disas);
 
 typedef struct _statement_ctx_t {
@@ -602,7 +609,7 @@ static HRESULT compile_new_expression(compiler_ctx_t *ctx, call_expression_t *ex
     if(FAILED(hres))
         return hres;
 
-    return push_instr(ctx, OP_push_ret) ? S_OK : E_OUTOFMEMORY;
+    return push_instr(ctx, OP_push_acc) ? S_OK : E_OUTOFMEMORY;
 }
 
 static HRESULT compile_call_expression(compiler_ctx_t *ctx, call_expression_t *expr, BOOL emit_ret)
@@ -644,7 +651,7 @@ static HRESULT compile_call_expression(compiler_ctx_t *ctx, call_expression_t *e
     if(FAILED(hres))
         return hres;
 
-    return !emit_ret || push_instr(ctx, OP_push_ret) ? S_OK : E_OUTOFMEMORY;
+    return !emit_ret || push_instr(ctx, OP_push_acc) ? S_OK : E_OUTOFMEMORY;
 }
 
 static HRESULT compile_delete_expression(compiler_ctx_t *ctx, unary_expression_t *expr)
@@ -686,7 +693,7 @@ static HRESULT compile_delete_expression(compiler_ctx_t *ctx, unary_expression_t
     case EXPR_IDENT:
         return push_instr_bstr(ctx, OP_delete_ident, ((identifier_expression_t*)expr->expression)->identifier);
     default: {
-        const WCHAR fixmeW[] = {'F','I','X','M','E',0};
+        static const WCHAR fixmeW[] = {'F','I','X','M','E',0};
 
         WARN("invalid delete, unimplemented exception message\n");
 
@@ -854,35 +861,34 @@ static HRESULT literal_as_bstr(compiler_ctx_t *ctx, literal_t *literal, BSTR *st
 
 static HRESULT compile_array_literal(compiler_ctx_t *ctx, array_literal_expression_t *expr)
 {
-    unsigned i, elem_cnt = expr->length;
+    unsigned length = 0;
     array_element_t *iter;
+    unsigned array_instr;
     HRESULT hres;
 
-    for(iter = expr->element_list; iter; iter = iter->next) {
-        elem_cnt += iter->elision+1;
+    array_instr = push_instr(ctx, OP_carray);
 
-        for(i=0; i < iter->elision; i++) {
-            if(!push_instr(ctx, OP_undefined))
-                return E_OUTOFMEMORY;
-        }
+    for(iter = expr->element_list; iter; iter = iter->next) {
+        length += iter->elision;
 
         hres = compile_expression(ctx, iter->expr, TRUE);
         if(FAILED(hres))
             return hres;
+
+        hres = push_instr_uint(ctx, OP_carray_set, length);
+        if(FAILED(hres))
+            return hres;
+
+        length++;
     }
 
-    for(i=0; i < expr->length; i++) {
-        if(!push_instr(ctx, OP_undefined))
-            return E_OUTOFMEMORY;
-    }
-
-    return push_instr_uint(ctx, OP_carray, elem_cnt);
+    instr_ptr(ctx, array_instr)->u.arg[0].uint = length + expr->length;
+    return S_OK;
 }
 
 static HRESULT compile_object_literal(compiler_ctx_t *ctx, property_value_expression_t *expr)
 {
-    prop_val_t *iter;
-    unsigned instr;
+    property_definition_t *iter;
     BSTR name;
     HRESULT hres;
 
@@ -898,11 +904,9 @@ static HRESULT compile_object_literal(compiler_ctx_t *ctx, property_value_expres
         if(FAILED(hres))
             return hres;
 
-        instr = push_instr(ctx, OP_obj_prop);
-        if(!instr)
-            return E_OUTOFMEMORY;
-
-        instr_ptr(ctx, instr)->u.arg->bstr = name;
+        hres = push_instr_bstr_uint(ctx, OP_obj_prop, name, iter->type);
+        if(FAILED(hres))
+            return hres;
     }
 
     return S_OK;
@@ -1867,12 +1871,13 @@ static BOOL alloc_variable(compiler_ctx_t *ctx, const WCHAR *name)
     return alloc_local(ctx, ident, ctx->func->var_cnt++);
 }
 
-static BOOL visit_function_expression(compiler_ctx_t *ctx, function_expression_t *expr)
+static HRESULT visit_function_expression(compiler_ctx_t *ctx, function_expression_t *expr)
 {
     expr->func_id = ctx->func->func_cnt++;
     ctx->func_tail = ctx->func_tail ? (ctx->func_tail->next = expr) : (ctx->func_head = expr);
 
-    return !expr->identifier || expr->event_target || alloc_variable(ctx, expr->identifier);
+    return !expr->identifier || expr->event_target || alloc_variable(ctx, expr->identifier)
+        ? S_OK : E_OUTOFMEMORY;
 }
 
 static HRESULT visit_expression(compiler_ctx_t *ctx, expression_t *expr)
@@ -1985,13 +1990,13 @@ static HRESULT visit_expression(compiler_ctx_t *ctx, expression_t *expr)
         break;
     }
     case EXPR_FUNC:
-        visit_function_expression(ctx, (function_expression_t*)expr);
+        hres = visit_function_expression(ctx, (function_expression_t*)expr);
         break;
     case EXPR_MEMBER:
         hres = visit_expression(ctx, ((member_expression_t*)expr)->expression);
         break;
     case EXPR_PROPVAL: {
-        prop_val_t *iter;
+        property_definition_t *iter;
         for(iter = ((property_value_expression_t*)expr)->property_list; iter; iter = iter->next) {
             hres = visit_expression(ctx, iter->value);
             if(FAILED(hres))

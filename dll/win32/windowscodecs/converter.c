@@ -17,9 +17,23 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
+#include <stdarg.h>
+#include <math.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+
 #include "wincodecs_private.h"
 
-#include <math.h>
+#include "wine/heap.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 struct FormatConverter;
 
@@ -71,11 +85,13 @@ typedef struct FormatConverter {
 } FormatConverter;
 
 /* https://www.w3.org/Graphics/Color/srgb */
+#ifndef __REACTOS__
 static inline float from_sRGB_component(float f)
 {
     if (f <= 0.04045f) return f / 12.92f;
     return powf((f + 0.055f) / 1.055f, 2.4f);
 }
+#endif
 
 static inline float to_sRGB_component(float f)
 {
@@ -1081,7 +1097,7 @@ static HRESULT copypixels_to_24bppBGR(struct FormatConverter *This, const WICRec
             srcstride = 4 * prc->Width;
             srcdatasize = srcstride * prc->Height;
 
-            srcdata = HeapAlloc(GetProcessHeap(), 0, srcdatasize);
+            srcdata = heap_alloc(srcdatasize);
             if (!srcdata) return E_OUTOFMEMORY;
 
             hr = IWICBitmapSource_CopyPixels(This->source, prc, srcstride, srcdatasize, srcdata);
@@ -1109,7 +1125,7 @@ static HRESULT copypixels_to_24bppBGR(struct FormatConverter *This, const WICRec
                 }
             }
 
-            HeapFree(GetProcessHeap(), 0, srcdata);
+            heap_free(srcdata);
             return hr;
         }
         return S_OK;
@@ -1567,7 +1583,7 @@ static HRESULT WINAPI FormatConverter_CopyPixels(IWICFormatConverter *iface,
     FormatConverter *This = impl_from_IWICFormatConverter(iface);
     WICRect rc;
     HRESULT hr;
-    TRACE("(%p,%p,%u,%u,%p)\n", iface, prc, cbStride, cbBufferSize, pbBuffer);
+    TRACE("(%p,%s,%u,%u,%p)\n", iface, debug_wic_rect(prc), cbStride, cbBufferSize, pbBuffer);
 
     if (This->source)
     {

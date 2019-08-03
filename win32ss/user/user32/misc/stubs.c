@@ -11,8 +11,6 @@
 
 #include <user32.h>
 
-#include <wine/debug.h>
-
 WINE_DEFAULT_DEBUG_CHANNEL(user32);
 
 /*
@@ -543,14 +541,6 @@ IsSETEnabled(VOID)
 BOOL
 WINAPI
 RecordShutdownReason(DWORD dw0)
-{
-    UNIMPLEMENTED;
-    return FALSE;
-}
-
-BOOL
-WINAPI
-UserLpkPSMTextOut(DWORD dw1, DWORD dw2, DWORD dw3, DWORD dw4, DWORD dw5, DWORD dw6)
 {
     UNIMPLEMENTED;
     return FALSE;

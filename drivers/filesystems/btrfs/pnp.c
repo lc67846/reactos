@@ -161,7 +161,7 @@ static NTSTATUS pnp_cancel_remove_device(PDEVICE_OBJECT DeviceObject) {
 
     ExAcquireResourceSharedLite(&Vcb->tree_lock, TRUE);
 
-    ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
+    ExAcquireResourceExclusiveLite(&Vcb->fileref_lock, TRUE);
 
     if (Vcb->root_fileref && Vcb->root_fileref->fcb && (Vcb->root_fileref->open_count > 0 || has_open_children(Vcb->root_fileref))) {
         Status = STATUS_ACCESS_DENIED;
@@ -175,7 +175,7 @@ static NTSTATUS pnp_cancel_remove_device(PDEVICE_OBJECT DeviceObject) {
     }
 
 end:
-    ExReleaseResourceLite(&Vcb->fcb_lock);
+    ExReleaseResourceLite(&Vcb->fileref_lock);
     ExReleaseResourceLite(&Vcb->tree_lock);
 
     return STATUS_SUCCESS;
@@ -186,8 +186,6 @@ NTSTATUS pnp_query_remove_device(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     NTSTATUS Status;
 
     ExAcquireResourceExclusiveLite(&Vcb->tree_lock, TRUE);
-
-    ExAcquireResourceExclusiveLite(&Vcb->fcb_lock, TRUE);
 
     if (Vcb->root_fileref && Vcb->root_fileref->fcb && (Vcb->root_fileref->open_count > 0 || has_open_children(Vcb->root_fileref))) {
         Status = STATUS_ACCESS_DENIED;
@@ -216,8 +214,6 @@ NTSTATUS pnp_query_remove_device(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 
     Status = STATUS_SUCCESS;
 end:
-    ExReleaseResourceLite(&Vcb->fcb_lock);
-
     ExReleaseResourceLite(&Vcb->tree_lock);
 
     return Status;
@@ -247,12 +243,10 @@ static NTSTATUS pnp_remove_device(PDEVICE_OBJECT DeviceObject) {
 
         ExAcquireResourceExclusiveLite(&Vcb->tree_lock, TRUE);
         Vcb->removing = TRUE;
-        Vcb->Vpb->Flags &= ~VPB_MOUNTED;
-        Vcb->Vpb->Flags |= VPB_DIRECT_WRITES_ALLOWED;
         ExReleaseResourceLite(&Vcb->tree_lock);
 
         if (Vcb->open_files == 0)
-            uninit(Vcb, FALSE);
+            uninit(Vcb);
     }
 
     return STATUS_SUCCESS;
@@ -270,13 +264,11 @@ NTSTATUS pnp_surprise_removal(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
             Vcb->vde->mounted_device = NULL;
 
         Vcb->removing = TRUE;
-        Vcb->Vpb->Flags &= ~VPB_MOUNTED;
-        Vcb->Vpb->Flags |= VPB_DIRECT_WRITES_ALLOWED;
 
         ExReleaseResourceLite(&Vcb->tree_lock);
 
         if (Vcb->open_files == 0)
-            uninit(Vcb, FALSE);
+            uninit(Vcb);
     }
 
     return STATUS_SUCCESS;
@@ -349,7 +341,7 @@ end:
 static NTSTATUS bus_query_hardware_ids(PIRP Irp) {
     WCHAR* out;
 
-    static WCHAR ids[] = L"ROOT\\btrfs\0";
+    static const WCHAR ids[] = L"ROOT\\btrfs\0";
 
     out = ExAllocatePoolWithTag(PagedPool, sizeof(ids), ALLOC_TAG);
     if (!out) {
@@ -402,11 +394,11 @@ static NTSTATUS pdo_query_device_id(pdo_device_extension* pdode, PIRP Irp) {
     WCHAR name[100], *noff, *out;
     int i;
 
-    static WCHAR pref[] = L"Btrfs\\";
+    static const WCHAR pref[] = L"Btrfs\\";
 
-    RtlCopyMemory(name, pref, wcslen(pref) * sizeof(WCHAR));
+    RtlCopyMemory(name, pref, sizeof(pref) - sizeof(WCHAR));
 
-    noff = &name[wcslen(pref)];
+    noff = &name[(sizeof(pref) / sizeof(WCHAR)) - 1];
     for (i = 0; i < 16; i++) {
         *noff = hex_digit(pdode->uuid.uuid[i] >> 4); noff++;
         *noff = hex_digit(pdode->uuid.uuid[i] & 0xf); noff++;
@@ -434,7 +426,7 @@ static NTSTATUS pdo_query_device_id(pdo_device_extension* pdode, PIRP Irp) {
 static NTSTATUS pdo_query_hardware_ids(PIRP Irp) {
     WCHAR* out;
 
-    static WCHAR ids[] = L"BtrfsVolume\0";
+    static const WCHAR ids[] = L"BtrfsVolume\0";
 
     out = ExAllocatePoolWithTag(PagedPool, sizeof(ids), ALLOC_TAG);
     if (!out) {
@@ -491,7 +483,7 @@ static NTSTATUS pdo_pnp(PDEVICE_OBJECT pdo, PIRP Irp) {
 
 _Dispatch_type_(IRP_MJ_PNP)
 _Function_class_(DRIVER_DISPATCH)
-NTSTATUS drv_pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
+NTSTATUS NTAPI drv_pnp(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
     device_extension* Vcb = DeviceObject->DeviceExtension;
     NTSTATUS Status;

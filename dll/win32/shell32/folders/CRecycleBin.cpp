@@ -3,6 +3,7 @@
  *
  * Copyright (C) 2006 Mikolaj Zalewski
  * Copyright (C) 2009 Andrew Hill
+ * Copyright (C) 2018 Russell Johnson
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,8 +24,6 @@
 
 #include <mmsystem.h>
 #include <ntquery.h>
-
-#define MAX_PROPERTY_SHEET_PAGE 32
 
 WINE_DEFAULT_DEBUG_CHANNEL(CRecycleBin);
 
@@ -321,30 +320,30 @@ HRESULT WINAPI CRecycleBinItemContextMenu::QueryContextMenu(HMENU hMenu, UINT in
 
     TRACE("(%p)->(hmenu=%p indexmenu=%x cmdfirst=%x cmdlast=%x flags=%x )\n", this, hMenu, indexMenu, idCmdFirst, idCmdLast, uFlags);
 
-    if (LoadStringW(shell32_hInstance, IDS_RESTORE, szBuffer, sizeof(szBuffer) / sizeof(WCHAR)))
+    if (LoadStringW(shell32_hInstance, IDS_RESTORE, szBuffer, _countof(szBuffer)))
     {
-        szBuffer[(sizeof(szBuffer)/sizeof(WCHAR))-1] = L'\0';
+        szBuffer[_countof(szBuffer)-1] = L'\0';
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count, MFT_STRING, szBuffer, MFS_ENABLED);
         Count++;
     }
 
-    if (LoadStringW(shell32_hInstance, IDS_CUT, szBuffer, sizeof(szBuffer) / sizeof(WCHAR)))
+    if (LoadStringW(shell32_hInstance, IDS_CUT, szBuffer, _countof(szBuffer)))
     {
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_SEPARATOR, NULL, MFS_ENABLED);
-        szBuffer[(sizeof(szBuffer)/sizeof(WCHAR))-1] = L'\0';
+        szBuffer[_countof(szBuffer)-1] = L'\0';
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_STRING, szBuffer, MFS_ENABLED);
     }
 
-    if (LoadStringW(shell32_hInstance, IDS_DELETE, szBuffer, sizeof(szBuffer) / sizeof(WCHAR)))
+    if (LoadStringW(shell32_hInstance, IDS_DELETE, szBuffer, _countof(szBuffer)))
     {
-        szBuffer[(sizeof(szBuffer)/sizeof(WCHAR))-1] = L'\0';
+        szBuffer[_countof(szBuffer)-1] = L'\0';
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_SEPARATOR, NULL, MFS_ENABLED);
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_STRING, szBuffer, MFS_ENABLED);
     }
 
-    if (LoadStringW(shell32_hInstance, IDS_PROPERTIES, szBuffer, sizeof(szBuffer) / sizeof(WCHAR)))
+    if (LoadStringW(shell32_hInstance, IDS_PROPERTIES, szBuffer, _countof(szBuffer)))
     {
-        szBuffer[(sizeof(szBuffer)/sizeof(WCHAR))-1] = L'\0';
+        szBuffer[_countof(szBuffer)-1] = L'\0';
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_SEPARATOR, NULL, MFS_ENABLED);
         _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count, MFT_STRING, szBuffer, MFS_DEFAULT);
     }
@@ -792,12 +791,12 @@ HRESULT WINAPI CRecycleBin::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT i
     if (!hMenu)
         return E_INVALIDARG;
 
-    memset(&mii, 0, sizeof(mii));
+    ZeroMemory(&mii, sizeof(mii));
     mii.cbSize = sizeof(mii);
     mii.fMask = MIIM_TYPE | MIIM_ID | MIIM_STATE;
     mii.fState = RecycleBinIsEmpty() ? MFS_DISABLED : MFS_ENABLED;
     szBuffer[0] = L'\0';
-    LoadStringW(shell32_hInstance, IDS_EMPTY_BITBUCKET, szBuffer, sizeof(szBuffer) / sizeof(WCHAR));
+    LoadStringW(shell32_hInstance, IDS_EMPTY_BITBUCKET, szBuffer, _countof(szBuffer));
     mii.dwTypeData = szBuffer;
     mii.cch = wcslen(mii.dwTypeData);
     mii.wID = idCmdFirst + id++;
@@ -869,6 +868,11 @@ HRESULT WINAPI CRecycleBin::Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pd
     return S_OK;
 }
 
+/**
+ * Tests whether a file can be trashed
+ * @param wszPath Path to the file to be trash
+ * @returns TRUE if the file can be trashed, FALSE otherwise
+ */
 BOOL
 TRASH_CanTrashFile(LPCWSTR wszPath)
 {
@@ -877,7 +881,7 @@ TRASH_CanTrashFile(LPCWSTR wszPath)
     DWORD FileSystemFlags, dwSize, dwDisposition;
     HKEY hKey;
     WCHAR szBuffer[10];
-    WCHAR szKey[150] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Bitbucket\\Volume\\";
+    WCHAR szKey[150] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\BitBucket\\Volume\\";
 
     if (wszPath[1] != L':')
     {
@@ -885,12 +889,12 @@ TRASH_CanTrashFile(LPCWSTR wszPath)
         return FALSE;
     }
 
-    // Only keep the base path.
+    // Copy and retrieve the root path from get given string
     WCHAR wszRootPathName[MAX_PATH];
-    strcpyW(wszRootPathName, wszPath);
-    PathRemoveFileSpecW(wszRootPathName);
-    PathAddBackslashW(wszRootPathName);
+    StringCbCopy(wszRootPathName, sizeof(wszRootPathName), wszPath);
+    PathStripToRootW(wszRootPathName);
 
+    // Test to see if the drive is fixed (non removable)
     if (GetDriveTypeW(wszRootPathName) != DRIVE_FIXED)
     {
         /* no bitbucket on removable media */
@@ -899,7 +903,7 @@ TRASH_CanTrashFile(LPCWSTR wszPath)
 
     if (!GetVolumeInformationW(wszRootPathName, NULL, 0, &VolSerialNumber, &MaxComponentLength, &FileSystemFlags, NULL, 0))
     {
-        ERR("GetVolumeInformationW failed with %u\n", GetLastError());
+        ERR("GetVolumeInformationW failed with %u wszRootPathName=%s\n", GetLastError(), debugstr_w(wszRootPathName));
         return FALSE;
     }
 
@@ -1112,7 +1116,7 @@ HRESULT WINAPI SHEmptyRecycleBinW(HWND hwnd, LPCWSTR pszRootPath, DWORD dwFlags)
         if (dwType != REG_EXPAND_SZ) /* type dismatch */
             return S_OK;
 
-        szPath[(sizeof(szPath)/sizeof(WCHAR))-1] = L'\0';
+        szPath[_countof(szPath)-1] = L'\0';
         PlaySoundW(szPath, NULL, SND_FILENAME);
     }
     return S_OK;

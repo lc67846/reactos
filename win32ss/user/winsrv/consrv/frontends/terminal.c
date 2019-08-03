@@ -40,13 +40,6 @@
     ASSERT((ULONG_PTR)dWChar != (ULONG_PTR)sChar); \
     MultiByteToWideChar((Console)->InputCodePage, 0, (sChar), 1, (dWChar), 1)
 
-typedef struct ConsoleInput_t
-{
-    LIST_ENTRY ListEntry;
-    INPUT_RECORD InputEvent;
-} ConsoleInput;
-
-
 /* PRIVATE FUNCTIONS **********************************************************/
 
 #if 0
@@ -269,7 +262,7 @@ ConSrvTermInitTerminal(IN OUT PTERMINAL This,
     FrontEnd->Console = Console;
 
     /** HACK HACK!! Copy FrontEnd into the console!! **/
-    DPRINT1("Using FrontEndIFace HACK(1), should be removed after proper implementation!\n");
+    DPRINT("Using FrontEndIFace HACK(1), should be removed after proper implementation!\n");
     Console->FrontEndIFace = *FrontEnd;
 
     Status = FrontEnd->Vtbl->InitFrontEnd(FrontEnd, FrontEnd->Console);

@@ -61,6 +61,8 @@ DWORD outConMode;
 
 DWORD columnRightPositions[6];
 TCHAR lpSeparator[80];
+TCHAR lpSeparatorUp[80];
+TCHAR lpSeparatorDown[80];
 TCHAR lpHeader[80];
 TCHAR lpMemUnit[3];
 TCHAR lpIdleProcess[80];
@@ -161,11 +163,17 @@ void DisplayScreen()
 		WriteConsoleOutputCharacter(hStdout, lpHeader, _tcslen(lpHeader), pos, &numChars);
 
 		pos.X = 1; pos.Y = 4;
-		WriteConsoleOutputCharacter(hStdout, lpSeparator, _tcslen(lpSeparator), pos, &numChars);
+		if (scrolled)
+			WriteConsoleOutputCharacter(hStdout, lpSeparatorUp, _tcslen(lpSeparatorUp), pos, &numChars);
+		else
+			WriteConsoleOutputCharacter(hStdout, lpSeparator, _tcslen(lpSeparator), pos, &numChars);
 
 		// Footer
 		pos.X = 1; pos.Y = ScreenLines-2;
-		WriteConsoleOutputCharacter(hStdout, lpSeparator, _tcslen(lpSeparator), pos, &numChars);
+		if ((ProcPerScreen+scrolled < ProcessCount))
+			WriteConsoleOutputCharacter(hStdout, lpSeparatorDown, _tcslen(lpSeparatorDown), pos, &numChars);
+		else
+			WriteConsoleOutputCharacter(hStdout, lpSeparator, _tcslen(lpSeparator), pos, &numChars);
 
 		// Menu
 		pos.X = 1; pos.Y = ScreenLines-1;
@@ -181,7 +189,8 @@ void DisplayScreen()
 		lines = ProcPerScreen;
 	for (idx=0; idx<ProcPerScreen; idx++)
 	{
-		int len, i;
+		int i;
+		SIZE_T len;
 		TCHAR lpNumber[5];
 		TCHAR lpPid[8];
 		TCHAR lpCpu[6];
@@ -493,7 +502,7 @@ void PerfDataRefresh()
 		// so that we can establish delta values
 		pPDOld = NULL;
 		for (Idx2=0; Idx2<ProcessCountOld; Idx2++) {
-			if (pPerfDataOld[Idx2].ProcessId == (ULONG)(pSPI->UniqueProcessId) &&
+			if (pPerfDataOld[Idx2].ProcessId == HandleToUlong(pSPI->UniqueProcessId) &&
 			    /* check also for the creation time, a new process may have an id of an old one */
 			    pPerfDataOld[Idx2].CreateTime.QuadPart == pSPI->CreateTime.QuadPart) {
 				pPDOld = &pPerfDataOld[Idx2];
@@ -517,7 +526,7 @@ void PerfDataRefresh()
 #endif
 		}
 
-		pPerfData[Idx].ProcessId = (ULONG)(pSPI->UniqueProcessId);
+		pPerfData[Idx].ProcessId = HandleToUlong(pSPI->UniqueProcessId);
 		pPerfData[Idx].CreateTime = pSPI->CreateTime;
 
 		if (pPDOld)	{
@@ -579,6 +588,8 @@ void PerfDataRefresh()
 	PsaFreeCapture(pBuffer);
 
 	free(SysProcessorTimeInfo);
+	if (ProcessCount != ProcessCountOld)
+		first = 0;
 }
 
 // Code partly taken from slw32tty.c from mc/slang
@@ -647,16 +658,26 @@ int _tmain(int argc, char **argv)
 	}
 
 	for (i = 0; i < columnRightPositions[5]; i++)
+	{
 		lpSeparator[i] = _T('-');
+		lpSeparatorUp[i] = _T('^');
+		lpSeparatorDown[i] = _T('v');
+	}
 	lpHeader[0] = _T('|');
 	lpSeparator[0] = _T('+');
+	lpSeparatorUp[0] = _T('^');
+	lpSeparatorDown[0] = _T('v');
 	for (i = 0; i < 6; i++)
 	{
 		lpHeader[columnRightPositions[i]] = _T('|');
 		lpSeparator[columnRightPositions[i]] = _T('+');
+		lpSeparatorUp[columnRightPositions[i]] = _T('^');
+		lpSeparatorDown[columnRightPositions[i]] = _T('v');
 	}
-	lpSeparator[columnRightPositions[5] + 1] = _T('\0');
 	lpHeader[columnRightPositions[5] + 1] = _T('\0');
+	lpSeparator[columnRightPositions[5] + 1] = _T('\0');
+	lpSeparatorUp[columnRightPositions[5] + 1] = _T('\0');
+	lpSeparatorDown[columnRightPositions[5] + 1] = _T('\0');
 
 
 	if (!LoadString(hInst, IDS_APP_TITLE, lpTitle, 80))
@@ -720,6 +741,7 @@ int _tmain(int argc, char **argv)
 		{
 			if (ProcessKeys(numEvents) == TRUE)
 				break;
+			first = 0;
 		}
 	}
 

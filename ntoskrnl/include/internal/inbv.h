@@ -1,6 +1,6 @@
 #pragma once
 
-typedef struct _InbvProgressState
+typedef struct _INBV_PROGRESS_STATE
 {
     ULONG Floor;
     ULONG Ceiling;
@@ -17,15 +17,25 @@ typedef struct _BT_PROGRESS_INDICATOR
 typedef enum _ROT_BAR_TYPE
 {
     RB_UNSPECIFIED,
-    RB_SQUARE_CELLS
+    RB_SQUARE_CELLS,
+    RB_PROGRESS_BAR
 } ROT_BAR_TYPE;
 
+INIT_FUNCTION
 VOID
 NTAPI
 InbvUpdateProgressBar(
     IN ULONG Progress
 );
 
+INIT_FUNCTION
+VOID
+NTAPI
+InbvRotBarInit(
+    VOID
+);
+
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 InbvDriverInitialize(
@@ -33,24 +43,28 @@ InbvDriverInitialize(
     IN ULONG Count
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 InbvEnableBootDriver(
     IN BOOLEAN Enable
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 DisplayBootBitmap(
     IN BOOLEAN TextMode
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 DisplayFilter(
     IN PCHAR *String
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 FinalizeBootLogo(
@@ -71,6 +85,7 @@ InbvBitBlt(
     IN ULONG Y
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 InbvIndicateProgress(

@@ -53,6 +53,8 @@ NTSTATUS vol_close(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
 
     Irp->IoStatus.Information = 0;
 
+    ExAcquireResourceExclusiveLite(&pdo_list_lock, TRUE);
+
     ExAcquireResourceSharedLite(&pdode->child_lock, TRUE);
 
     if (InterlockedDecrement(&vde->open_count) == 0 && vde->removing) {
@@ -83,15 +85,19 @@ NTSTATUS vol_close(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
 
         ExReleaseResourceLite(&pdode->child_lock);
         ExDeleteResourceLite(&pdode->child_lock);
-        IoDetachDevice(vde->pdo);
+
+        if (vde->pdo->AttachedDevice)
+            IoDetachDevice(vde->pdo);
 
         pdo = vde->pdo;
         IoDeleteDevice(vde->device);
 
-        if (no_pnp)
+        if (!no_pnp)
             IoDeleteDevice(pdo);
     } else
         ExReleaseResourceLite(&pdode->child_lock);
+
+    ExReleaseResourceLite(&pdo_list_lock);
 
     return STATUS_SUCCESS;
 }
@@ -768,6 +774,30 @@ static NTSTATUS vol_ioctl_passthrough(volume_device_extension* vde, PIRP Irp) {
     return Status;
 }
 
+static NTSTATUS vol_query_stable_guid(volume_device_extension* vde, PIRP Irp) {
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    MOUNTDEV_STABLE_GUID* mdsg;
+    pdo_device_extension* pdode;
+
+    if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(MOUNTDEV_STABLE_GUID)) {
+        Irp->IoStatus.Information = sizeof(MOUNTDEV_STABLE_GUID);
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    mdsg = Irp->AssociatedIrp.SystemBuffer;
+
+    if (!vde->pdo)
+        return STATUS_INVALID_PARAMETER;
+
+    pdode = vde->pdode;
+
+    RtlCopyMemory(&mdsg->StableGuid, &pdode->uuid, sizeof(BTRFS_UUID));
+
+    Irp->IoStatus.Information = sizeof(MOUNTDEV_STABLE_GUID);
+
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS vol_device_control(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
     volume_device_extension* vde = DeviceObject->DeviceExtension;
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
@@ -791,8 +821,7 @@ NTSTATUS vol_device_control(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
             break;
 
         case IOCTL_MOUNTDEV_QUERY_STABLE_GUID:
-            TRACE("unhandled control code IOCTL_MOUNTDEV_QUERY_STABLE_GUID\n");
-            break;
+            return vol_query_stable_guid(vde, Irp);
 
         case IOCTL_MOUNTDEV_LINK_CREATED:
             TRACE("unhandled control code IOCTL_MOUNTDEV_LINK_CREATED\n");
@@ -805,12 +834,12 @@ NTSTATUS vol_device_control(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp) {
             return vol_is_dynamic(Irp);
 
         case IOCTL_VOLUME_ONLINE:
-            TRACE("unhandled control code IOCTL_VOLUME_ONLINE\n");
-            break;
+            Irp->IoStatus.Information = 0;
+            return STATUS_SUCCESS;
 
         case IOCTL_VOLUME_POST_ONLINE:
-            TRACE("unhandled control code IOCTL_VOLUME_POST_ONLINE\n");
-            break;
+            Irp->IoStatus.Information = 0;
+            return STATUS_SUCCESS;
 
         case IOCTL_DISK_GET_DRIVE_GEOMETRY:
             return vol_get_drive_geometry(DeviceObject, Irp);
@@ -971,7 +1000,7 @@ static BOOL allow_degraded_mount(BTRFS_UUID* uuid) {
     }
 
     adus.Buffer = L"AllowDegraded";
-    adus.Length = adus.MaximumLength = (USHORT)(wcslen(adus.Buffer) * sizeof(WCHAR));
+    adus.Length = adus.MaximumLength = sizeof(adus.Buffer) - sizeof(WCHAR);
 
     if (NT_SUCCESS(ZwQueryValueKey(h, &adus, KeyValueFullInformation, kvfi, kvfilen, &retlen))) {
         if (kvfi->Type == REG_DWORD && kvfi->DataLength >= sizeof(UINT32)) {
@@ -983,9 +1012,9 @@ static BOOL allow_degraded_mount(BTRFS_UUID* uuid) {
 
     ZwClose(h);
 
+end:
     ExFreePool(kvfi);
 
-end:
     ExFreePool(path.Buffer);
 
     return degraded;

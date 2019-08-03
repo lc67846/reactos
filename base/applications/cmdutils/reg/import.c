@@ -16,13 +16,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <windef.h>
-#include <winbase.h>
-#include <winreg.h>
+#include <windows.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <wine/unicode.h>
 #include <wine/debug.h>
+#include <wine/heap.h>
 
 #include "reg.h"
 
@@ -408,7 +409,8 @@ static void free_parser_data(struct parser *parser)
 
 static void prepare_hex_string_data(struct parser *parser)
 {
-    if (parser->data_type == REG_EXPAND_SZ || parser->data_type == REG_MULTI_SZ)
+    if (parser->data_type == REG_EXPAND_SZ || parser->data_type == REG_MULTI_SZ ||
+        parser->data_type == REG_SZ)
     {
         if (parser->is_unicode)
         {
@@ -785,6 +787,9 @@ static WCHAR *hex_data_state(struct parser *parser, WCHAR *pos)
 {
     WCHAR *line = pos;
 
+    if (!*line)
+        goto set_value;
+
     if (!convert_hex_csv_to_hex(parser, &line))
         goto invalid;
 
@@ -796,6 +801,7 @@ static WCHAR *hex_data_state(struct parser *parser, WCHAR *pos)
 
     prepare_hex_string_data(parser);
 
+set_value:
     set_state(parser, SET_VALUE);
     return line;
 

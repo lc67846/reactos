@@ -28,7 +28,7 @@
 #include "winreg.h"
 #include "winnls.h"
 #include "wine/test.h"
-#include "wine/winternl.h"
+#include "winternl.h"
 
 #ifndef __WINE_WINTERNL_H
 

@@ -36,6 +36,7 @@ VOID PcVideoClearScreen(UCHAR Attr);
 VIDEODISPLAYMODE PcVideoSetDisplayMode(char *DisplayMode, BOOLEAN Init);
 VOID PcVideoGetDisplaySize(PULONG Width, PULONG Height, PULONG Depth);
 ULONG PcVideoGetBufferSize(VOID);
+VOID PcVideoGetFontsFromFirmware(PULONG RomFontPointers);
 VOID PcVideoSetTextCursorPosition(UCHAR X, UCHAR Y);
 VOID PcVideoHideShowTextCursor(BOOLEAN Show);
 VOID PcVideoPutChar(int Ch, UCHAR Attr, unsigned X, unsigned Y);
@@ -44,8 +45,8 @@ BOOLEAN PcVideoIsPaletteFixed(VOID);
 VOID PcVideoSetPaletteColor(UCHAR Color, UCHAR Red, UCHAR Green, UCHAR Blue);
 VOID PcVideoGetPaletteColor(UCHAR Color, UCHAR* Red, UCHAR* Green, UCHAR* Blue);
 VOID PcVideoSync(VOID);
-VOID PcVideoPrepareForReactOS(IN BOOLEAN Setup);
-VOID PcPrepareForReactOS(IN BOOLEAN Setup);
+VOID PcVideoPrepareForReactOS(VOID);
+VOID PcPrepareForReactOS(VOID);
 
 PFREELDR_MEMORY_DESCRIPTOR PcMemGetMemoryMap(ULONG *MemoryMapSize);
 

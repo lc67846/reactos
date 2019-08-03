@@ -21,6 +21,36 @@
 #ifndef __EDITSTR_H
 #define __EDITSTR_H
 
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0400
+#endif
+
+#include <assert.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+
+#define COBJMACROS
+
+#include <windef.h>
+#include <winbase.h>
+#include <winnls.h>
+#include <winnt.h>
+#include <wingdi.h>
+#include <winuser.h>
+#include <richedit.h>
+#include <commctrl.h>
+#include <ole2.h>
+#include <richole.h>
+#include "imm.h"
+#include <textserv.h>
+#include "usp10.h"
+
+#include "wine/debug.h"
+#include "wine/heap.h"
+#include "wine/list.h"
+
 #ifdef __i386__
 extern const struct ITextHostVtbl itextHostStdcallVtbl DECLSPEC_HIDDEN;
 #endif /* __i386__ */
@@ -123,6 +153,12 @@ typedef enum {
 
 struct tagME_DisplayItem;
 
+struct re_object
+{
+  struct list entry;
+  REOBJECT obj;
+};
+
 typedef struct tagME_Run
 {
   ME_Style *style;
@@ -133,7 +169,7 @@ typedef struct tagME_Run
   int nFlags;
   int nAscent, nDescent; /* pixels above/below baseline */
   POINT pt; /* relative to para's position */
-  REOBJECT *ole_obj; /* FIXME: should be a union with strText (at least) */
+  struct re_object *reobj; /* FIXME: should be a union with strText (at least) */
 
   SCRIPT_ANALYSIS script_analysis;
   int num_glyphs, max_glyphs;
@@ -183,6 +219,7 @@ typedef struct tagME_Paragraph
   struct para_num para_num;
   ME_Run *eop_run; /* ptr to the end-of-para run */
   struct tagME_DisplayItem *prev_para, *next_para;
+  struct tagME_DisplayItem *prev_marked, *next_marked;
 } ME_Paragraph;
 
 typedef struct tagME_Cell /* v4.1 */
@@ -360,6 +397,7 @@ typedef struct tagME_TextEditor
   int nTotalWidth, nLastTotalWidth;
   int nAvailWidth; /* 0 = wrap to client area, else wrap width in twips */
   int nUDArrowX;
+  int total_rows;
   COLORREF rgbBackColor;
   HBRUSH hbrBackground;
   BOOL bCaretAtEnd;
@@ -396,6 +434,7 @@ typedef struct tagME_TextEditor
   int imeStartIndex;
   DWORD selofs; /* The size of the selection bar on the left side of control */
   ME_SelectionType nSelectionType;
+  ME_DisplayItem *first_marked_para;
 
   /* Track previous notified selection */
   CHARRANGE notified_cr;
@@ -406,6 +445,7 @@ typedef struct tagME_TextEditor
   BOOL bMouseCaptured;
   int wheel_remain;
   struct list style_list;
+  struct list reobj_list;
 } ME_TextEditor;
 
 typedef struct tagME_Context

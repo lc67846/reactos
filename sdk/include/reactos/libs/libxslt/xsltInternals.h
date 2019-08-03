@@ -290,7 +290,7 @@ struct _xsltTemplate {
     int inheritedNsNr;  /* number of inherited namespaces */
     xmlNsPtr *inheritedNs;/* inherited non-excluded namespaces */
 
-    /* Profiling informations */
+    /* Profiling information */
     int nbCalls;        /* the number of time the template was called */
     unsigned long time; /* the time spent in this template */
     void *params;       /* xsl:param instructions */
@@ -324,6 +324,7 @@ struct _xsltDecimalFormat {
     xmlChar *percent;
     xmlChar *permille;
     xmlChar *zeroDigit;
+    const xmlChar *nsUri;
 };
 
 /**
@@ -1512,7 +1513,7 @@ struct _xsltStylesheet {
      */
     xsltTemplatePtr templates;	/* the ordered list of templates */
     void *templatesHash;	/* hash table or wherever compiled templates
-				   informations are stored */
+				   information is stored */
     void *rootMatch;		/* template based on / */
     void *keyMatch;		/* template based on key() */
     void *elemMatch;		/* template based on * */
@@ -1732,7 +1733,7 @@ struct _xsltTransformContext {
 
     int              extrasNr;		/* the number of extras used */
     int              extrasMax;		/* the number of extras allocated */
-    xsltRuntimeExtraPtr extras;		/* extra per runtime informations */
+    xsltRuntimeExtraPtr extras;		/* extra per runtime information */
 
     xsltDocumentPtr  styleList;		/* the stylesheet docs list */
     void                 * sec;		/* the security preferences if any */
@@ -1754,8 +1755,8 @@ struct _xsltTransformContext {
      * Speed optimization when coalescing text nodes
      */
     const xmlChar  *lasttext;		/* last text node content */
-    unsigned int    lasttsize;		/* last text node size */
-    unsigned int    lasttuse;		/* last text node use */
+    int             lasttsize;		/* last text node size */
+    int             lasttuse;		/* last text node use */
     /*
      * Per Context Debugging
      */
@@ -1783,9 +1784,9 @@ struct _xsltTransformContext {
     xmlDocPtr localRVT; /* list of local tree fragments; will be freed when
 			   the instruction which created the fragment
                            exits */
-    xmlDocPtr localRVTBase;
+    xmlDocPtr localRVTBase; /* Obsolete */
     int keyInitLevel;   /* Needed to catch recursive keys issues */
-    int funcLevel;      /* Needed to catch recursive functions issues */
+    int depth;          /* Needed to catch recursions */
     int maxTemplateDepth;
     int maxTemplateVars;
 };
@@ -1854,6 +1855,10 @@ XSLTPUBFUN void XSLTCALL
 XSLTPUBFUN xsltDecimalFormatPtr XSLTCALL
 			xsltDecimalFormatGetByName(xsltStylesheetPtr style,
 						 xmlChar *name);
+XSLTPUBFUN xsltDecimalFormatPtr XSLTCALL
+			xsltDecimalFormatGetByQName(xsltStylesheetPtr style,
+						 const xmlChar *nsUri,
+                                                 const xmlChar *name);
 
 XSLTPUBFUN xsltStylesheetPtr XSLTCALL
 			xsltParseStylesheetProcess(xsltStylesheetPtr ret,
@@ -1906,6 +1911,11 @@ XSLTPUBFUN int XSLTCALL
 XSLTPUBFUN int XSLTCALL
 			xsltExtensionInstructionResultFinalize(
 						 xsltTransformContextPtr ctxt);
+XSLTPUBFUN int XSLTCALL
+			xsltFlagRVTs(
+						 xsltTransformContextPtr ctxt,
+						 xmlXPathObjectPtr obj,
+						 void *val);
 XSLTPUBFUN void XSLTCALL
 			xsltFreeRVTs		(xsltTransformContextPtr ctxt);
 XSLTPUBFUN void XSLTCALL

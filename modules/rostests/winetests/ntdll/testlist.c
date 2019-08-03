@@ -17,6 +17,7 @@ extern void func_om(void);
 extern void func_path(void);
 extern void func_pipe(void);
 extern void func_port(void);
+extern void func_process(void);
 extern void func_reg(void);
 extern void func_rtl(void);
 extern void func_rtlbitmap(void);
@@ -31,7 +32,9 @@ const struct test winetest_testlist[] =
     { "directory", func_directory },
     { "env", func_env },
     { "error", func_error },
+#ifdef _M_IX86
     { "exception", func_exception },
+#endif
     { "file", func_file },
 #ifdef _M_IX86
     { "generated", func_generated },
@@ -42,6 +45,7 @@ const struct test winetest_testlist[] =
     { "path", func_path },
     { "pipe", func_pipe },
     { "port", func_port },
+    { "process", func_process },
     { "reg", func_reg },
     { "rtl", func_rtl },
     { "rtlbitmap", func_rtlbitmap },

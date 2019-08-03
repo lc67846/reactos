@@ -8,10 +8,7 @@
 
 #include "precomp.h"
 
-#include <mmsystem.h>
 #include <mmddk.h>
-
-WINE_DEFAULT_DEBUG_CHANNEL(stobject);
 
 HICON g_hIconVolume;
 HICON g_hIconMute;
@@ -24,7 +21,6 @@ DWORD  g_muteControlID;
 UINT g_mmDeviceChange;
 
 static BOOL g_IsMute = FALSE;
-static BOOL g_IsRunning = FALSE;
 
 static HRESULT __stdcall Volume_FindMixerControl(CSysTray * pSysTray)
 {
@@ -35,7 +31,7 @@ static HRESULT __stdcall Volume_FindMixerControl(CSysTray * pSysTray)
 
     TRACE("Volume_FindDefaultMixerID\n");
 
-    result = waveOutMessage((HWAVEOUT)WAVE_MAPPER, DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)&waveOutId, (DWORD_PTR)&param2);
+    result = waveOutMessage((HWAVEOUT)UlongToHandle(WAVE_MAPPER), DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)&waveOutId, (DWORD_PTR)&param2);
     if (result)
         return E_FAIL;
 
@@ -49,7 +45,7 @@ static HRESULT __stdcall Volume_FindMixerControl(CSysTray * pSysTray)
     {
         TRACE("waveOut default device is %d\n", waveOutId);
 
-        result = mixerGetID((HMIXEROBJ)waveOutId, &mixerId, MIXER_OBJECTF_WAVEOUT);
+        result = mixerGetID((HMIXEROBJ)UlongToHandle(waveOutId), &mixerId, MIXER_OBJECTF_WAVEOUT);
         if (result)
             return E_FAIL;
 
@@ -80,7 +76,7 @@ static HRESULT __stdcall Volume_FindMixerControl(CSysTray * pSysTray)
     {
         mixerLine.cbStruct = sizeof(mixerLine);
         mixerLine.dwDestination = idx;
-        if (!mixerGetLineInfoW((HMIXEROBJ)g_mixerId, &mixerLine, 0))
+        if (!mixerGetLineInfoW((HMIXEROBJ)UlongToHandle(g_mixerId), &mixerLine, 0))
         {
             if (mixerLine.dwComponentType >= MIXERLINE_COMPONENTTYPE_DST_SPEAKERS &&
                 mixerLine.dwComponentType <= MIXERLINE_COMPONENTTYPE_DST_HEADPHONES)
@@ -103,7 +99,7 @@ static HRESULT __stdcall Volume_FindMixerControl(CSysTray * pSysTray)
     mixerLineControls.pamxctrl = &mixerControl;
     mixerLineControls.cbmxctrl = sizeof(mixerControl);
 
-    if (mixerGetLineControlsW((HMIXEROBJ)g_mixerId, &mixerLineControls, MIXER_GETLINECONTROLSF_ONEBYTYPE))
+    if (mixerGetLineControlsW((HMIXEROBJ)UlongToHandle(g_mixerId), &mixerLineControls, MIXER_GETLINECONTROLSF_ONEBYTYPE))
         return E_FAIL;
 
     TRACE("Found control id %d for mute: %d\n", mixerControl.dwControlID);
@@ -113,7 +109,7 @@ static HRESULT __stdcall Volume_FindMixerControl(CSysTray * pSysTray)
     return S_OK;
 }
 
-HRESULT Volume_IsMute(VOID)
+HRESULT Volume_IsMute()
 {
 #if 0
     MIXERCONTROLDETAILS mixerControlDetails;
@@ -158,8 +154,6 @@ HRESULT STDMETHODCALLTYPE Volume_Init(_In_ CSysTray * pSysTray)
     g_hIconMute = LoadIcon(g_hInstance, MAKEINTRESOURCE(IDI_VOLMUTE));
 
     Volume_IsMute();
-
-    g_IsRunning = TRUE;
 
     HICON icon;
     if (g_IsMute)
@@ -207,8 +201,6 @@ HRESULT STDMETHODCALLTYPE Volume_Shutdown(_In_ CSysTray * pSysTray)
 {
     TRACE("Volume_Shutdown\n");
 
-    g_IsRunning = FALSE;
-
     return pSysTray->NotifyIcon(NIM_DELETE, ID_ICON_VOLUME, NULL, NULL);
 }
 
@@ -217,10 +209,9 @@ HRESULT Volume_OnDeviceChange(_In_ CSysTray * pSysTray, WPARAM wParam, LPARAM lP
     return Volume_FindMixerControl(pSysTray);
 }
 
-static void _RunVolume(BOOL bSmall)
+static void _RunVolume(BOOL bTray)
 {
-    // FIXME: ensure we are loading the right one
-    ShellExecuteW(NULL, NULL, L"sndvol32.exe", bSmall ? L"/t" : NULL, NULL, SW_SHOWNORMAL);
+    ShellExecuteW(NULL, NULL, bTray ? L"sndvol32.exe /t" : L"sndvol32.exe", NULL, NULL, SW_SHOWNORMAL);
 }
 
 static void _RunMMCpl()
@@ -241,11 +232,12 @@ static void _ShowContextMenu(CSysTray * pSysTray)
     SetMenuDefaultItem(hPopup, IDS_VOL_OPEN, FALSE);
 
     DWORD flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTALIGN | TPM_BOTTOMALIGN;
-    DWORD msgPos = GetMessagePos();
-
+    POINT pt;
     SetForegroundWindow(pSysTray->GetHWnd());
+    GetCursorPos(&pt);
+
     DWORD id = TrackPopupMenuEx(hPopup, flags,
-        GET_X_LPARAM(msgPos), GET_Y_LPARAM(msgPos),
+        pt.x, pt.y,
         pSysTray->GetHWnd(), NULL);
 
     DestroyMenu(hPopup);
@@ -270,23 +262,37 @@ HRESULT STDMETHODCALLTYPE Volume_Message(_In_ CSysTray * pSysTray, UINT uMsg, WP
     {
         case WM_USER + 220:
             TRACE("Volume_Message: WM_USER+220\n");
-            if (wParam == 4)
+            if (wParam == VOLUME_SERVICE_FLAG)
             {
-                if (lParam == FALSE)
+                if (lParam)
+                {
+                    pSysTray->EnableService(VOLUME_SERVICE_FLAG, TRUE);
                     return Volume_Init(pSysTray);
+                }
                 else
+                {
+                    pSysTray->EnableService(VOLUME_SERVICE_FLAG, FALSE);
                     return Volume_Shutdown(pSysTray);
+                }
             }
             return S_FALSE;
 
         case WM_USER + 221:
             TRACE("Volume_Message: WM_USER+221\n");
-            if (wParam == 4)
+            if (wParam == VOLUME_SERVICE_FLAG)
             {
-                lResult = (LRESULT)g_IsRunning;
+                lResult = (LRESULT)pSysTray->IsServiceEnabled(VOLUME_SERVICE_FLAG);
                 return S_OK;
             }
             return S_FALSE;
+
+        case WM_TIMER:
+            if (wParam == VOLUME_TIMER_ID)
+            {
+                KillTimer(pSysTray->GetHWnd(), VOLUME_TIMER_ID);
+                _RunVolume(TRUE);
+            }
+            break;
 
         case ID_ICON_VOLUME:
             TRACE("Volume_Message uMsg=%d, w=%x, l=%x\n", uMsg, wParam, lParam);
@@ -296,7 +302,7 @@ HRESULT STDMETHODCALLTYPE Volume_Message(_In_ CSysTray * pSysTray, UINT uMsg, WP
             switch (lParam)
             {
                 case WM_LBUTTONDOWN:
-                    SetTimer(pSysTray->GetHWnd(), VOLUME_TIMER_ID, 500, NULL);
+                    SetTimer(pSysTray->GetHWnd(), VOLUME_TIMER_ID, GetDoubleClickTime(), NULL);
                     break;
 
                 case WM_LBUTTONUP:
@@ -328,12 +334,4 @@ HRESULT STDMETHODCALLTYPE Volume_Message(_In_ CSysTray * pSysTray, UINT uMsg, WP
     }
 
     return S_FALSE;
-}
-
-VOID
-Volume_OnTimer(HWND hWnd)
-{
-    TRACE("Volume_OnTimer\n!");
-    KillTimer(hWnd, VOLUME_TIMER_ID);
-    _RunVolume(TRUE);
 }

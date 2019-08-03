@@ -21,6 +21,8 @@
 #pragma makedep client
 #pragma makedep server
 
+import "objidl.idl";
+
 #include "server_defines.h"
 
 typedef struct tag_vector
@@ -383,4 +385,15 @@ cpp_quote("#endif")
   void authinfo_test(unsigned int protseq, int secure);
 
   void stop(void);
+  void stop_autolisten(void);
+
+  typedef union ipu switch(int t)
+  {
+    default: IStream *stream;
+  } ipu_t;
+
+  void ip_test([in] ipu_t *a);
+
+  int sum_ptr_array([in] int *a[2]);
+  int sum_array_ptr([in] int (*a)[2]);
 }

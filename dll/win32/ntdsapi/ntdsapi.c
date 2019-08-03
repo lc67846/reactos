@@ -16,17 +16,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-
 #include <stdarg.h>
 
-#include <windef.h>
-//#include "winbase.h"
-//#include "winerror.h"
-#include <winuser.h>
-#include <ntdsapi.h>
-#include <wine/debug.h>
-#include <wine/unicode.h>
+#include "windef.h"
+#include "winbase.h"
+#include "winerror.h"
+#include "winuser.h"
+#include "ntdsapi.h"
+#include "wine/debug.h"
+#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ntdsapi);
 
@@ -206,6 +204,9 @@ DWORD WINAPI DsServerRegisterSpnW(DS_SPN_WRITE_OP operation, LPCWSTR ServiceClas
     return ERROR_CALL_NOT_IMPLEMENTED;
 }
 
+/***********************************************************************
+ *             DsClientMakeSpnForTargetServerW (NTDSAPI.@)
+ */
 DWORD WINAPI DsClientMakeSpnForTargetServerW(LPCWSTR class, LPCWSTR name, DWORD *buflen, LPWSTR buf)
 {
     DWORD len;
@@ -230,4 +231,24 @@ DWORD WINAPI DsClientMakeSpnForTargetServerW(LPCWSTR class, LPCWSTR name, DWORD 
     buf[len - 1] = 0;
 
     return ERROR_SUCCESS;
+}
+
+/***********************************************************************
+ *             DsCrackNamesA (NTDSAPI.@)
+ */
+DWORD WINAPI DsCrackNamesA(HANDLE handle, DS_NAME_FLAGS flags, DS_NAME_FORMAT offered, DS_NAME_FORMAT desired,
+                   DWORD num, const CHAR **names, PDS_NAME_RESULTA *result)
+{
+    FIXME("(%p %u %u %u %u %p %p stub\n", handle, flags, offered, desired, num, names, result);
+    return ERROR_CALL_NOT_IMPLEMENTED;
+}
+
+/***********************************************************************
+ *             DsCrackNamesW (NTDSAPI.@)
+ */
+DWORD WINAPI DsCrackNamesW(HANDLE handle, DS_NAME_FLAGS flags, DS_NAME_FORMAT offered, DS_NAME_FORMAT desired,
+                   DWORD num, const WCHAR **names, PDS_NAME_RESULTW *result)
+{
+    FIXME("(%p %u %u %u %u %p %p stub\n", handle, flags, offered, desired, num, names, result);
+    return ERROR_CALL_NOT_IMPLEMENTED;
 }

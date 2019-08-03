@@ -367,6 +367,7 @@
 @ cdecl _errno()
 @ cdecl -i386 _except_handler2(ptr ptr ptr ptr)
 @ cdecl -i386 _except_handler3(ptr ptr ptr ptr)
+@ cdecl -i386 -version=0x600+ _except_handler4_common(ptr ptr ptr ptr ptr ptr)
 @ varargs _execl(str str)
 @ varargs _execle(str str)
 @ varargs _execlp(str str)
@@ -491,6 +492,7 @@
 @ cdecl _lfind(ptr ptr ptr long ptr)
 @ cdecl _loaddll(str)
 @ cdecl -i386 _local_unwind2(ptr long)
+@ cdecl -i386 -version=0x600+ _local_unwind4(ptr ptr long)
 @ cdecl _localtime64(ptr)
 @ cdecl _lock(long)
 @ cdecl _locking(long long long)
@@ -601,8 +603,8 @@
 @ cdecl -arch=i386 _safe_fprem()
 @ cdecl -arch=i386 _safe_fprem1()
 @ cdecl _scalb(double long)
-# stub _scprintf
-# stub _scwprintf
+@ varargs _scprintf(str)
+@ varargs _scwprintf(wstr)
 @ cdecl _searchenv(str str ptr)
 @ stdcall -i386 _seh_longjmp_unwind(ptr)
 # stub _set_SSE2_enable

@@ -27,6 +27,7 @@
 #include <msiquery.h>
 #include <msidefs.h>
 #include <msi.h>
+#include <wtypes.h>
 
 #include "wine/test.h"
 

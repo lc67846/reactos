@@ -21,7 +21,25 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "precomp.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "winnls.h"
+#include "winerror.h"
+#include "wine/winternl.h"
+#include "wine/unicode.h"
+
+#include "rpc.h"
+#include "rpcndr.h"
+
+#include "wine/debug.h"
+
+#include "rpc_binding.h"
+#include "rpc_assoc.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(rpc);
 
@@ -254,13 +272,13 @@ RPC_STATUS RPCRT4_ReleaseBinding(RpcBinding* Binding)
 
 RPC_STATUS RPCRT4_OpenBinding(RpcBinding* Binding, RpcConnection** Connection,
                               const RPC_SYNTAX_IDENTIFIER *TransferSyntax,
-                              const RPC_SYNTAX_IDENTIFIER *InterfaceId)
+                              const RPC_SYNTAX_IDENTIFIER *InterfaceId, BOOL *from_cache)
 {
   TRACE("(Binding == ^%p)\n", Binding);
 
   if (!Binding->server) {
      return RpcAssoc_GetClientConnection(Binding->Assoc, InterfaceId,
-         TransferSyntax, Binding->AuthInfo, Binding->QOS, Binding->CookieAuth, Connection);
+         TransferSyntax, Binding->AuthInfo, Binding->QOS, Binding->CookieAuth, Connection, from_cache);
   } else {
     /* we already have a connection with acceptable binding, so use it */
     if (Binding->FromConn) {

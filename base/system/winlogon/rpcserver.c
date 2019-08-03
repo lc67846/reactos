@@ -6,13 +6,12 @@
  * PROGRAMMERS:     Eric Kohl
  */
 
-/* INCLUDES *****************************************************************/
+/* INCLUDES ******************************************************************/
 
 #include "winlogon.h"
 
 #include <rpc.h>
 #include <winreg_s.h>
-
 
 /* FUNCTIONS *****************************************************************/
 
@@ -431,7 +430,10 @@ BaseAbortSystemShutdown(
     PREGISTRY_SERVER_NAME ServerName)
 {
     TRACE("BaseAbortSystemShutdown()\n");
-    return ERROR_SUCCESS;
+
+    //FIXME: Verify that the caller actually has the correct privileges
+
+    return TerminateSystemShutdown();
 }
 
 
@@ -504,12 +506,13 @@ BaseInitiateSystemShutdownEx(
     TRACE("  Reboot: %d\n", bRebootAfterShutdown);
     TRACE("  Reason: %lu\n", dwReason);
 
-//    return ERROR_SUCCESS;
+    //FIXME: Verify that the caller actually has the correct privileges
 
-    /* FIXME */
-    return ExitWindowsEx((bRebootAfterShutdown ? EWX_REBOOT : EWX_SHUTDOWN) |
-                         (bForceAppsClosed ? EWX_FORCE : 0),
-                         dwReason);
+    return StartSystemShutdown((PUNICODE_STRING)lpMessage,
+                               dwTimeout,
+                               bForceAppsClosed,
+                               bRebootAfterShutdown,
+                               dwReason);
 }
 
 

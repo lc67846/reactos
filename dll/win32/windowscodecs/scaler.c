@@ -16,7 +16,21 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
+#include <stdarg.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+
 #include "wincodecs_private.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 typedef struct BitmapScaler {
     IWICBitmapScaler IWICBitmapScaler_iface;
@@ -105,11 +119,11 @@ static HRESULT WINAPI BitmapScaler_GetSize(IWICBitmapScaler *iface,
     BitmapScaler *This = impl_from_IWICBitmapScaler(iface);
     TRACE("(%p,%p,%p)\n", iface, puiWidth, puiHeight);
 
+    if (!This->source)
+        return WINCODEC_ERR_NOTINITIALIZED;
+
     if (!puiWidth || !puiHeight)
         return E_INVALIDARG;
-
-    if (!This->source)
-        return WINCODEC_ERR_WRONGSTATE;
 
     *puiWidth = This->width;
     *puiHeight = This->height;
@@ -127,7 +141,10 @@ static HRESULT WINAPI BitmapScaler_GetPixelFormat(IWICBitmapScaler *iface,
         return E_INVALIDARG;
 
     if (!This->source)
-        return WINCODEC_ERR_WRONGSTATE;
+    {
+        memcpy(pPixelFormat, &GUID_WICPixelFormatDontCare, sizeof(*pPixelFormat));
+        return S_OK;
+    }
 
     return IWICBitmapSource_GetPixelFormat(This->source, pPixelFormat);
 }
@@ -138,11 +155,11 @@ static HRESULT WINAPI BitmapScaler_GetResolution(IWICBitmapScaler *iface,
     BitmapScaler *This = impl_from_IWICBitmapScaler(iface);
     TRACE("(%p,%p,%p)\n", iface, pDpiX, pDpiY);
 
+    if (!This->source)
+        return WINCODEC_ERR_NOTINITIALIZED;
+
     if (!pDpiX || !pDpiY)
         return E_INVALIDARG;
-
-    if (!This->source)
-        return WINCODEC_ERR_WRONGSTATE;
 
     return IWICBitmapSource_GetResolution(This->source, pDpiX, pDpiY);
 }
@@ -157,7 +174,7 @@ static HRESULT WINAPI BitmapScaler_CopyPalette(IWICBitmapScaler *iface,
         return E_INVALIDARG;
 
     if (!This->source)
-        return WINCODEC_ERR_WRONGSTATE;
+        return WINCODEC_ERR_PALETTEUNAVAILABLE;
 
     return IWICBitmapSource_CopyPalette(This->source, pIPalette);
 }
@@ -201,7 +218,7 @@ static HRESULT WINAPI BitmapScaler_CopyPixels(IWICBitmapScaler *iface,
     ULONG buffer_size;
     UINT y;
 
-    TRACE("(%p,%p,%u,%u,%p)\n", iface, prc, cbStride, cbBufferSize, pbBuffer);
+    TRACE("(%p,%s,%u,%u,%p)\n", iface, debug_wic_rect(prc), cbStride, cbBufferSize, pbBuffer);
 
     EnterCriticalSection(&This->lock);
 
@@ -305,6 +322,9 @@ static HRESULT WINAPI BitmapScaler_Initialize(IWICBitmapScaler *iface,
     GUID src_pixelformat;
 
     TRACE("(%p,%p,%u,%u,%u)\n", iface, pISource, uiWidth, uiHeight, mode);
+
+    if (!pISource || !uiWidth || !uiHeight)
+        return E_INVALIDARG;
 
     EnterCriticalSection(&This->lock);
 

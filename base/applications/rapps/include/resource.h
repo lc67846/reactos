@@ -13,6 +13,7 @@
 #define IDI_CATEGORY             19
 #define IDI_UPDATE_DB            20
 #define IDI_CHECK_ALL            21
+#define IDI_SELECTEDFORINST      22
 
 /* Icons for categories */
 #define IDI_CAT_AUDIO            50
@@ -30,6 +31,7 @@
 #define IDI_CAT_SCIENCE          62
 #define IDI_CAT_TOOLS            63
 #define IDI_CAT_VIDEO            64
+#define IDI_CAT_THEMES           65
 
 /* Bitmaps */
 
@@ -78,6 +80,7 @@
 #define ID_REGREMOVE             560
 #define ID_RESETDB               561
 #define ID_CHECK_ALL             562
+#define ID_SEARCH                563
 
 /* Strings */
 #define IDS_APPTITLE             100
@@ -100,7 +103,7 @@
 #define IDS_UNABLE_TO_REMOVE     118
 #define IDS_UNABLE_TO_DOWNLOAD   119
 #define IDS_UNABLE_TO_DOWNLOAD2  120
-#define IDS_CERT_DOES_NOT_MATCH  121
+#define IDS_UNABLE_TO_QUERY_CERT 121
 #define IDS_INTEG_CHECK_TITLE    122
 #define IDS_INTEG_CHECK_FAIL     123
 #define IDS_INTERRUPTED_DOWNLOAD 124
@@ -108,6 +111,8 @@
 #define IDS_SELECT_ALL           126
 #define IDS_INSTALL_SELECTED     127
 #define IDS_UNABLE_TO_INSTALL    128
+#define IDS_SELECTEDFORINST      129
+#define IDS_MISMATCH_CERT_INFO   130
 
 /* Tooltips */
 #define IDS_TOOLTIP_INSTALL      200
@@ -151,6 +156,9 @@
 #define IDS_AINFO_URLDOWNLOAD        355
 #define IDS_AINFO_AVAILABLEVERSION   356
 #define IDS_AINFO_LANGUAGES          357
+#define IDS_AINFO_KILOBYTE_EXT       358
+#define IDS_AINFO_MEGABYTE_EXT       359
+#define IDS_AINFO_GIGABYTE_EXT       360
 
 
 /* Names of categories */
@@ -169,9 +177,10 @@
 #define IDS_CAT_SCIENCE          712
 #define IDS_CAT_TOOLS            713
 #define IDS_CAT_VIDEO            714
+#define IDS_CAT_THEMES           715
 
 /* App installation status */
-#define IDS_STATUS_INSTALLED          800     
+#define IDS_STATUS_INSTALLED          800
 #define IDS_STATUS_NOTINSTALLED       801
 #define IDS_STATUS_DOWNLOADED         802
 #define IDS_STATUS_UPDATE_AVAILABLE   803

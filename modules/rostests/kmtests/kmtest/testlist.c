@@ -1,16 +1,22 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite user-mode test list
- * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ * PROJECT:     ReactOS kernel-mode tests
+ * LICENSE:     LGPL-2.1+ (https://spdx.org/licenses/LGPL-2.1+)
+ * PURPOSE:     Kernel-Mode Test Suite user-mode test list
  */
 
 #include <kmt_test.h>
 
 KMT_TESTFUNC Test_CcCopyRead;
+KMT_TESTFUNC Test_CcCopyWrite;
+KMT_TESTFUNC Test_CcMapData;
+KMT_TESTFUNC Test_CcPinMappedData;
+KMT_TESTFUNC Test_CcPinRead;
+KMT_TESTFUNC Test_CcSetFileSizes;
 KMT_TESTFUNC Test_Example;
 KMT_TESTFUNC Test_FileAttributes;
 KMT_TESTFUNC Test_FindFile;
+KMT_TESTFUNC Test_FltMgrLoad;
+KMT_TESTFUNC Test_FltMgrReg;
 KMT_TESTFUNC Test_HidPDescription;
 KMT_TESTFUNC Test_IoCreateFile;
 KMT_TESTFUNC Test_IoDeviceObject;
@@ -34,9 +40,16 @@ KMT_TESTFUNC Test_TcpIpConnect;
 const KMT_TEST TestList[] =
 {
     { "CcCopyRead",                   Test_CcCopyRead },
+    { "CcCopyWrite",                  Test_CcCopyWrite },
+    { "CcMapData",                    Test_CcMapData },
+    { "CcPinMappedData",              Test_CcPinMappedData },
+    { "CcPinRead",                    Test_CcPinRead },
+    { "CcSetFileSizes",               Test_CcSetFileSizes },
     { "-Example",                     Test_Example },
     { "FileAttributes",               Test_FileAttributes },
     { "FindFile",                     Test_FindFile },
+    { "-FltMgrLoad",                  Test_FltMgrLoad }, // TODO: WIP/untested/crashes.
+    { "-FltMgrReg",                   Test_FltMgrReg }, // TODO: WIP/untested/crashes.
     { "HidPDescription",              Test_HidPDescription },
     { "IoCreateFile",                 Test_IoCreateFile },
     { "IoDeviceObject",               Test_IoDeviceObject },

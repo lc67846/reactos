@@ -30,7 +30,7 @@
 @ stdcall -private DllUnregisterServer()
 @ stub InitPropVariantFromBooleanVector
 @ stdcall InitPropVariantFromBuffer(ptr long ptr)
-@ stub InitPropVariantFromCLSID
+@ stdcall InitPropVariantFromCLSID(ptr ptr)
 @ stub InitPropVariantFromDoubleVector
 @ stub InitPropVariantFromFileTime
 @ stub InitPropVariantFromFileTimeVector
@@ -84,7 +84,7 @@
 @ stub PSGetPropertyDescriptionByName
 @ stdcall PSGetPropertyDescriptionListFromString(wstr ptr ptr)
 @ stub PSGetPropertyFromPropertyStorage
-@ stub PSGetPropertyKeyFromName
+@ stdcall PSGetPropertyKeyFromName(wstr ptr)
 @ stdcall PSGetPropertySystem(ptr ptr)
 @ stub PSGetPropertyValue
 @ stub PSLookupPropertyHandlerCLSID
@@ -108,7 +108,7 @@
 @ stub PropVariantGetUInt32Elem
 @ stub PropVariantGetUInt64Elem
 @ stub PropVariantToBSTR
-@ stub PropVariantToBoolean
+@ stdcall PropVariantToBoolean(ptr ptr)
 @ stub PropVariantToBooleanVector
 @ stub PropVariantToBooleanVectorAlloc
 @ stub PropVariantToBooleanWithDefault
@@ -138,7 +138,7 @@
 @ stdcall PropVariantToStringAlloc(ptr ptr)
 @ stub PropVariantToStringVector
 @ stub PropVariantToStringVectorAlloc
-@ stub PropVariantToStringWithDefault
+@ stdcall PropVariantToStringWithDefault(ptr wstr)
 @ stdcall PropVariantToUInt16(ptr ptr)
 @ stub PropVariantToUInt16Vector
 @ stub PropVariantToUInt16VectorAlloc

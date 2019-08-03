@@ -5,10 +5,7 @@
  * PROGRAMMER:      Víctor Martínez Calvo <vicmarcal@gmail.com>
  */
 
-#define WIN32_NO_STATUS
-#include <stdio.h>
-#include <wine/test.h>
-#include <ndk/ntndk.h>
+#include "precomp.h"
 
 static
 VOID
@@ -280,6 +277,9 @@ START_TEST(NtQueryVolumeInformationFile)
     status = NtQueryVolumeInformationFile(NULL, NULL, NULL, 0, 0);
     ok(status == STATUS_INVALID_INFO_CLASS, "Expected STATUS_INVALID_INFO_CLASS, got 0x%lx\n", status);
     ok(GetLastError() == 0xcacacaca, "Expected 0xcacacaca, got %lx\n", GetLastError());
+
+    status = NtQueryVolumeInformationFile(NULL, NULL, NULL, 0, 0x80000000);
+    ok(status == STATUS_INVALID_INFO_CLASS, "Expected STATUS_INVALID_INFO_CLASS, got 0x%lx\n", status);
 
     TestFileFsDeviceInformation(handle);
     TestFileFsVolumeInformation(handle);

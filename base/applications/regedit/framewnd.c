@@ -52,8 +52,8 @@ static void resize_frame_rect(HWND hWnd, PRECT prect)
     if (IsWindowVisible(hStatusBar))
     {
         SetupStatusBar(hWnd, TRUE);
-        GetClientRect(hStatusBar, &rt);
-        prect->bottom -= rt.bottom;
+        GetWindowRect(hStatusBar, &rt);
+        prect->bottom -= rt.bottom - rt.top;
     }
     MoveWindow(g_pChildWnd->hWnd, prect->left, prect->top, prect->right, prect->bottom, TRUE);
 }
@@ -1303,12 +1303,16 @@ static BOOL _CmdWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    RECT rc;
     switch (message)
     {
     case WM_CREATE:
+        // For now, the Help dialog item is disabled because of lacking of HTML Help support
+        EnableMenuItem(GetMenu(hWnd), ID_HELP_HELPTOPICS, MF_BYCOMMAND | MF_GRAYED);
+        GetClientRect(hWnd, &rc);
         CreateWindowExW(0, szChildClass, NULL, WS_CHILD | WS_VISIBLE,
-                       CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-                       hWnd, (HMENU)0, hInst, 0);
+                        rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+                        hWnd, (HMENU)0, hInst, 0);
         break;
     case WM_COMMAND:
         if (!_CmdWndProc(hWnd, message, wParam, lParam))

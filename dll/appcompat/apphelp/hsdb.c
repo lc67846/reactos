@@ -1,10 +1,10 @@
 /*
  * PROJECT:     ReactOS Application compatibility module
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     Shim matching / data (un)packing
  * COPYRIGHT:   Copyright 2011 André Hentschel
  *              Copyright 2013 Mislav Blaževic
- *              Copyright 2015-2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2015-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #define WIN32_NO_STATUS
@@ -12,7 +12,7 @@
 #include "ntndk.h"
 #include "strsafe.h"
 #include "apphelp.h"
-
+#include "compat_undoc.h"
 
 #define MAX_LAYER_LENGTH            256
 #define GPLK_USER                   1
@@ -25,10 +25,16 @@ typedef struct _ShimData
     DWORD dwMagic;
     SDBQUERYRESULT Query;
     WCHAR szLayer[MAX_LAYER_LENGTH];
-    DWORD unknown;  // 0x14c
+    DWORD dwRosProcessCompatVersion;  // ReactOS specific
 } ShimData;
 
 #define SHIMDATA_MAGIC  0xAC0DEDAB
+
+
+C_ASSERT(SHIMDATA_MAGIC == REACTOS_SHIMDATA_MAGIC);
+C_ASSERT(sizeof(ShimData) == sizeof(ReactOS_ShimData));
+C_ASSERT(offsetof(ShimData, dwMagic) == offsetof(ReactOS_ShimData, dwMagic));
+C_ASSERT(offsetof(ShimData, dwRosProcessCompatVersion) == offsetof(ReactOS_ShimData, dwRosProcessCompatVersion));
 
 
 static BOOL WINAPI SdbpFileExists(LPCWSTR path)
@@ -93,7 +99,7 @@ static BOOL SdbpMatchFileAttributes(PDB pdb, TAGID matching_file, PATTRINFO attr
             }
         }
         if (n == attr_count)
-            SHIM_WARN("Unhandled tag %ws in MACHING_FILE\n", SdbTagToString(tag));
+            SHIM_WARN("Unhandled tag %ws in MATCHING_FILE\n", SdbTagToString(tag));
     }
     return TRUE;
 }
@@ -410,8 +416,11 @@ HSDB WINAPI SdbInitDatabase(DWORD flags, LPCWSTR path)
  */
 void WINAPI SdbReleaseDatabase(HSDB hsdb)
 {
-    SdbCloseDatabase(hsdb->pdb);
-    SdbFree(hsdb);
+    if (hsdb)
+    {
+        SdbCloseDatabase(hsdb->pdb);
+        SdbFree(hsdb);
+    }
 }
 
 /**
@@ -563,11 +572,11 @@ Cleanup:
 /**
  * Retrieves AppPatch directory.
  *
- * @param [in]  pdb      Handle to the shim database.
+ * @param [in]  pdb     Handle to the shim database.
  * @param [out] path    Pointer to memory in which path shall be written.
  * @param [in]  size    Size of the buffer in characters.
  */
-BOOL WINAPI SdbGetAppPatchDir(HSDB hsdb, LPWSTR path, DWORD size)
+HRESULT WINAPI SdbGetAppPatchDir(HSDB hsdb, LPWSTR path, DWORD size)
 {
     static WCHAR* default_dir = NULL;
     static CONST WCHAR szAppPatch[] = {'\\','A','p','p','P','a','t','c','h',0};
@@ -579,6 +588,7 @@ BOOL WINAPI SdbGetAppPatchDir(HSDB hsdb, LPWSTR path, DWORD size)
     if (!default_dir)
     {
         WCHAR* tmp;
+        HRESULT hr = E_FAIL;
         UINT len = GetSystemWindowsDirectoryW(NULL, 0) + SdbpStrlen(szAppPatch);
         tmp = SdbAlloc((len + 1)* sizeof(WCHAR));
         if (tmp)
@@ -586,7 +596,8 @@ BOOL WINAPI SdbGetAppPatchDir(HSDB hsdb, LPWSTR path, DWORD size)
             UINT r = GetSystemWindowsDirectoryW(tmp, len+1);
             if (r && r < len)
             {
-                if (SUCCEEDED(StringCchCatW(tmp, len+1, szAppPatch)))
+                hr = StringCchCatW(tmp, len+1, szAppPatch);
+                if (SUCCEEDED(hr))
                 {
                     if (InterlockedCompareExchangePointer((void**)&default_dir, tmp, NULL) == NULL)
                         tmp = NULL;
@@ -597,19 +608,19 @@ BOOL WINAPI SdbGetAppPatchDir(HSDB hsdb, LPWSTR path, DWORD size)
         }
         if (!default_dir)
         {
-            SHIM_ERR("Unable to obtain default AppPatch directory\n");
-            return FALSE;
+            SHIM_ERR("Unable to obtain default AppPatch directory (0x%x)\n", hr);
+            return hr;
         }
     }
 
     if (!hsdb)
     {
-        return SUCCEEDED(StringCchCopyW(path, size, default_dir));
+        return StringCchCopyW(path, size, default_dir);
     }
     else
     {
         SHIM_ERR("Unimplemented for hsdb != NULL\n");
-        return FALSE;
+        return E_NOTIMPL;
     }
 }
 
@@ -678,6 +689,7 @@ BOOL WINAPI SdbPackAppCompatData(HSDB hsdb, PSDBQUERYRESULT pQueryResult, PVOID*
     ShimData* pData;
     HRESULT hr;
     DWORD n;
+    BOOL bCloseDatabase = FALSE;
 
     if (!pQueryResult || !ppData || !pdwSize)
     {
@@ -692,7 +704,7 @@ BOOL WINAPI SdbPackAppCompatData(HSDB hsdb, PSDBQUERYRESULT pQueryResult, PVOID*
         return FALSE;
     }
 
-    GetWindowsDirectoryW(pData->szModule, _countof(pData->szModule));
+    GetSystemWindowsDirectoryW(pData->szModule, _countof(pData->szModule));
     hr = StringCchCatW(pData->szModule, _countof(pData->szModule), L"\\system32\\apphelp.dll");
     if (!SUCCEEDED(hr))
     {
@@ -704,19 +716,40 @@ BOOL WINAPI SdbPackAppCompatData(HSDB hsdb, PSDBQUERYRESULT pQueryResult, PVOID*
     pData->dwSize = sizeof(*pData);
     pData->dwMagic = SHIMDATA_MAGIC;
     pData->Query = *pQueryResult;
-    pData->unknown = 0;
+    pData->dwRosProcessCompatVersion = 0;
     pData->szLayer[0] = UNICODE_NULL;   /* TODO */
 
     SHIM_INFO("\ndwFlags    0x%x\ndwMagic    0x%x\ntrExe      0x%x\ntrLayer    0x%x\n",
               pData->Query.dwFlags, pData->dwMagic, pData->Query.atrExes[0], pData->Query.atrLayers[0]);
 
     /* Database List */
-    /* 0x0 {GUID} NAME */
+    /* 0x0 {GUID} NAME: Use to open HSDB */
+    if (hsdb == NULL)
+    {
+        hsdb = SdbInitDatabase(HID_DOS_PATHS | SDB_DATABASE_MAIN_SHIM, NULL);
+        bCloseDatabase = TRUE;
+    }
 
     for (n = 0; n < pQueryResult->dwLayerCount; ++n)
     {
+        DWORD dwValue = 0, dwType;
+        DWORD dwValueSize = sizeof(dwValue);
         SHIM_INFO("Layer 0x%x\n", pQueryResult->atrLayers[n]);
+
+        if (SdbQueryData(hsdb, pQueryResult->atrLayers[n], L"SHIMVERSIONNT", &dwType, &dwValue, &dwValueSize) == ERROR_SUCCESS &&
+            dwType == REG_DWORD && dwValueSize == sizeof(dwValue))
+        {
+            dwValue = (dwValue % 100) | ((dwValue / 100) << 8);
+            if (dwValue > pData->dwRosProcessCompatVersion)
+                pData->dwRosProcessCompatVersion = dwValue;
+        }
     }
+
+    if (pData->dwRosProcessCompatVersion)
+        SHIM_INFO("Setting ProcessCompatVersion 0x%x\n", pData->dwRosProcessCompatVersion);
+
+    if (bCloseDatabase)
+        SdbReleaseDatabase(hsdb);
 
     *ppData = pData;
     *pdwSize = pData->dwSize;
@@ -745,7 +778,57 @@ DWORD WINAPI SdbGetAppCompatDataSize(ShimData* pData)
     if (!pData || pData->dwMagic != SHIMDATA_MAGIC)
         return 0;
 
-
     return pData->dwSize;
 }
 
+
+/**
+* Retrieve a Data entry
+*
+* @param [in]  hsdb                    The multi-database.
+* @param [in]  trExe                   The tagRef to start at
+* @param [in,opt]  lpszDataName        The name of the Data entry to find, or NULL to return all.
+* @param [out,opt]  lpdwDataType       Any of REG_SZ, REG_QWORD, REG_DWORD, ...
+* @param [out]  lpBuffer               The output buffer
+* @param [in,out,opt]  lpcbBufferSize  The size of lpBuffer in bytes
+* @param [out,opt]  ptrData            The tagRef of the data
+*
+* @return  ERROR_SUCCESS
+*/
+DWORD WINAPI SdbQueryDataEx(HSDB hsdb, TAGREF trWhich, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize, TAGREF *ptrData)
+{
+    PDB pdb;
+    TAGID tiWhich, tiData;
+    DWORD dwResult;
+
+    if (!SdbTagRefToTagID(hsdb, trWhich, &pdb, &tiWhich))
+    {
+        SHIM_WARN("Unable to translate trWhich=0x%x\n", trWhich);
+        return ERROR_NOT_FOUND;
+    }
+
+    dwResult = SdbQueryDataExTagID(pdb, tiWhich, lpszDataName, lpdwDataType, lpBuffer, lpcbBufferSize, &tiData);
+
+    if (dwResult == ERROR_SUCCESS && ptrData)
+        SdbTagIDToTagRef(hsdb, pdb, tiData, ptrData);
+
+    return dwResult;
+}
+
+
+/**
+* Retrieve a Data entry
+*
+* @param [in]  hsdb                    The multi-database.
+* @param [in]  trExe                   The tagRef to start at
+* @param [in,opt]  lpszDataName        The name of the Data entry to find, or NULL to return all.
+* @param [out,opt]  lpdwDataType       Any of REG_SZ, REG_QWORD, REG_DWORD, ...
+* @param [out]  lpBuffer               The output buffer
+* @param [in,out,opt]  lpcbBufferSize  The size of lpBuffer in bytes
+*
+* @return  ERROR_SUCCESS
+*/
+DWORD WINAPI SdbQueryData(HSDB hsdb, TAGREF trWhich, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize)
+{
+    return SdbQueryDataEx(hsdb, trWhich, lpszDataName, lpdwDataType, lpBuffer, lpcbBufferSize, NULL);
+}

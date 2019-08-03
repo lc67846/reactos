@@ -2,15 +2,14 @@
  * PROJECT:         ReactOS Picture and Fax Viewer
  * FILE:            dll/win32/shimgvw/shimgvw.c
  * PURPOSE:         shimgvw.dll
- * PROGRAMMER:      Dmitry Chapyshev (dmitry@reactos.org)
- *
- * UPDATE HISTORY:
- *      28/05/2008  Created
+ * PROGRAMMERS:     Dmitry Chapyshev (dmitry@reactos.org)
+ *                  Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 #define WIN32_NO_STATUS
 #define _INC_WINDOWS
 #define COM_NO_WINDOWS_H
+#define INITGUID
 
 #include <stdarg.h>
 
@@ -19,6 +18,7 @@
 #include <winnls.h>
 #include <winreg.h>
 #include <wingdi.h>
+#include <windowsx.h>
 #include <objbase.h>
 #include <commctrl.h>
 #include <commdlg.h>
@@ -32,7 +32,6 @@
 
 #include "shimgvw.h"
 
-
 HINSTANCE hInstance;
 SHIMGVW_SETTINGS shiSettings;
 SHIMGVW_FILENODE *currentFile;
@@ -40,6 +39,236 @@ GpImage *image;
 WNDPROC PrevProc = NULL;
 
 HWND hDispWnd, hToolBar;
+
+/* zooming */
+#define MIN_ZOOM 10
+#define MAX_ZOOM 1600
+UINT ZoomPercents = 100;
+static const UINT ZoomSteps[] =
+{
+    10, 25, 50, 100, 200, 400, 800, 1600
+};
+
+/* animation */
+UINT            m_nFrameIndex = 0;
+UINT            m_nFrameCount = 0;
+UINT            m_nLoopIndex = 0;
+UINT            m_nLoopCount = (UINT)-1;
+PropertyItem   *m_pDelayItem = NULL;
+
+#define ANIME_TIMER_ID  9999
+
+static void Anime_FreeInfo(void)
+{
+    if (m_pDelayItem)
+    {
+        free(m_pDelayItem);
+        m_pDelayItem = NULL;
+    }
+    m_nFrameIndex = 0;
+    m_nFrameCount = 0;
+    m_nLoopIndex = 0;
+    m_nLoopCount = (UINT)-1;
+}
+
+static BOOL Anime_LoadInfo(void)
+{
+    GUID *dims;
+    UINT nDimCount = 0;
+    UINT cbItem;
+    UINT result;
+    PropertyItem *pItem;
+
+    Anime_FreeInfo();
+    KillTimer(hDispWnd, ANIME_TIMER_ID);
+
+    if (!image)
+        return FALSE;
+
+    GdipImageGetFrameDimensionsCount(image, &nDimCount);
+    if (nDimCount)
+    {
+        dims = (GUID *)calloc(nDimCount, sizeof(GUID));
+        if (dims)
+        {
+            GdipImageGetFrameDimensionsList(image, dims, nDimCount);
+            GdipImageGetFrameCount(image, dims, &result);
+            m_nFrameCount = result;
+            free(dims);
+        }
+    }
+
+    result = 0;
+    GdipGetPropertyItemSize(image, PropertyTagFrameDelay, &result);
+    cbItem = result;
+    if (cbItem)
+    {
+        m_pDelayItem = (PropertyItem *)malloc(cbItem);
+        GdipGetPropertyItem(image, PropertyTagFrameDelay, cbItem, m_pDelayItem);
+    }
+
+    result = 0;
+    GdipGetPropertyItemSize(image, PropertyTagLoopCount, &result);
+    cbItem = result;
+    if (cbItem)
+    {
+        pItem = (PropertyItem *)malloc(cbItem);
+        if (pItem)
+        {
+            if (GdipGetPropertyItem(image, PropertyTagLoopCount, cbItem, pItem) == Ok)
+            {
+                m_nLoopCount = *(WORD *)pItem->value;
+            }
+            free(pItem);
+        }
+    }
+
+    if (m_pDelayItem)
+    {
+        SetTimer(hDispWnd, ANIME_TIMER_ID, 0, NULL);
+    }
+
+    return m_pDelayItem != NULL;
+}
+
+static void Anime_SetFrameIndex(UINT nFrameIndex)
+{
+    if (nFrameIndex < m_nFrameCount)
+    {
+        GUID guid = FrameDimensionTime;
+        if (Ok != GdipImageSelectActiveFrame(image, &guid, nFrameIndex))
+        {
+            guid = FrameDimensionPage;
+            GdipImageSelectActiveFrame(image, &guid, nFrameIndex);
+        }
+    }
+    m_nFrameIndex = nFrameIndex;
+}
+
+DWORD Anime_GetFrameDelay(UINT nFrameIndex)
+{
+    if (nFrameIndex < m_nFrameCount && m_pDelayItem)
+    {
+        return ((DWORD *)m_pDelayItem->value)[m_nFrameIndex] * 10;
+    }
+    return 0;
+}
+
+BOOL Anime_Step(DWORD *pdwDelay)
+{
+    *pdwDelay = INFINITE;
+    if (m_nLoopCount == (UINT)-1)
+        return FALSE;
+
+    if (m_nFrameIndex + 1 < m_nFrameCount)
+    {
+        *pdwDelay = Anime_GetFrameDelay(m_nFrameIndex);
+        Anime_SetFrameIndex(m_nFrameIndex);
+        ++m_nFrameIndex;
+        return TRUE;
+    }
+
+    if (m_nLoopCount == 0 || m_nLoopIndex < m_nLoopCount)
+    {
+        *pdwDelay = Anime_GetFrameDelay(m_nFrameIndex);
+        Anime_SetFrameIndex(m_nFrameIndex);
+        m_nFrameIndex = 0;
+        ++m_nLoopIndex;
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+static void ZoomInOrOut(BOOL bZoomIn)
+{
+    INT i;
+
+    if (bZoomIn)    /* zoom in */
+    {
+        /* find next step */
+        for (i = 0; i < ARRAYSIZE(ZoomSteps); ++i)
+        {
+            if (ZoomPercents < ZoomSteps[i])
+                break;
+        }
+        if (i == ARRAYSIZE(ZoomSteps))
+            ZoomPercents = MAX_ZOOM;
+        else
+            ZoomPercents = ZoomSteps[i];
+
+        /* update tool bar buttons */
+        SendMessage(hToolBar, TB_ENABLEBUTTON, IDC_ZOOMM, TRUE);
+        if (ZoomPercents >= MAX_ZOOM)
+            SendMessage(hToolBar, TB_ENABLEBUTTON, IDC_ZOOMP, FALSE);
+        else
+            SendMessage(hToolBar, TB_ENABLEBUTTON, IDC_ZOOMP, TRUE);
+    }
+    else            /* zoom out */
+    {
+        /* find previous step */
+        for (i = ARRAYSIZE(ZoomSteps); i > 0; )
+        {
+            --i;
+            if (ZoomSteps[i] < ZoomPercents)
+                break;
+        }
+        if (i < 0)
+            ZoomPercents = MIN_ZOOM;
+        else
+            ZoomPercents = ZoomSteps[i];
+
+        /* update tool bar buttons */
+        SendMessage(hToolBar, TB_ENABLEBUTTON, IDC_ZOOMP, TRUE);
+        if (ZoomPercents <= MIN_ZOOM)
+            SendMessage(hToolBar, TB_ENABLEBUTTON, IDC_ZOOMM, FALSE);
+        else
+            SendMessage(hToolBar, TB_ENABLEBUTTON, IDC_ZOOMM, TRUE);
+    }
+
+    /* redraw */
+    InvalidateRect(hDispWnd, NULL, TRUE);
+}
+
+static void ResetZoom(void)
+{
+    RECT Rect;
+    UINT ImageWidth, ImageHeight;
+
+    /* get disp window size and image size */
+    GetClientRect(hDispWnd, &Rect);
+    GdipGetImageWidth(image, &ImageWidth);
+    GdipGetImageHeight(image, &ImageHeight);
+
+    /* compare two aspect rates. same as
+       (ImageHeight / ImageWidth < Rect.bottom / Rect.right) in real */
+    if (ImageHeight * Rect.right < Rect.bottom * ImageWidth)
+    {
+        if (Rect.right < ImageWidth)
+        {
+            /* it's large, shrink it */
+            ZoomPercents = (Rect.right * 100) / ImageWidth;
+        }
+        else
+        {
+            /* it's small. show as original size */
+            ZoomPercents = 100;
+        }
+    }
+    else
+    {
+        if (Rect.bottom < ImageHeight)
+        {
+            /* it's large, shrink it */
+            ZoomPercents = (Rect.bottom * 100) / ImageHeight;
+        }
+        else
+        {
+            /* it's small. show as original size */
+            ZoomPercents = 100;
+        }
+    }
+}
 
 /* ToolBar Buttons */
 static const TBBUTTON Buttons [] =
@@ -59,17 +288,27 @@ static const TBBUTTON Buttons [] =
 
 static void pLoadImage(LPWSTR szOpenFileName)
 {
+    /* check file presence */
     if (GetFileAttributesW(szOpenFileName) == 0xFFFFFFFF)
     {
         DPRINT1("File %s not found!\n", szOpenFileName);
         return;
     }
 
+    /* load now */
     GdipLoadImageFromFile(szOpenFileName, &image);
     if (!image)
     {
         DPRINT1("GdipLoadImageFromFile() failed\n");
+        return;
     }
+    Anime_LoadInfo();
+
+    /* reset zoom */
+    ResetZoom();
+
+    /* redraw */
+    InvalidateRect(hDispWnd, NULL, TRUE);
 }
 
 static void pSaveImageAs(HWND hwnd)
@@ -81,7 +320,7 @@ static void pSaveImageAs(HWND hwnd)
     GUID rawFormat;
     UINT num;
     UINT size;
-    UINT sizeRemain;
+    size_t sizeRemain;
     UINT j;
     WCHAR *c;
 
@@ -150,9 +389,26 @@ static void pSaveImageAs(HWND hwnd)
 
     if (GetSaveFileNameW(&sfn))
     {
-        if (GdipSaveImageToFile(image, szSaveFileName, &codecInfo[sfn.nFilterIndex - 1].Clsid, NULL) != Ok)
+        if (m_pDelayItem)
         {
-            DPRINT1("GdipSaveImageToFile() failed\n");
+            /* save animation */
+            KillTimer(hDispWnd, ANIME_TIMER_ID);
+
+            DPRINT1("FIXME: save animation\n");
+            if (GdipSaveImageToFile(image, szSaveFileName, &codecInfo[sfn.nFilterIndex - 1].Clsid, NULL) != Ok)
+            {
+                DPRINT1("GdipSaveImageToFile() failed\n");
+            }
+
+            SetTimer(hDispWnd, ANIME_TIMER_ID, 0, NULL);
+        }
+        else
+        {
+            /* save non-animation */
+            if (GdipSaveImageToFile(image, szSaveFileName, &codecInfo[sfn.nFilterIndex - 1].Clsid, NULL) != Ok)
+            {
+                DPRINT1("GdipSaveImageToFile() failed\n");
+            }
         }
     }
 
@@ -185,8 +441,6 @@ pLoadImageFromNode(SHIMGVW_FILENODE *node, HWND hwnd)
         }
 
         pLoadImage(node->FileName);
-        InvalidateRect(hDispWnd, NULL, TRUE);
-        UpdateWindow(hDispWnd);
     }
 }
 
@@ -330,11 +584,13 @@ static VOID
 ImageView_DrawImage(HWND hwnd)
 {
     GpGraphics *graphics;
-    UINT uImgWidth, uImgHeight;
-    UINT height = 0, width = 0, x = 0, y = 0;
+    UINT ImageWidth, ImageHeight;
+    INT ZoomedWidth, ZoomedHeight, x, y;
     PAINTSTRUCT ps;
-    RECT rect;
+    RECT rect, margin;
     HDC hdc;
+    HBRUSH white;
+    HGDIOBJ hbrOld;
 
     hdc = BeginPaint(hwnd, &ps);
     if (!hdc)
@@ -350,38 +606,56 @@ ImageView_DrawImage(HWND hwnd)
         return;
     }
 
-    GdipGetImageWidth(image, &uImgWidth);
-    GdipGetImageHeight(image, &uImgHeight);
+    GdipGetImageWidth(image, &ImageWidth);
+    GdipGetImageHeight(image, &ImageHeight);
 
     if (GetClientRect(hwnd, &rect))
     {
-        FillRect(hdc, &rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+        ZoomedWidth = (ImageWidth * ZoomPercents) / 100;
+        ZoomedHeight = (ImageHeight * ZoomPercents) / 100;
 
-        if ((rect.right >= uImgWidth)&&(rect.bottom >= uImgHeight))
+        x = (rect.right - ZoomedWidth) / 2;
+        y = (rect.bottom - ZoomedHeight) / 2;
+
+        white = GetStockObject(WHITE_BRUSH);
+        // Fill top part
+        margin = rect;
+        margin.bottom = y - 1;
+        FillRect(hdc, &margin, white);
+        // Fill bottom part
+        margin.top = y + ZoomedHeight + 1;
+        margin.bottom = rect.bottom;
+        FillRect(hdc, &margin, white);
+        // Fill left part
+        margin.top = y - 1;
+        margin.bottom = y + ZoomedHeight + 1;
+        margin.right = x - 1;
+        FillRect(hdc, &margin, white);
+        // Fill right part
+        margin.left = x + ZoomedWidth + 1;
+        margin.right = rect.right;
+        FillRect(hdc, &margin, white);
+
+        DPRINT("x = %d, y = %d, ImageWidth = %u, ImageHeight = %u\n");
+        DPRINT("rect.right = %ld, rect.bottom = %ld\n", rect.right, rect.bottom);
+        DPRINT("ZoomPercents = %d, ZoomedWidth = %d, ZoomedHeight = %d\n",
+               ZoomPercents, ZoomedWidth, ZoomedWidth);
+
+        if (ZoomPercents % 100 == 0)
         {
-            width = uImgWidth;
-            height = uImgHeight;
+            GdipSetInterpolationMode(graphics, InterpolationModeNearestNeighbor);
+            GdipSetSmoothingMode(graphics, SmoothingModeNone);
         }
         else
         {
-            height = uImgHeight * (UINT)rect.right / uImgWidth;
-            if (height <= rect.bottom)
-            {
-                width = rect.right;
-            }
-            else
-            {
-                width = uImgWidth * (UINT)rect.bottom / uImgHeight;
-                height = rect.bottom;
-            }
+            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBilinear);
+            GdipSetSmoothingMode(graphics, SmoothingModeHighQuality);
         }
 
-        y = (rect.bottom / 2) - (height / 2);
-        x = (rect.right / 2) - (width / 2);
-
-        DPRINT("x = %d\ny = %d\nWidth = %d\nHeight = %d\n\nrect.right = %d\nrect.bottom = %d\n\nuImgWidth = %d\nuImgHeight = %d\n", x, y, width, height, rect.right, rect.bottom, uImgWidth, uImgHeight);
-        Rectangle(hdc, x - 1, y - 1, x + width + 1, y + height + 1);
-        GdipDrawImageRect(graphics, image, x, y, width, height);
+        hbrOld = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        Rectangle(hdc, x - 1, y - 1, x + ZoomedWidth + 1, y + ZoomedHeight + 1);
+        SelectObject(hdc, hbrOld);
+        GdipDrawImageRectI(graphics, image, x, y, ZoomedWidth, ZoomedHeight);
     }
     GdipDeleteGraphics(graphics);
     EndPaint(hwnd, &ps);
@@ -491,6 +765,19 @@ ImageView_CreateToolBar(HWND hwnd)
     return FALSE;
 }
 
+static void ImageView_OnTimer(HWND hwnd)
+{
+    DWORD dwDelay;
+
+    KillTimer(hwnd, ANIME_TIMER_ID);
+    InvalidateRect(hwnd, NULL, FALSE);
+
+    if (Anime_Step(&dwDelay))
+    {
+        SetTimer(hwnd, ANIME_TIMER_ID, dwDelay, NULL);
+    }
+}
+
 LRESULT CALLBACK
 ImageView_DispWndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 {
@@ -500,6 +787,15 @@ ImageView_DispWndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
         {
             ImageView_DrawImage(hwnd);
             return 0L;
+        }
+        case WM_TIMER:
+        {
+            if (wParam == ANIME_TIMER_ID)
+            {
+                ImageView_OnTimer(hwnd);
+                return 0;
+            }
+            break;
         }
     }
     return CallWindowProc(PrevProc, hwnd, Message, wParam, lParam);
@@ -519,9 +815,18 @@ ImageView_InitControls(HWND hwnd)
                               0, 0, 0, 0, hwnd, NULL, hInstance, NULL);
 
     SetClassLongPtr(hDispWnd, GCL_STYLE, CS_HREDRAW | CS_VREDRAW);
-    PrevProc = (WNDPROC) SetWindowLongPtr(hDispWnd, GWL_WNDPROC, (LPARAM) ImageView_DispWndProc);
+    PrevProc = (WNDPROC) SetWindowLongPtr(hDispWnd, GWLP_WNDPROC, (LPARAM) ImageView_DispWndProc);
 
     ImageView_CreateToolBar(hwnd);
+}
+
+static VOID
+ImageView_OnMouseWheel(HWND hwnd, INT x, INT y, INT zDelta, UINT fwKeys)
+{
+    if (zDelta != 0)
+    {
+        ZoomInOrOut(zDelta > 0);
+    }
 }
 
 LRESULT CALLBACK
@@ -567,10 +872,14 @@ ImageView_WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 
                 break;
                 case IDC_ZOOMP:
-
+                {
+                    ZoomInOrOut(TRUE);
+                }
                 break;
                 case IDC_ZOOMM:
-
+                {
+                    ZoomInOrOut(FALSE);
+                }
                 break;
                 case IDC_SAVE:
                     pSaveImageAs(hwnd);
@@ -596,6 +905,12 @@ ImageView_WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
+
+        case WM_MOUSEWHEEL:
+            ImageView_OnMouseWheel(hwnd,
+                GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam),
+                (SHORT)HIWORD(wParam), (UINT)LOWORD(wParam));
+            break;
 
         case WM_NOTIFY:
         {
@@ -660,12 +975,18 @@ ImageView_WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
             SendMessage(hToolBar, TB_AUTOSIZE, 0, 0);
             GetWindowRect(hToolBar, &rc);
             MoveWindow(hDispWnd, 1, 1, LOWORD(lParam) - 1, HIWORD(lParam) - (rc.bottom - rc.top) - 1, TRUE);
+            /* is it maximized or restored? */
+            if (wParam == SIZE_MAXIMIZED || wParam == SIZE_RESTORED)
+            {
+                /* reset zoom */
+                ResetZoom();
+            }
             return 0L;
         }
         case WM_DESTROY:
         {
             ImageView_SaveSettings(hwnd);
-            SetWindowLongPtr(hDispWnd, GWL_WNDPROC, (LPARAM) PrevProc);
+            SetWindowLongPtr(hDispWnd, GWLP_WNDPROC, (LPARAM) PrevProc);
             PostQuitMessage(0);
             break;
         }
@@ -709,8 +1030,8 @@ ImageView_CreateWindow(HWND hwnd, LPWSTR szFileName)
     WndClass.hInstance      = hInstance;
     WndClass.style          = CS_HREDRAW | CS_VREDRAW;
     WndClass.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APPICON));
-    WndClass.hCursor        = LoadCursor(hInstance, IDC_ARROW);
-    WndClass.hbrBackground  = (HBRUSH)COLOR_WINDOW;
+    WndClass.hCursor        = LoadCursor(NULL, IDC_ARROW);
+    WndClass.hbrBackground  = NULL;   /* less flicker */
 
     if (!RegisterClass(&WndClass)) return -1;
 
@@ -745,6 +1066,9 @@ ImageView_CreateWindow(HWND hwnd, LPWSTR szFileName)
 
     if (image)
         GdipDisposeImage(image);
+
+    Anime_FreeInfo();
+
     GdiplusShutdown(gdiplusToken);
     return -1;
 }

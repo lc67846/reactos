@@ -3,15 +3,11 @@
  * LICENSE:         GPL - See COPYING in the top level directory
  * PURPOSE:         Test for GetRandomRgn
  * PROGRAMMERS:     Timo Kreuzer
+ *                  Katayama Hirofumi MZ
  */
 
-#include <apitest.h>
+#include "precomp.h"
 
-#include <stdio.h>
-#include <wingdi.h>
-#include <winuser.h>
-
-#define CLIPRGN 1
 #define METARGN 2
 #define APIRGN  3
 #define SYSRGN  4
@@ -63,42 +59,42 @@ void Test_GetRandomRgn_Params()
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, NULL, 0);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, NULL, CLIPRGN);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, hrgn, 0);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 #if 0 // this is vista+
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, hrgn, 5);
     ok_int(ret, 1);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 #endif
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, hrgn, 6);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, hrgn, 27);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, hrgn, -1);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 
     SetLastError(0xbadbad00);
     ret = GetRandomRgn(hdc, hrgn, CLIPRGN);
     ok_int(ret, 0);
-    ok_long(GetLastError(), 0xbadbad00);
+    ok_err(0xbadbad00);
 
     SetLastError(0xbadbad00);
     ret = GetRandomRgn((HDC)0x123, hrgn, CLIPRGN);

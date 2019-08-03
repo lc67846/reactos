@@ -19,6 +19,7 @@ static const UINT64 superblock_addrs[] = { 0x10000, 0x4000000, 0x4000000000, 0x4
 #define TYPE_INODE_REF         0x0C
 #define TYPE_INODE_EXTREF      0x0D
 #define TYPE_XATTR_ITEM        0x18
+#define TYPE_ORPHAN_INODE      0x30
 #define TYPE_DIR_ITEM          0x54
 #define TYPE_DIR_INDEX         0x60
 #define TYPE_EXTENT_DATA       0x6C
@@ -58,6 +59,7 @@ static const UINT64 superblock_addrs[] = { 0x10000, 0x4000000, 0x4000000000, 0x4
 #define BTRFS_COMPRESSION_NONE  0
 #define BTRFS_COMPRESSION_ZLIB  1
 #define BTRFS_COMPRESSION_LZO   2
+#define BTRFS_COMPRESSION_ZSTD  3
 
 #define BTRFS_ENCRYPTION_NONE   0
 
@@ -103,7 +105,7 @@ static const UINT64 superblock_addrs[] = { 0x10000, 0x4000000, 0x4000000000, 0x4
 #define BTRFS_INCOMPAT_FLAGS_DEFAULT_SUBVOL     0x0002
 #define BTRFS_INCOMPAT_FLAGS_MIXED_GROUPS       0x0004
 #define BTRFS_INCOMPAT_FLAGS_COMPRESS_LZO       0x0008
-#define BTRFS_INCOMPAT_FLAGS_COMPRESS_LZOV2     0x0010
+#define BTRFS_INCOMPAT_FLAGS_COMPRESS_ZSTD      0x0010
 #define BTRFS_INCOMPAT_FLAGS_BIG_METADATA       0x0020
 #define BTRFS_INCOMPAT_FLAGS_EXTENDED_IREF      0x0040
 #define BTRFS_INCOMPAT_FLAGS_RAID56             0x0080
@@ -111,6 +113,8 @@ static const UINT64 superblock_addrs[] = { 0x10000, 0x4000000, 0x4000000000, 0x4
 #define BTRFS_INCOMPAT_FLAGS_NO_HOLES           0x0200
 
 #define BTRFS_SUPERBLOCK_FLAGS_SEEDING   0x100000000
+
+#define BTRFS_ORPHAN_INODE_OBJID         0xFFFFFFFFFFFFFFFB
 
 #pragma pack(push, 1)
 
@@ -562,7 +566,7 @@ typedef struct {
 #define BTRFS_SEND_TLV_CLONE_OFFSET    23
 #define BTRFS_SEND_TLV_CLONE_LENGTH    24
 
-#define BTRFS_SEND_MAGIC "btrfs-stream\0"
+#define BTRFS_SEND_MAGIC "btrfs-stream"
 
 typedef struct {
     UINT8 magic[13];

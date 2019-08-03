@@ -16,10 +16,23 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include <stdarg.h>
+#include <stdio.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "ole2.h"
+#include "netfw.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
 #include "hnetcfg_private.h"
 
-#include <winnls.h>
-#include <ole2.h>
+WINE_DEFAULT_DEBUG_CHANNEL(hnetcfg);
 
 typedef struct fw_app
 {
@@ -48,7 +61,7 @@ static ULONG WINAPI fw_app_Release(
     if (!refs)
     {
         TRACE("destroying %p\n", fw_app);
-        if (fw_app->filename) SysFreeString( fw_app->filename );
+        SysFreeString( fw_app->filename );
         HeapFree( GetProcessHeap(), 0, fw_app );
     }
     return refs;
@@ -243,16 +256,10 @@ static HRESULT WINAPI fw_app_get_ProcessImageFileName(
     FIXME("%p, %p\n", This, imageFileName);
 
     if (!imageFileName)
-        return E_INVALIDARG;
-
-    if (!This->filename)
-    {
-        *imageFileName = NULL;
-        return S_OK;
-    }
+        return E_POINTER;
 
     *imageFileName = SysAllocString( This->filename );
-    return *imageFileName ? S_OK : E_OUTOFMEMORY;
+    return *imageFileName || !This->filename ? S_OK : E_OUTOFMEMORY;
 }
 
 static HRESULT WINAPI fw_app_put_ProcessImageFileName(
@@ -263,12 +270,10 @@ static HRESULT WINAPI fw_app_put_ProcessImageFileName(
 
     FIXME("%p, %s\n", This, debugstr_w(imageFileName));
 
-    if (!imageFileName)
-    {
-        This->filename = NULL;
-        return S_OK;
-    }
+    if (!imageFileName || !imageFileName[0])
+        return E_INVALIDARG;
 
+    SysFreeString( This->filename );
     This->filename = SysAllocString( imageFileName );
     return This->filename ? S_OK : E_OUTOFMEMORY;
 }

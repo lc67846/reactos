@@ -25,6 +25,12 @@ EXTERN _BootMain:PROC
 EXTERN _InitIdt:PROC
 EXTERN _i386Idt:DWORD
 //EXTERN _i386idtptr:FWORD
+EXTERN cmdline:DWORD
+
+#ifdef _USE_ML
+EXTERN __bss_start__:DWORD
+EXTERN __bss_end__:DWORD
+#endif
 
 .code32
 
@@ -69,11 +75,7 @@ _FrldrStartup:
     mov eax, dword ptr ds:[BSS_RealModeEntry]
     mov dword ptr ds:[SwitchToReal16Address], eax
 
-    /* Initialize the idt */
-    call _InitIdt
-
-#ifndef _USE_ML
-    /* Clean out bss */
+    /* Clean out BSS */
     xor eax, eax
     mov edi, offset __bss_start__
     mov ecx, offset __bss_end__ + 3
@@ -81,11 +83,11 @@ _FrldrStartup:
     shr ecx, 2
     rep stosd
 
+    /* Initialize the idt */
+    call _InitIdt
+
     /* Pass the command line to BootMain */
     mov eax, offset cmdline
-#else
-    xor eax, eax
-#endif
 
     /* GO! */
     push eax
@@ -93,7 +95,7 @@ _FrldrStartup:
 
     /* We should never get here */
 stop:
-    jmp stop
+    jmp short stop
     nop
     nop
 
@@ -149,7 +151,7 @@ _Reboot:
 PUBLIC _ChainLoadBiosBootSectorCode
 _ChainLoadBiosBootSectorCode:
     /* Set the boot drive */
-    mov dl, byte ptr [_FrldrBootDrive]
+    mov dl, byte ptr ds:[_FrldrBootDrive]
 
     /* Set the function ID */
     mov bx, FNID_ChainLoadBiosBootSectorCode
@@ -161,7 +163,7 @@ _ChainLoadBiosBootSectorCode:
 PUBLIC i386CallRealMode
 i386CallRealMode:
     /* Set continue address and switch to real mode */
-    mov dword ptr [ContinueAddress], offset i386CallRealMode_return
+    mov dword ptr ds:[ContinueAddress], offset i386CallRealMode_return
     jmp SwitchToReal
 i386CallRealMode_return:
     ret
@@ -181,7 +183,7 @@ SwitchToReal:
     mov ss, ax
 
     /* Save 32-bit stack pointer */
-    mov dword ptr [stack32], esp
+    mov dword ptr ds:[stack32], esp
 
     /* jmp to 16-bit segment to set the limit correctly */
     .byte HEX(0ea) // jmp far RMODE_CS:switch_to_real16
@@ -236,11 +238,7 @@ gdtptr:
     .word HEX(27)       /* Limit */
     .long gdt           /* Base Address */
 
-/* Real-mode IDT pointer */
-rmode_idtptr:
-    .word HEX(3ff)      /* Limit */
-    .long 0             /* Base Address */
-
+// See _i386IdtDescriptor
 PUBLIC i386idtptr
 i386idtptr:
     .word 255           /* Limit */

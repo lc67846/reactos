@@ -16,11 +16,25 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "wbemdisp_private.h"
+#include "config.h"
+#include <stdarg.h>
 
-#include <rpcproxy.h>
-#include <wmiutils.h>
-#include <wbemdisp_classes.h>
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+#include "wmiutils.h"
+#include "wbemdisp.h"
+#include "rpcproxy.h"
+
+#include "wine/debug.h"
+#include "wine/heap.h"
+#include "wine/unicode.h"
+#include "wbemdisp_private.h"
+#include "wbemdisp_classes.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wbemdisp);
 
 static HINSTANCE instance;
 
@@ -360,7 +374,7 @@ static HRESULT WINAPI WinMGMTS_ParseDisplayName(IParseDisplayName *iface, IBindC
         ULONG *pchEaten, IMoniker **ppmkOut)
 {
     static const WCHAR prefixW[] = {'w','i','n','m','g','m','t','s',':',0};
-    const DWORD prefix_len = sizeof(prefixW) / sizeof(prefixW[0]) - 1;
+    const DWORD prefix_len = ARRAY_SIZE(prefixW) - 1;
     ISWbemLocator *locator = NULL;
     ISWbemServices *services = NULL;
     ISWbemObject *obj = NULL;

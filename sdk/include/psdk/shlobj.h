@@ -41,6 +41,8 @@ extern "C" {
 #include <shtypes.h>
 #include <shobjidl.h>
 
+#include <pshpack8.h>
+
 typedef struct
 {
     DWORD         dwSize;
@@ -79,10 +81,32 @@ typedef struct
     DWORD         cchLogo;
 } SHFOLDERCUSTOMSETTINGSW, *LPSHFOLDERCUSTOMSETTINGSW;
 
+#include <poppack.h>
+
+#define FCS_READ       0x00000001
+#define FCS_FORCEWRITE 0x00000002
+
+#define FCSM_ICONFILE 0x00000010
+
 #ifndef HPSXA_DEFINED
 #define HPSXA_DEFINED
 DECLARE_HANDLE(HPSXA);
 #endif
+
+typedef enum
+{
+    KF_FLAG_DEFAULT                     = 0x00000000,
+    KF_FLAG_SIMPLE_IDLIST               = 0x00000100,
+    KF_FLAG_NOT_PARENT_RELATIVE         = 0x00000200,
+    KF_FLAG_DEFAULT_PATH                = 0x00000400,
+    KF_FLAG_INIT                        = 0x00000800,
+    KF_FLAG_NO_ALIAS                    = 0x00001000,
+    KF_FLAG_DONT_UNEXPAND               = 0x00002000,
+    KF_FLAG_DONT_VERIFY                 = 0x00004000,
+    KF_FLAG_CREATE                      = 0x00008000,
+    KF_FLAG_NO_APPCONTAINER_REDIRECTION = 0x00010000,
+    KF_FLAG_ALIAS_ONLY                  = 0x80000000
+} KNOWN_FOLDER_FLAG;
 
 typedef int GPFIDL_FLAGS;
 
@@ -240,6 +264,7 @@ SHMapPIDLToSystemImageListIndex(
 HRESULT      WINAPI SHStartNetConnectionDialog(HWND,LPCSTR,DWORD);
 VOID         WINAPI SHUpdateImageA(_In_ LPCSTR, INT, UINT, INT);
 VOID         WINAPI SHUpdateImageW(_In_ LPCWSTR, INT, UINT, INT);
+#define             SHUpdateImage WINELIB_NAME_AW(SHUpdateImage)
 
 INT
 WINAPI
@@ -249,7 +274,12 @@ PickIconDlg(
   UINT cchIconPath,
   _Inout_opt_ int *);
 
-#define             SHUpdateImage WINELIB_NAME_AW(SHUpdateImage)
+HRESULT
+WINAPI
+SHLimitInputEdit(
+  _In_ HWND hwnd,
+  _In_ IShellFolder *folder);
+
 int          WINAPI RestartDialog(_In_opt_ HWND, _In_opt_ LPCWSTR, DWORD);
 int          WINAPI RestartDialogEx(_In_opt_ HWND, _In_opt_ LPCWSTR, DWORD, DWORD);
 int          WINAPI DriveType(int);
@@ -944,6 +974,118 @@ DECLARE_INTERFACE_(IDeskBarClient,IOleWindow)
 #define DBC_SHOWOBSCURE 2
 
 
+/* As indicated by the documentation for IActiveDesktop,
+   you must include wininet.h before shlobj.h */
+#ifdef _WINE_WININET_H_
+
+
+/* Structs are taken from msdn, and not verified!
+   Only stuff needed to make it compile are here, no flags or anything */
+
+typedef struct _tagWALLPAPEROPT
+{
+    DWORD dwSize;
+    DWORD dwStyle;
+} WALLPAPEROPT;
+
+typedef WALLPAPEROPT *LPWALLPAPEROPT;
+typedef const WALLPAPEROPT *LPCWALLPAPEROPT;
+
+typedef struct _tagCOMPONENTSOPT
+{
+    DWORD dwSize;
+    BOOL  fEnableComponents;
+    BOOL  fActiveDesktop;
+} COMPONENTSOPT;
+
+typedef COMPONENTSOPT *LPCOMPONENTSOPT;
+typedef const COMPONENTSOPT *LPCCOMPONENTSOPT;
+
+
+typedef struct _tagCOMPPOS
+{
+    DWORD dwSize;
+    int   iLeft;
+    int   iTop;
+    DWORD dwWidth;
+    DWORD dwHeight;
+    int   izIndex;
+    BOOL  fCanResize;
+    BOOL  fCanResizeX;
+    BOOL  fCanResizeY;
+    int   iPreferredLeftPercent;
+    int   iPreferredTopPercent;
+} COMPPOS;
+
+typedef struct _tagCOMPSTATEINFO
+{
+    DWORD dwSize;
+    int   iLeft;
+    int   iTop;
+    DWORD dwWidth;
+    DWORD dwHeight;
+    DWORD dwItemState;
+} COMPSTATEINFO;
+
+typedef struct _tagCOMPONENT
+{
+    DWORD         dwSize;
+    DWORD         dwID;
+    int           iComponentType;
+    BOOL          fChecked;
+    BOOL          fDirty;
+    BOOL          fNoScroll;
+    COMPPOS       cpPos;
+    WCHAR         wszFriendlyName[MAX_PATH];
+    WCHAR         wszSource[INTERNET_MAX_URL_LENGTH];
+    WCHAR         wszSubscribedURL[INTERNET_MAX_URL_LENGTH];
+    DWORD         dwCurItemState;
+    COMPSTATEINFO csiOriginal;
+    COMPSTATEINFO csiRestored;
+} COMPONENT;
+
+typedef COMPONENT *LPCOMPONENT;
+typedef const COMPONENT *LPCCOMPONENT;
+
+#pragma push_macro("AddDesktopItem")
+#undef AddDesktopItem
+
+/* IDeskBarClient interface */
+#define INTERFACE IActiveDesktop
+DECLARE_INTERFACE_(IActiveDesktop, IUnknown)
+{
+    /*** IUnknown methods ***/
+    STDMETHOD(QueryInterface) (THIS_ _In_ REFIID riid, _Outptr_ void **ppv) PURE;
+    STDMETHOD_(ULONG,AddRef)  (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+
+    /*** IActiveDesktop methods ***/
+    STDMETHOD(ApplyChanges)(THIS_ DWORD dwFlags) PURE;
+    STDMETHOD(GetWallpaper)(THIS_ PWSTR pwszWallpaper, UINT cchWallpaper, DWORD dwFlags) PURE;
+    STDMETHOD(SetWallpaper)(THIS_ PCWSTR pwszWallpaper, DWORD dwReserved) PURE;
+    STDMETHOD(GetWallpaperOptions)(THIS_ LPWALLPAPEROPT pwpo, DWORD dwReserved) PURE;
+    STDMETHOD(SetWallpaperOptions)(THIS_ LPCWALLPAPEROPT pwpo, DWORD dwReserved) PURE;
+    STDMETHOD(GetPattern)(THIS_ PWSTR pwszPattern, UINT cchPattern, DWORD dwReserved) PURE;
+    STDMETHOD(SetPattern)(THIS_ PCWSTR pwszPattern, DWORD dwReserved) PURE;
+    STDMETHOD(GetDesktopItemOptions)(THIS_ LPCOMPONENTSOPT pco, DWORD dwReserved) PURE;
+    STDMETHOD(SetDesktopItemOptions)(THIS_ LPCCOMPONENTSOPT pco, DWORD dwReserved) PURE;
+    STDMETHOD(AddDesktopItem)(THIS_ LPCCOMPONENT pcomp, DWORD dwReserved) PURE;
+    STDMETHOD(AddDesktopItemWithUI)(THIS_ HWND hwnd, LPCOMPONENT pcomp, DWORD dwReserved) PURE;
+    STDMETHOD(ModifyDesktopItem)(THIS_ LPCCOMPONENT pcomp, DWORD dwFlags) PURE;
+    STDMETHOD(RemoveDesktopItem)(THIS_ LPCCOMPONENT pcomp, DWORD dwReserved) PURE;
+    STDMETHOD(GetDesktopItemCount)(THIS_ int *pcItems, DWORD dwReserved) PURE;
+    STDMETHOD(GetDesktopItem)(THIS_ int nComponent, LPCOMPONENT pcomp, DWORD dwReserved) PURE;
+    STDMETHOD(GetDesktopItemByID)(THIS_ ULONG_PTR dwID, LPCOMPONENT pcomp, DWORD dwReserved) PURE;
+    STDMETHOD(GenerateDesktopItemHtml)(THIS_ PCWSTR pwszFileName, LPCOMPONENT pcomp, DWORD dwReserved) PURE;
+    STDMETHOD(AddUrl)(THIS_ HWND hwnd, PCWSTR pszSource, LPCOMPONENT pcomp, DWORD dwFlags) PURE;
+    STDMETHOD(GetDesktopItemBySource)(THIS_ PCWSTR pwszSource, LPCOMPONENT pcomp, DWORD dwReserved) PURE;
+};
+#undef INTERFACE
+
+#pragma pop_macro("AddDesktopItem")
+
+#endif
+
 /****************************************************************************
 * SHAddToRecentDocs API
 */
@@ -1345,6 +1487,8 @@ typedef struct
     UINT :15; /* Required for proper binary layout with gcc */
 } SHELLSTATE, *LPSHELLSTATE;
 
+VOID WINAPI SHGetSetSettings(LPSHELLSTATE lpss, DWORD dwMask, BOOL bSet);
+
 /**********************************************************************
  * SHGetSettings ()
  */
@@ -1384,6 +1528,8 @@ VOID WINAPI SHGetSettings(_Out_ LPSHELLFLAGSTATE lpsfs, DWORD dwMask);
 #define SSF_MAPNETDRVBUTTON		0x1000
 #define SSF_NOCONFIRMRECYCLE		0x8000
 #define SSF_HIDEICONS			0x4000
+#define SSF_SHOWSUPERHIDDEN		0x00040000
+#define SSF_SEPPROCESS			0x00080000
 
 /****************************************************************************
 * SHRestricted API
@@ -2161,6 +2307,10 @@ HRESULT      WINAPI ILLoadFromStream(_In_ LPSTREAM, _Inout_ LPITEMIDLIST*);
 BOOL         WINAPI ILRemoveLastID(_Inout_opt_ LPITEMIDLIST);
 HRESULT      WINAPI ILSaveToStream(_In_ LPSTREAM, _In_ LPCITEMIDLIST);
 
+static inline BOOL ILIsEmpty(_In_opt_ LPCITEMIDLIST pidl)
+{
+    return !(pidl && pidl->mkid.cb);
+}
 
 #include <poppack.h>
 
@@ -2385,6 +2535,47 @@ DECLARE_INTERFACE_(IDockingWindowSite, IOleWindow)
 #endif
 
 typedef void (CALLBACK *PFNASYNCICONTASKBALLBACK)(LPCITEMIDLIST pidl, LPVOID pvData, LPVOID pvHint, INT iIconIndex, INT iOpenIconIndex);
+
+#define ISFB_MASK_STATE       0x00000001
+#define ISFB_MASK_IDLIST      0x00000010
+
+#define ISFB_STATE_QLINKSMODE 0x00000020
+#define ISFB_STATE_NOSHOWTEXT 0x00000004
+
+#include <pshpack8.h>
+
+typedef struct {
+    DWORD       dwMask;
+    DWORD       dwStateMask;
+    DWORD       dwState;
+    COLORREF    crBkgnd;
+    COLORREF    crBtnLt;
+    COLORREF    crBtnDk;
+    WORD        wViewMode;
+    WORD        wAlign;
+    IShellFolder * psf;
+    PIDLIST_ABSOLUTE pidl;
+} BANDINFOSFB, *PBANDINFOSFB;
+
+#include <poppack.h>
+
+#undef INTERFACE
+#define INTERFACE IShellFolderBand
+
+DECLARE_INTERFACE_(IShellFolderBand, IUnknown)
+{
+    // *** IUnknown methods ***
+    STDMETHOD(QueryInterface) (THIS_ REFIID riid, void **ppv) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS)  PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+
+    // *** IShellFolderBand Methods ***
+    STDMETHOD(InitializeSFB)(THIS_ IShellFolder *psf, PCIDLIST_ABSOLUTE pidl) PURE;
+    STDMETHOD(SetBandInfoSFB)(THIS_ PBANDINFOSFB pbi) PURE;
+    STDMETHOD(GetBandInfoSFB)(THIS_ PBANDINFOSFB pbi) PURE;
+};
+#undef INTERFACE
+
 
 /*****************************************************************************
  * Control Panel functions

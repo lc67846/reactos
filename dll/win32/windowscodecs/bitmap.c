@@ -16,7 +16,21 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
+#include <stdarg.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "objbase.h"
+
 #include "wincodecs_private.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 /* WARNING: .NET Media Integration Layer (MIL) directly dereferences
  * BitmapImpl members and depends on its exact layout.
@@ -31,7 +45,8 @@ typedef struct BitmapImpl {
     int palette_set;
     LONG lock; /* 0 if not locked, -1 if locked for writing, count if locked for reading */
     BYTE *data;
-    BOOL is_section; /* TRUE if data is a section created by an application */
+    void *view; /* used if data is a section created by an application */
+    UINT offset; /* offset into view */
     UINT width, height;
     UINT stride;
     UINT bpp;
@@ -274,8 +289,8 @@ static ULONG WINAPI BitmapImpl_Release(IWICBitmap *iface)
         if (This->palette) IWICPalette_Release(This->palette);
         This->cs.DebugInfo->Spare[0] = 0;
         DeleteCriticalSection(&This->cs);
-        if (This->is_section)
-            UnmapViewOfFile(This->data);
+        if (This->view)
+            UnmapViewOfFile(This->view);
         else
             HeapFree(GetProcessHeap(), 0, This->data);
         HeapFree(GetProcessHeap(), 0, This);
@@ -346,7 +361,7 @@ static HRESULT WINAPI BitmapImpl_CopyPixels(IWICBitmap *iface,
     const WICRect *prc, UINT cbStride, UINT cbBufferSize, BYTE *pbBuffer)
 {
     BitmapImpl *This = impl_from_IWICBitmap(iface);
-    TRACE("(%p,%p,%u,%u,%p)\n", iface, prc, cbStride, cbBufferSize, pbBuffer);
+    TRACE("(%p,%s,%u,%u,%p)\n", iface, debug_wic_rect(prc), cbStride, cbBufferSize, pbBuffer);
 
     return copy_pixels(This->bpp, This->data, This->width, This->height,
         This->stride, prc, cbStride, cbBufferSize, pbBuffer);
@@ -359,7 +374,7 @@ static HRESULT WINAPI BitmapImpl_Lock(IWICBitmap *iface, const WICRect *prcLock,
     BitmapLockImpl *result;
     WICRect rc;
 
-    TRACE("(%p,%p,%x,%p)\n", iface, prcLock, flags, ppILock);
+    TRACE("(%p,%s,%x,%p)\n", iface, debug_wic_rect(prcLock), flags, ppILock);
 
     if (!(flags & (WICBitmapLockRead|WICBitmapLockWrite)) || !ppILock)
         return E_INVALIDARG;
@@ -553,7 +568,7 @@ static HRESULT WINAPI IMILBitmapImpl_GetPixelFormat(IMILBitmapSource *iface,
 
     *format = 0;
 
-    for (i = 0; i < sizeof(pixel_fmt_map)/sizeof(pixel_fmt_map[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(pixel_fmt_map); i++)
     {
         if (IsEqualGUID(pixel_fmt_map[i].WIC_format, &This->pixelformat))
         {
@@ -791,13 +806,13 @@ static const IMILUnknown2Vtbl IMILUnknown2Impl_Vtbl =
     IMILUnknown2Impl_unknown3
 };
 
-HRESULT BitmapImpl_Create(UINT uiWidth, UINT uiHeight,
-    UINT stride, UINT datasize, BYTE *data,
-    REFWICPixelFormatGUID pixelFormat, WICBitmapCreateCacheOption option,
+HRESULT BitmapImpl_Create(UINT uiWidth, UINT uiHeight, UINT stride, UINT datasize, void *view,
+    UINT offset, REFWICPixelFormatGUID pixelFormat, WICBitmapCreateCacheOption option,
     IWICBitmap **ppIBitmap)
 {
     HRESULT hr;
     BitmapImpl *This;
+    BYTE *data;
     UINT bpp;
 
     hr = get_pixelformat_bpp(pixelFormat, &bpp);
@@ -812,18 +827,12 @@ HRESULT BitmapImpl_Create(UINT uiWidth, UINT uiHeight,
     This = HeapAlloc(GetProcessHeap(), 0, sizeof(BitmapImpl));
     if (!This) return E_OUTOFMEMORY;
 
-    if (!data)
+    if (view) data = (BYTE *)view + offset;
+    else if (!(data = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, datasize)))
     {
-        data = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, datasize);
-        if (!data)
-        {
-            HeapFree(GetProcessHeap(), 0, This);
-            return E_OUTOFMEMORY;
-        }
-        This->is_section = FALSE;
+        HeapFree(GetProcessHeap(), 0, This);
+        return E_OUTOFMEMORY;
     }
-    else
-        This->is_section = TRUE;
 
     This->IWICBitmap_iface.lpVtbl = &BitmapImpl_Vtbl;
     This->IMILBitmapSource_iface.lpVtbl = &IMILBitmapImpl_Vtbl;
@@ -834,6 +843,8 @@ HRESULT BitmapImpl_Create(UINT uiWidth, UINT uiHeight,
     This->palette_set = 0;
     This->lock = 0;
     This->data = data;
+    This->view = view;
+    This->offset = offset;
     This->width = uiWidth;
     This->height = uiHeight;
     This->stride = stride;

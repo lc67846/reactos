@@ -16,8 +16,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <precomp.h>
+#define COBJMACROS
 
+#include "wine/atlbase.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(atl);
 
 /**************************************************************
  * ATLRegistrar implementation
@@ -388,11 +394,11 @@ static HRESULT do_process_root_key(LPCOLESTR data, BOOL do_register)
             hres = DISP_E_EXCEPTION;
             break;
         }
-        for(i=0; i<sizeof(root_keys)/sizeof(root_keys[0]); i++) {
+        for(i=0; i<ARRAY_SIZE(root_keys); i++) {
             if(!lstrcmpiW(buf.str, root_keys[i].name))
                 break;
         }
-        if(i == sizeof(root_keys)/sizeof(root_keys[0])) {
+        if(i == ARRAY_SIZE(root_keys)) {
             WARN("Wrong root key name: %s\n", debugstr_w(buf.str));
             hres = DISP_E_EXCEPTION;
             break;

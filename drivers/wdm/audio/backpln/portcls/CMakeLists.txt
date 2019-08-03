@@ -49,11 +49,15 @@ list(APPEND SOURCE
     version.cpp
     private.hpp)
 
-add_library(portcls SHARED
+add_library(portcls MODULE
     ${SOURCE}
     guid.cpp
     portcls.rc
     ${CMAKE_CURRENT_BINARY_DIR}/portcls.def)
+
+if(USE_CLANG_CL)
+    add_target_compile_flags(portcls "-Wno-missing-braces")
+endif()
 
 target_link_libraries(portcls libcntpr ${PSEH_LIB})
 set_module_type(portcls kernelmodedriver ENTRYPOINT 0 )

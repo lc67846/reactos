@@ -25,12 +25,12 @@ list(APPEND HEADERS
     apphelp.h
     sdbpapi.h
     sdbstringtable.h
-    sdbtagid.h
-    sdbtypes.h
+    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/appcompat/sdbtagid.h
+    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/appcompat/sdbtypes.h
     sdbwrite.h
     shimeng.h)
 
-add_library(apphelp SHARED
+add_library(apphelp MODULE
     ${SOURCE}
     ${HEADERS}
     apphelp.rc

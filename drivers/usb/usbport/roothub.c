@@ -170,7 +170,7 @@ USBPORT_RootHubClassCommand(IN PDEVICE_OBJECT FdoDevice,
         case USB_REQUEST_CLEAR_FEATURE:
             Feature = SetupPacket->wValue.W;
 
-            if ((SetupPacket->bmRequestType.Recipient) != USBPORT_RECIPIENT_ROOT_PORT)
+            if ((SetupPacket->bmRequestType.Recipient) != USBPORT_RECIPIENT_PORT)
             {
                 if (Feature == FEATURE_C_HUB_LOCAL_POWER)
                 {
@@ -242,7 +242,7 @@ USBPORT_RootHubClassCommand(IN PDEVICE_OBJECT FdoDevice,
             break;
 
         case USB_REQUEST_SET_FEATURE:
-            if (SetupPacket->bmRequestType.Recipient != USBPORT_RECIPIENT_ROOT_PORT)
+            if (SetupPacket->bmRequestType.Recipient != USBPORT_RECIPIENT_PORT)
             {
                 return RHStatus;
             }
@@ -485,7 +485,7 @@ NTAPI
 USBPORT_RootHubEndpoint0(IN PUSBPORT_TRANSFER Transfer)
 {
     PDEVICE_OBJECT FdoDevice;
-    SIZE_T TransferLength;
+    ULONG TransferLength;
     PVOID Buffer;
     PURB Urb;
     PUSB_DEFAULT_PIPE_SETUP_PACKET SetupPacket;
@@ -786,7 +786,7 @@ USBPORT_RootHubCreateDevice(IN PDEVICE_OBJECT FdoDevice,
     Packet->RH_GetRootHubData(FdoExtension->MiniPortExt, &RootHubData);
 
     ASSERT(RootHubData.NumberOfPorts != 0);
-    NumMaskByte = ((RootHubData.NumberOfPorts - 1) >> 3) + 1;
+    NumMaskByte = (RootHubData.NumberOfPorts - 1) / 8 + 1;
 
     DescriptorsLength = sizeof(USB_DEVICE_DESCRIPTOR) +
                         sizeof(USB_CONFIGURATION_DESCRIPTOR) +
@@ -859,7 +859,7 @@ USBPORT_RootHubCreateDevice(IN PDEVICE_OBJECT FdoDevice,
 
         RH_HubDescriptor = &PdoExtension->RootHubDescriptors->Descriptor;
 
-        RH_HubDescriptor->bDescriptorLength = sizeof(USB_HUB_DESCRIPTOR) + 2 * NumMaskByte;
+        RH_HubDescriptor->bDescriptorLength = FIELD_OFFSET(USB_HUB_DESCRIPTOR, bRemoveAndPowerMask) + 2 * NumMaskByte;
 
         if (Packet->MiniPortVersion == USB_MINIPORT_VERSION_OHCI ||
             Packet->MiniPortVersion == USB_MINIPORT_VERSION_UHCI ||

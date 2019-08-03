@@ -18,7 +18,27 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
+#include <stdarg.h>
+
+#define COBJMACROS
+
+#include "wine/debug.h"
+#include "windef.h"
+#include "winbase.h"
+#include "winreg.h"
+#include "winuser.h"
+#include "shlwapi.h"
+#include "winerror.h"
+#include "objbase.h"
+
+#include "wine/unicode.h"
+
+#include "msctf.h"
 #include "msctf_internal.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(msctf);
 
 typedef struct tagDocumentMgr {
     ITfDocumentMgr ITfDocumentMgr_iface;
@@ -168,7 +188,7 @@ static HRESULT WINAPI DocumentMgr_Pop(ITfDocumentMgr *iface, DWORD dwFlags)
     {
         int i;
 
-        for (i = 0; i < sizeof(This->contextStack)/sizeof(This->contextStack[0]); i++)
+        for (i = 0; i < ARRAY_SIZE(This->contextStack); i++)
             if (This->contextStack[i])
             {
                 ITfThreadMgrEventSink_OnPopContext(This->ThreadMgrSink, This->contextStack[i]);

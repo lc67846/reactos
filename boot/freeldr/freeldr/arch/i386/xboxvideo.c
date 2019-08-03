@@ -20,6 +20,9 @@
  */
 
 #include <freeldr.h>
+#include <debug.h>
+
+DBG_DEFAULT_CHANNEL(UI);
 
 static PVOID FrameBuffer;
 static ULONG ScreenWidth;
@@ -181,6 +184,12 @@ XboxVideoGetBufferSize(VOID)
 }
 
 VOID
+XboxVideoGetFontsFromFirmware(PULONG RomFontPointers)
+{
+    TRACE("XboxVideoGetFontsFromFirmware(): UNIMPLEMENTED\n");
+}
+
+VOID
 XboxVideoSetTextCursorPosition(UCHAR X, UCHAR Y)
 {
   /* We don't have a cursor yet */
@@ -240,9 +249,10 @@ XboxBeep(VOID)
 }
 
 VOID
-XboxVideoPrepareForReactOS(IN BOOLEAN Setup)
+XboxVideoPrepareForReactOS(VOID)
 {
-  XboxVideoClearScreenColor(MAKE_COLOR(0, 0, 0), TRUE);
+    XboxVideoClearScreenColor(MAKE_COLOR(0, 0, 0), TRUE);
+    XboxVideoHideShowTextCursor(FALSE);
 }
 
 /* EOF */

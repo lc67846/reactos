@@ -18,7 +18,22 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
+#include <stdarg.h>
+
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "winreg.h"
+#include "objbase.h"
+
 #include "wincodecs_private.h"
+
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 typedef struct {
     IWICPalette IWICPalette_iface;
@@ -666,7 +681,7 @@ static HRESULT WINAPI PaletteImpl_InitializeFromBitmap(IWICPalette *palette,
     else
         rgb24_source = source;
 
-    hr = ComponentFactory_CreateInstance(&IID_IWICImagingFactory, (void **)&factory);
+    hr = ImagingFactory_CreateInstance(&IID_IWICImagingFactory, (void **)&factory);
     if (hr != S_OK) goto fail;
 
     hr = IWICImagingFactory_CreateBitmapFromSource(factory, rgb24_source, WICBitmapCacheOnLoad, &rgb24_bitmap);

@@ -19,16 +19,13 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define WIN32_LEAN_AND_MEAN
-
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include "wine/test.h"
 #include "windef.h"
 #include "winbase.h"
-#include "wine/winternl.h"
+#include "winternl.h"
 #include "winreg.h"
 #include "winperf.h"
 #include "winsvc.h"
@@ -2515,6 +2512,12 @@ static void test_redirection(void)
             skip( "Not on Wow64, no redirection\n" );
             return;
         }
+    }
+
+    if (limited_user)
+    {
+        skip("not enough privileges to modify HKLM\n");
+        return;
     }
 
     err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,

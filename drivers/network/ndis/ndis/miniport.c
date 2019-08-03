@@ -59,7 +59,8 @@ KSPIN_LOCK AdapterListLock;
 
 VOID
 MiniDisplayPacket(
-    PNDIS_PACKET Packet)
+    PNDIS_PACKET Packet,
+    PCSTR Reason)
 {
 #if DBG
     ULONG i, Length;
@@ -71,15 +72,15 @@ MiniDisplayPacket(
             0,
             64);
 
-        DbgPrint("*** PACKET START ***");
+        DbgPrint("*** %s PACKET START (%p) ***\n", Reason, Packet);
 
         for (i = 0; i < Length; i++) {
-            if (i % 12 == 0)
+            if (i % 16 == 0)
                 DbgPrint("\n%04X ", i);
             DbgPrint("%02X ", Buffer[i]);
         }
 
-        DbgPrint("*** PACKET STOP ***\n");
+        DbgPrint("\n*** %s PACKET STOP ***\n", Reason);
     }
 #endif /* DBG */
 }
@@ -512,7 +513,7 @@ MiniRequestComplete(
         /* We are doing this internally, so we'll signal this event we've stashed in the MacBlock */
         ASSERT(MacBlock->Unknown1 != NULL);
         ASSERT(MacBlock->Unknown3 == NULL);
-        MacBlock->Unknown3 = (PVOID)Status;
+        MacBlock->Unknown3 = UlongToPtr(Status);
         KeSetEvent(MacBlock->Unknown1, IO_NO_INCREMENT, FALSE);
     }
 
@@ -624,8 +625,8 @@ MiniAdapterHasAddress(
  */
 {
     UINT Length;
-    PUCHAR Start1;
-    PUCHAR Start2;
+    PUCHAR PacketAddress;
+    PUCHAR AdapterAddress;
     PNDIS_BUFFER NdisBuffer;
     UINT BufferLength;
 
@@ -653,7 +654,7 @@ MiniAdapterHasAddress(
         return FALSE;
     }
 
-    NdisQueryBuffer(NdisBuffer, (PVOID)&Start2, &BufferLength);
+    NdisQueryBuffer(NdisBuffer, (PVOID)&PacketAddress, &BufferLength);
 
     /* FIXME: Should handle fragmented packets */
 
@@ -675,12 +676,12 @@ MiniAdapterHasAddress(
         return FALSE;
     }
 
-    Start1 = (PUCHAR)&Adapter->Address;
+    AdapterAddress = (PUCHAR)&Adapter->Address;
     NDIS_DbgPrint(MAX_TRACE, ("packet address: %x:%x:%x:%x:%x:%x adapter address: %x:%x:%x:%x:%x:%x\n",
-                              *((char *)Start1), *(((char *)Start1)+1), *(((char *)Start1)+2), *(((char *)Start1)+3), *(((char *)Start1)+4), *(((char *)Start1)+5),
-                              *((char *)Start2), *(((char *)Start2)+1), *(((char *)Start2)+2), *(((char *)Start2)+3), *(((char *)Start2)+4), *(((char *)Start2)+5)));
+                              *(PacketAddress), *(PacketAddress+1), *(PacketAddress+2), *(PacketAddress+3), *(PacketAddress+4), *(PacketAddress+5),
+                              *(AdapterAddress), *(AdapterAddress+1), *(AdapterAddress+2), *(AdapterAddress+3), *(AdapterAddress+4), *(AdapterAddress+5)));
 
-    return (RtlCompareMemory((PVOID)Start1, (PVOID)Start2, Length) == Length);
+    return (RtlCompareMemory(PacketAddress, AdapterAddress, Length) == Length);
 }
 
 
@@ -789,7 +790,7 @@ MiniSetInformation(
   if (NdisStatus == NDIS_STATUS_PENDING)
   {
       KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);
-      NdisStatus = (NDIS_STATUS)MacBlock->Unknown3;
+      NdisStatus = PtrToUlong(MacBlock->Unknown3);
   }
 
   *BytesRead = NdisRequest->DATA.SET_INFORMATION.BytesRead;
@@ -849,7 +850,7 @@ MiniQueryInformation(
   if (NdisStatus == NDIS_STATUS_PENDING)
   {
       KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);
-      NdisStatus = (NDIS_STATUS)MacBlock->Unknown3;
+      NdisStatus = PtrToUlong(MacBlock->Unknown3);
   }
 
   *BytesWritten = NdisRequest->DATA.QUERY_INFORMATION.BytesWritten;
@@ -921,8 +922,8 @@ MiniReset(
 
    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
    Status = (*Adapter->NdisMiniportBlock.DriverHandle->MiniportCharacteristics.ResetHandler)(
-            Adapter->NdisMiniportBlock.MiniportAdapterContext,
-            &AddressingReset);
+            &AddressingReset,
+            Adapter->NdisMiniportBlock.MiniportAdapterContext);
 
    KeAcquireSpinLockAtDpcLevel(&Adapter->NdisMiniportBlock.Lock);
    Adapter->NdisMiniportBlock.ResetStatus = Status;
@@ -1326,8 +1327,8 @@ MiniportWorker(IN PDEVICE_OBJECT DeviceObject, IN PVOID Context)
 
             KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
             NdisStatus = (*Adapter->NdisMiniportBlock.DriverHandle->MiniportCharacteristics.ResetHandler)(
-                          Adapter->NdisMiniportBlock.MiniportAdapterContext,
-                          &AddressingReset);
+                          &AddressingReset,
+                          Adapter->NdisMiniportBlock.MiniportAdapterContext);
 
             KeAcquireSpinLockAtDpcLevel(&Adapter->NdisMiniportBlock.Lock);
             Adapter->NdisMiniportBlock.ResetStatus = NdisStatus;

@@ -19,27 +19,15 @@
 #ifndef _WINE_WINHTTP_PRIVATE_H_
 #define _WINE_WINHTTP_PRIVATE_H_
 
-#include <wine/config.h>
+#ifndef __WINE_CONFIG_H
+# error You must include config.h to use this header
+#endif
 
-#include <stdarg.h>
+#include "wine/heap.h"
+#include "wine/list.h"
+#include "wine/unicode.h"
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
-#define COBJMACROS
-#define NONAMELESSUNION
-
-#include <windef.h>
-#include <winbase.h>
-#include <objbase.h>
-#include <oleauto.h>
-#include <winsock2.h>
-#include <winhttp.h>
-
-#include <wine/list.h>
-#include <wine/unicode.h>
-
+#include <sys/types.h>
 #ifdef HAVE_SYS_SOCKET_H
 # include <sys/socket.h>
 #endif
@@ -56,10 +44,8 @@
 # define ioctlsocket ioctl
 #endif
 
-#include <sspi.h>
-
-#include <wine/debug.h>
-WINE_DEFAULT_DEBUG_CHANNEL(winhttp);
+#include "ole2.h"
+#include "sspi.h"
 
 static const WCHAR getW[]    = {'G','E','T',0};
 static const WCHAR postW[]   = {'P','O','S','T',0};
@@ -135,6 +121,9 @@ typedef struct
     LPWSTR proxy_password;
     struct list cookie_cache;
     HANDLE unload_event;
+    CredHandle cred_handle;
+    BOOL cred_handle_initialized;
+    DWORD secure_protocols;
 } session_t;
 
 typedef struct
@@ -313,7 +302,7 @@ void netconn_unload( void ) DECLSPEC_HIDDEN;
 ULONG netconn_query_data_available( netconn_t * ) DECLSPEC_HIDDEN;
 BOOL netconn_recv( netconn_t *, void *, size_t, int, int * ) DECLSPEC_HIDDEN;
 BOOL netconn_resolve( WCHAR *, INTERNET_PORT, struct sockaddr_storage *, int ) DECLSPEC_HIDDEN;
-BOOL netconn_secure_connect( netconn_t *, WCHAR *, DWORD ) DECLSPEC_HIDDEN;
+BOOL netconn_secure_connect( netconn_t *, WCHAR *, DWORD, CredHandle * ) DECLSPEC_HIDDEN;
 BOOL netconn_send( netconn_t *, const void *, size_t, int * ) DECLSPEC_HIDDEN;
 DWORD netconn_set_timeout( netconn_t *, BOOL, int ) DECLSPEC_HIDDEN;
 BOOL netconn_is_alive( netconn_t * ) DECLSPEC_HIDDEN;
@@ -334,29 +323,9 @@ BOOL process_header( request_t *request, LPCWSTR field, LPCWSTR value, DWORD fla
 extern HRESULT WinHttpRequest_create( void ** ) DECLSPEC_HIDDEN;
 void release_typelib( void ) DECLSPEC_HIDDEN;
 
-static inline void* __WINE_ALLOC_SIZE(1) heap_alloc( SIZE_T size )
-{
-    return HeapAlloc( GetProcessHeap(), 0, size );
-}
-
-static inline void* __WINE_ALLOC_SIZE(1) heap_alloc_zero( SIZE_T size )
-{
-    return HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, size );
-}
-
-static inline void* __WINE_ALLOC_SIZE(2) heap_realloc( LPVOID mem, SIZE_T size )
-{
-    return HeapReAlloc( GetProcessHeap(), 0, mem, size );
-}
-
 static inline void* __WINE_ALLOC_SIZE(2) heap_realloc_zero( LPVOID mem, SIZE_T size )
 {
     return HeapReAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, mem, size );
-}
-
-static inline BOOL heap_free( LPVOID mem )
-{
-    return HeapFree( GetProcessHeap(), 0, mem );
 }
 
 static inline WCHAR *strdupW( const WCHAR *src )

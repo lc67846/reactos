@@ -414,6 +414,7 @@ Author:
 #define TEB_PEB                                 0x30
 #define TEB_EXCEPTION_CODE                      0x1A4
 #define TEB_ACTIVATION_CONTEXT_STACK_POINTER    0x1A8
+#define TEB_GL_TABLE                            0xBE8
 #define TEB_DEALLOCATION_STACK                  0xE0C
 #define TEB_GDI_BATCH_COUNT                     0xF70
 #define TEB_GUARANTEED_STACK_BYTES              0xF78
@@ -625,6 +626,15 @@ Author:
 #define EXCEPTION_RESERVED_TRAP                 0x0F
 #define EXCEPTION_NPX_ERROR                     0x010
 #define EXCEPTION_ALIGNMENT_CHECK               0x011
+
+//
+// Hypervisor Enlightenment Definitions
+//
+#define HV_MMU_USE_HYPERCALL_FOR_ADDRESS_SWITCH 0x01
+#define HV_MMU_USE_HYPERCALL_FOR_LOCAL_FLUSH    0x02
+#define HV_MMU_USE_HYPERCALL_FOR_REMOTE_FLUSH   0x04
+#define HV_APIC_ENLIGHTENED                     0x10
+#define HV_KE_USE_HYPERCALL_FOR_LONG_SPIN_WAIT  0x40
 
 //
 // VDM State Pointer

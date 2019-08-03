@@ -83,13 +83,12 @@ LoadAndBootLinux(IN OperatingSystemItem* OperatingSystem,
     PFILE LinuxKernel = 0;
     PFILE LinuxInitrdFile = 0;
 
-    UiDrawBackdrop();
-
     if (Description)
         sprintf(LinuxBootDescription, "Loading %s...", Description);
     else
         strcpy(LinuxBootDescription, "Loading Linux...");
 
+    UiDrawBackdrop();
     UiDrawStatusText(LinuxBootDescription);
     UiDrawProgressBarCenter(0, 100, LinuxBootDescription);
 
@@ -342,7 +341,7 @@ BOOLEAN LinuxReadKernel(PFILE LinuxKernelFile)
     CHAR  StatusText[260];
     PVOID LoadAddress;
 
-    sprintf(StatusText, "Loading %s", LinuxKernelName);
+    RtlStringCbPrintfA(StatusText, sizeof(StatusText), "Loading %s", LinuxKernelName);
     UiDrawStatusText(StatusText);
 
     /* Allocate memory for Linux kernel */
@@ -412,7 +411,7 @@ BOOLEAN LinuxReadInitrd(PFILE LinuxInitrdFile)
     ULONG        BytesLoaded;
     CHAR    StatusText[260];
 
-    sprintf(StatusText, "Loading %s", LinuxInitrdName);
+    RtlStringCbPrintfA(StatusText, sizeof(StatusText), "Loading %s", LinuxInitrdName);
     UiDrawStatusText(StatusText);
 
     // Allocate memory for the ramdisk

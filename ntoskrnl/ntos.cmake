@@ -33,6 +33,7 @@ else()
         ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/cacheman.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/copy.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/fs.c
+        ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/lazywrite.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/mdl.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/pin.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/cc/view.c)
@@ -198,6 +199,7 @@ list(APPEND SOURCE
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/expool.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/hypermap.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/iosup.c
+    ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/kdbg.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/largepag.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/mdlsup.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/ARM3/mmdbg.c
@@ -225,6 +227,7 @@ list(APPEND SOURCE
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/region.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/rmap.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/section.c
+    ${REACTOS_SOURCE_DIR}/ntoskrnl/mm/shutdown.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/ob/devicemap.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/ob/obdir.c
     ${REACTOS_SOURCE_DIR}/ntoskrnl/ob/obhandle.c
@@ -425,13 +428,4 @@ else() # _WINKD_
         list(APPEND SOURCE ${REACTOS_SOURCE_DIR}/ntoskrnl/kd64/arm/kdarm.c)
     endif()
 
-endif()
-
-if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
-    #FIXME: http://llvm.org/bugs/show_bug.cgi?id=19027
-    set_property(SOURCE
-        ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/i386/cpu.c
-        ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/i386/kiinit.c
-        ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/i386/traphdlr.c
-        APPEND_STRING PROPERTY COMPILE_FLAGS " -no-integrated-as")
 endif()

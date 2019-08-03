@@ -4,7 +4,7 @@
  * PURPOSE:     Tests for shim-database api's
  * COPYRIGHT:   Copyright 2012 Detlef Riekenberg
  *              Copyright 2013 Mislav Blažević
- *              Copyright 2015-2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2015-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #include <ntstatus.h>
@@ -88,6 +88,7 @@
 #define TAG_LAYER (0xB | TAG_TYPE_LIST)
 #define TAG_APPHELP (0xD | TAG_TYPE_LIST)
 #define TAG_LINK (0xE | TAG_TYPE_LIST)
+#define TAG_DATA (0xF | TAG_TYPE_LIST)
 #define TAG_STRINGTABLE (0x801 | TAG_TYPE_LIST)
 
 #define TAG_STRINGTABLE_ITEM (0x801 | TAG_TYPE_STRING)
@@ -119,6 +120,16 @@
 #define TAG_DATABASE_ID (0x7 | TAG_TYPE_BINARY)
 
 
+typedef struct _DB_INFORMATION
+{
+    DWORD dwSomething;
+    DWORD dwMajor;
+    DWORD dwMinor;
+    LPCWSTR Description;
+    GUID Id;
+    /* Win10+ has an extra field here */
+} DB_INFORMATION, *PDB_INFORMATION;
+
 
 static HMODULE hdll;
 static LPCWSTR (WINAPI *pSdbTagToString)(TAG);
@@ -139,7 +150,7 @@ static TAGID (WINAPI *pSdbBeginWriteListTag)(PDB, TAG);
 static BOOL (WINAPI *pSdbEndWriteListTag)(PDB, TAGID);
 static TAGID (WINAPI *pSdbFindFirstTag)(PDB, TAGID, TAG);
 static TAGID (WINAPI *pSdbFindNextTag)(PDB, TAGID, TAGID);
-static TAGID (WINAPI *pSdbFindFirstNamedTag)(PDB, TAGID, TAGID, TAGID, LPCWSTR);
+static TAGID (WINAPI *pSdbFindFirstNamedTag)(PDB pdb, TAGID root, TAGID find, TAGID nametag, LPCWSTR find_name);
 static WORD (WINAPI *pSdbReadWORDTag)(PDB, TAGID, WORD);
 static DWORD (WINAPI *pSdbReadDWORDTag)(PDB, TAGID, DWORD);
 static QWORD (WINAPI *pSdbReadQWORDTag)(PDB, TAGID, QWORD);
@@ -159,7 +170,11 @@ static BOOL (WINAPI *pSdbTagRefToTagID)(HSDB hSDB, TAGREF trWhich, PDB *ppdb, TA
 static BOOL (WINAPI *pSdbTagIDToTagRef)(HSDB hSDB, PDB pdb, TAGID tiWhich, TAGREF *ptrWhich);
 static TAGREF (WINAPI *pSdbGetLayerTagRef)(HSDB hsdb, LPCWSTR layerName);
 static LONGLONG (WINAPI* pSdbMakeIndexKeyFromString)(LPCWSTR);
-
+static DWORD (WINAPI* pSdbQueryData)(HSDB hsdb, TAGREF trWhich, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize);
+static DWORD (WINAPI* pSdbQueryDataEx)(HSDB hsdb, TAGREF trWhich, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize, TAGREF *ptrData);
+static DWORD (WINAPI* pSdbQueryDataExTagID)(PDB pdb, TAGID tiExe, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize, TAGID *ptiData);
+static BOOL (WINAPI* pSdbGetDatabaseInformation)(PDB pdb, PDB_INFORMATION information);
+static VOID (WINAPI* pSdbFreeDatabaseInformation)(PDB_INFORMATION information);
 
 DEFINE_GUID(GUID_DATABASE_TEST, 0xe39b0eb0, 0x55db, 0x450b, 0x9b, 0xd4, 0xd2, 0x0c, 0x94, 0x84, 0x26, 0x0f);
 DEFINE_GUID(GUID_MAIN_DATABASE, 0x11111111, 0x1111, 0x1111, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11);
@@ -170,6 +185,51 @@ static void Write(HANDLE file, LPCVOID buffer, DWORD size)
     DWORD dwWritten = 0;
     WriteFile(file, buffer, size, &dwWritten, NULL);
 }
+
+static void test_GetDatabaseInformationEmpty(PDB pdb)
+{
+    PDB_INFORMATION pInfo;
+    BOOL fResult;
+
+    if (!pSdbGetDatabaseInformation || !pSdbFreeDatabaseInformation)
+    {
+        skip("GetDatabaseInformation or SdbFreeDatabaseInformation not found\n");
+        return;
+    }
+
+    pInfo = (PDB_INFORMATION)malloc(sizeof(*pInfo) * 4);
+    memset(pInfo, 0xDE, sizeof(*pInfo) * 2);
+
+    fResult = pSdbGetDatabaseInformation(pdb, pInfo);
+    ok(fResult, "SdbGetDatabaseInformation failed\n");
+    if (fResult)
+    {
+        ok_int(pInfo->dwSomething, 0);
+        ok(IsEqualGUID(GUID_NULL, pInfo->Id), "expected guid to be empty(%s)\n", wine_dbgstr_guid(&pInfo->Id));
+        ok(pInfo->Description == NULL, "Expected pInfo->Description to be NULL, was %s\n", wine_dbgstr_w(pInfo->Description));
+
+        /* Struct is slightly bigger on some Win10, and the DB version nr is different on all */
+        if (g_WinVersion >= WINVER_WIN10)
+        {
+            ok(pInfo->dwMajor == 3, "Expected pInfo->dwMajor to be 3, was: %d\n", pInfo->dwMajor);
+            ok(pInfo->dwMinor == 0, "Expected pInfo->dwMinor to be 0, was: %d\n", pInfo->dwMinor);
+
+            ok(pInfo[1].dwSomething == 0 || pInfo[1].dwSomething == 0xdededede, "Something amiss: 0x%x\n", pInfo[1].dwSomething);
+            ok(pInfo[1].dwMajor == 0xdededede, "Cookie2 corrupt: 0x%x\n", pInfo[1].dwMajor);
+        }
+        else
+        {
+            ok(pInfo->dwMajor == 2, "Expected pInfo->dwMajor to be 2, was: %d\n", pInfo->dwMajor);
+            ok(pInfo->dwMinor == 1, "Expected pInfo->dwMinor to be 1, was: %d\n", pInfo->dwMinor);
+
+            ok(pInfo[1].dwSomething == 0xdededede, "Cookie1 corrupt: 0x%x\n", pInfo[1].dwSomething);
+            ok(pInfo[1].dwMajor == 0xdededede, "Cookie2 corrupt: 0x%x\n", pInfo[1].dwMajor);
+        }
+
+    }
+    free(pInfo);
+}
+
 
 static void test_Sdb(void)
 {
@@ -285,6 +345,8 @@ static void test_Sdb(void)
         tagid = pSdbGetNextChild(pdb, ptagid, tagid);
         word = pSdbReadWORDTag(pdb, tagid, 0);
         ok(word == 0xACE, "unexpected value 0x%x, expected 0x%x\n", word, 0xACE);
+
+        test_GetDatabaseInformationEmpty(pdb);
 
         pSdbCloseDatabase(pdb);
     }
@@ -471,7 +533,7 @@ static void test_stringtable()
     static const WCHAR* all[] = { test1, test2, test3, test4, test5, lipsum, lipsum2, empty };
     static const TAGID expected_str[] = { 0xc, 0x12, 0x18, 0x1e, 0x24, 0x2a, 0x30, 0x36 };
     static const TAGID expected_tab[] = { 6, 0x18, 0x2a, 0x3c, 0x4e, 0x60, 0x846, 0x102c };
-    size_t n, j;
+    DWORD n, j;
 
     for (n = 0; n < (sizeof(all) / sizeof(all[0])); ++n)
     {
@@ -963,6 +1025,63 @@ static void check_db_apphelp(PDB pdb, TAGID root)
     ok(num == 2, "Expected to find 2 layer tags, found: %d\n", num);
 }
 
+static void test_GetDatabaseInformation(PDB pdb)
+{
+    PDB_INFORMATION pInfo;
+    BOOL fResult;
+
+    if (!pSdbGetDatabaseInformation || !pSdbFreeDatabaseInformation)
+    {
+        skip("GetDatabaseInformation or SdbFreeDatabaseInformation not found\n");
+        return;
+    }
+
+    _SEH2_TRY
+    {
+        pSdbFreeDatabaseInformation(NULL);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        ok(0, "SdbFreeDatabaseInformation did not handle a NULL pointer very gracefully.\n");
+    }
+    _SEH2_END;
+
+
+    pInfo = (PDB_INFORMATION)malloc(sizeof(*pInfo) * 4);
+    memset(pInfo, 0xDE, sizeof(*pInfo) * 2);
+
+    fResult = pSdbGetDatabaseInformation(pdb, pInfo);
+    ok(fResult, "SdbGetDatabaseInformation failed\n");
+    if (fResult)
+    {
+        ok_int(pInfo->dwSomething, 1);
+        ok(IsEqualGUID(GUID_DATABASE_TEST, pInfo->Id), "expected guids to be equal(%s:%s)\n",
+           wine_dbgstr_guid(&GUID_DATABASE_TEST), wine_dbgstr_guid(&pInfo->Id));
+        ok(wcscmp(pInfo->Description, L"apphelp_test1") == 0,
+           "Expected pInfo->Description to be 'apphelp_test1', was %s\n", wine_dbgstr_w(pInfo->Description));
+
+        /* Struct is slightly bigger on some Win10, and the DB version nr is different on all */
+        if (g_WinVersion >= WINVER_WIN10)
+        {
+            ok(pInfo->dwMajor == 3, "Expected pInfo->dwMajor to be 3, was: %d\n", pInfo->dwMajor);
+            ok(pInfo->dwMinor == 0, "Expected pInfo->dwMinor to be 0, was: %d\n", pInfo->dwMinor);
+
+            ok(pInfo[1].dwSomething == 4 || pInfo[1].dwSomething == 0xdededede, "Something amiss: 0x%x\n", pInfo[1].dwSomething);
+            ok(pInfo[1].dwMajor == 0xdededede, "Cookie2 corrupt: 0x%x\n", pInfo[1].dwMajor);
+        }
+        else
+        {
+            ok(pInfo->dwMajor == 2, "Expected pInfo->dwMajor to be 2, was: %d\n", pInfo->dwMajor);
+            ok(pInfo->dwMinor == 1, "Expected pInfo->dwMinor to be 1, was: %d\n", pInfo->dwMinor);
+
+            ok(pInfo[1].dwSomething == 0xdededede, "Cookie1 corrupt: 0x%x\n", pInfo[1].dwSomething);
+            ok(pInfo[1].dwMajor == 0xdededede, "Cookie2 corrupt: 0x%x\n", pInfo[1].dwMajor);
+        }
+        
+    }
+    free(pInfo);
+}
+
 static void test_CheckDatabaseManually(void)
 {
     static const WCHAR path[] = {'t','e','s','t','_','d','b','.','s','d','b',0};
@@ -1037,6 +1156,7 @@ static void test_CheckDatabaseManually(void)
         check_db_exes(pdb, root);
         check_db_apphelp(pdb, root);
     }
+    test_GetDatabaseInformation(pdb);
 
     pSdbCloseDatabase(pdb);
     DeleteFileA("test_db.sdb");
@@ -1079,9 +1199,8 @@ static BOOL IsUserAdmin()
 }
 
 
-
 template<typename SDBQUERYRESULT_T>
-static void check_adwExeFlags(DWORD adwExeFlags_0, SDBQUERYRESULT_T& query, const char* file, int line, int cur)
+static void check_adwExeFlags(DWORD adwExeFlags_0, SDBQUERYRESULT_T& query, const char* file, int line, size_t cur)
 {
     ok_(file, line)(query.adwExeFlags[0] == adwExeFlags_0, "Expected adwExeFlags[0] to be 0x%x, was: 0x%x for %d\n", adwExeFlags_0, query.adwExeFlags[0], cur);
     for (size_t n = 1; n < _countof(query.atrExes); ++n)
@@ -1089,13 +1208,13 @@ static void check_adwExeFlags(DWORD adwExeFlags_0, SDBQUERYRESULT_T& query, cons
 }
 
 template<>
-void check_adwExeFlags(DWORD, SDBQUERYRESULT_2k3&, const char*, int, int)
+void check_adwExeFlags(DWORD, SDBQUERYRESULT_2k3&, const char*, int, size_t)
 {
 }
 
 
 template<typename SDBQUERYRESULT_T>
-static void test_mode_generic(const WCHAR* workdir, HSDB hsdb, int cur)
+static void test_mode_generic(const WCHAR* workdir, HSDB hsdb, size_t cur)
 {
     WCHAR exename[MAX_PATH], testfile[MAX_PATH];
     BOOL ret;
@@ -1598,6 +1717,223 @@ static void test_TagRef(void)
 }
 
 
+static void test_DataTags(HSDB hsdb)
+{
+    PDB pdb = NULL;
+    TAGID db = TAGID_NULL, layer, exe;
+    TAGREF trData;
+    BYTE Buffer[1024];
+    DWORD dwBufferSize, dwDataType, dwRet;
+    TAGID tiData;
+
+    BOOL ret = pSdbTagRefToTagID(hsdb, TAGID_ROOT, &pdb, NULL);
+
+    ok(ret != FALSE, "Expected ret to be TRUE, was: %d\n", ret);
+    ok(pdb != NULL, "Expected pdb to be valid\n");
+
+    if (pdb == NULL)
+    {
+        skip("Cannot run tests without pdb\n");
+        return;
+    }
+
+    db = pSdbFindFirstTag(pdb, TAGID_ROOT, TAG_DATABASE);
+    ok(db != NULL, "Expected db to be valid\n");
+    if (db == TAGID_NULL)
+    {
+        skip("Cannot run tests without db\n");
+        return;
+    }
+
+    layer = pSdbFindFirstNamedTag(pdb, db, TAG_LAYER, TAG_NAME, L"DATA_LAYER");
+    ok(layer != NULL, "Expected layer to be valid\n");
+    if (layer == TAGID_NULL)
+    {
+        skip("Cannot run tests without layer\n");
+        return;
+    }
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    tiData = 0x111111;
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA1", &dwDataType, Buffer, &dwBufferSize, &tiData);
+    ok_hex(dwRet, ERROR_SUCCESS);
+    ok_hex(dwDataType, REG_DWORD);
+    ok_hex(dwBufferSize, sizeof(DWORD));
+    ok_hex(*(DWORD*)Buffer, 3333);
+    ok(tiData != NULL && tiData != 0x111111, "Expected tiData, got NULL\n");
+    ok_hex(pSdbGetTagFromTagID(pdb, tiData), TAG_DATA);
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA1", NULL, Buffer, &dwBufferSize, NULL);
+    ok_hex(dwRet, ERROR_SUCCESS);
+    ok_hex(dwBufferSize, sizeof(DWORD));
+    ok_hex(*(DWORD*)Buffer, 3333);
+
+    /* This succeeds on 2k3.. */
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA1", NULL, Buffer, NULL, NULL);
+    ok_hex(dwRet, ERROR_INSUFFICIENT_BUFFER);
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = 1;
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA1", NULL, Buffer, &dwBufferSize, NULL);
+    ok_hex(dwRet, ERROR_INSUFFICIENT_BUFFER);
+    ok_hex(dwBufferSize, sizeof(DWORD));
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA1", NULL, NULL, &dwBufferSize, NULL);
+    ok_hex(dwRet, ERROR_INSUFFICIENT_BUFFER);
+    ok_hex(dwBufferSize, sizeof(DWORD));
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwRet = pSdbQueryDataExTagID(pdb, TAGID_NULL, L"TESTDATA1", NULL, Buffer, &dwBufferSize, NULL);
+    ok_hex(dwRet, ERROR_NOT_FOUND);
+    ok_hex(dwBufferSize, sizeof(Buffer));
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    tiData = 0x111111;
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA2", &dwDataType, Buffer, &dwBufferSize, &tiData);
+    ok_hex(dwRet, ERROR_SUCCESS);
+    ok_hex(dwDataType, REG_QWORD);
+    ok_hex(dwBufferSize, sizeof(QWORD));
+    ok(*(QWORD*)Buffer == 4294967295ull, "unexpected value 0x%I64x, expected 4294967295\n", *(QWORD*)Buffer);
+    ok(tiData != NULL && tiData != 0x111111, "Expected tiData, got NULL\n");
+    ok_hex(pSdbGetTagFromTagID(pdb, tiData), TAG_DATA);
+
+    /* Not case sensitive */
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    tiData = 0x111111;
+    dwRet = pSdbQueryDataExTagID(pdb, layer, L"TESTDATA3", &dwDataType, Buffer, &dwBufferSize, &tiData);
+    ok_hex(dwRet, ERROR_SUCCESS);
+    ok_hex(dwDataType, REG_SZ);
+    ok_hex(dwBufferSize, (int)((wcslen(L"Test string")+1) * sizeof(WCHAR)));
+    Buffer[_countof(Buffer)-1] = L'\0';
+    ok_wstr(((WCHAR*)Buffer), L"Test string");
+    ok(tiData != NULL && tiData != 0x111111, "Expected tiData, got NULL\n");
+    ok_hex(pSdbGetTagFromTagID(pdb, tiData), TAG_DATA);
+
+    /* Show that SdbQueryDataEx behaves the same */
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    trData = 0x111111;
+    dwRet = pSdbQueryDataEx(hsdb, layer, L"TESTDATA1", &dwDataType, Buffer, &dwBufferSize, &trData);
+    ok_hex(dwRet, ERROR_SUCCESS);
+    ok_hex(dwDataType, REG_DWORD);
+    ok_hex(dwBufferSize, sizeof(DWORD));
+    ok_hex(*(DWORD*)Buffer, 3333);
+    ok(trData != NULL && trData != 0x111111, "Expected trData, got NULL\n");
+
+    /* And SdbQueryData as well */
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    dwRet = pSdbQueryData(hsdb, layer, L"TESTDATA1", &dwDataType, Buffer, &dwBufferSize);
+    ok_hex(dwRet, ERROR_SUCCESS);
+    ok_hex(dwDataType, REG_DWORD);
+    ok_hex(dwBufferSize, sizeof(DWORD));
+    ok_hex(*(DWORD*)Buffer, 3333);
+
+    exe = pSdbFindFirstNamedTag(pdb, db, TAG_EXE, TAG_NAME, L"test_match0.exe");
+    ok(exe != NULL, "Expected exe to be valid\n");
+    if (exe == TAGID_NULL)
+    {
+        skip("Cannot run tests without exe\n");
+        return;
+    }
+
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    tiData = 0x111111;
+    dwRet = pSdbQueryDataExTagID(pdb, exe, L"TESTDATA1", &dwDataType, Buffer, &dwBufferSize, &tiData);
+    ok_hex(dwRet, ERROR_NOT_FOUND);
+    ok_hex(dwDataType, 0x12345);
+    ok_hex(dwBufferSize, sizeof(Buffer));
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+    ok(tiData == 0x111111, "Expected 0x111111, got 0x%x\n", tiData);
+
+    /* Show that SdbQueryDataEx behaves the same */
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    trData = 0x111111;
+    dwRet = pSdbQueryDataEx(hsdb, exe, L"TESTDATA1", &dwDataType, Buffer, &dwBufferSize, &trData);
+    ok_hex(dwRet, ERROR_NOT_FOUND);
+    ok_hex(dwDataType, 0x12345);
+    ok_hex(dwBufferSize, sizeof(Buffer));
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+    ok(trData == 0x111111, "Expected 0x111111, got 0x%x\n", trData);
+
+    /* And SdbQueryData as well */
+    memset(Buffer, 0xaa, sizeof(Buffer));
+    dwBufferSize = sizeof(Buffer);
+    dwDataType = 0x12345;
+    dwRet = pSdbQueryData(hsdb, exe, L"TESTDATA1", &dwDataType, Buffer, &dwBufferSize);
+    ok_hex(dwRet, ERROR_NOT_FOUND);
+    ok_hex(dwDataType, 0x12345);
+    ok_hex(dwBufferSize, sizeof(Buffer));
+    ok_hex(*(DWORD*)Buffer, (int)0xaaaaaaaa);
+}
+
+
+static void test_Data(void)
+{
+    WCHAR workdir[MAX_PATH], dbpath[MAX_PATH];
+    BOOL ret;
+    HSDB hsdb;
+
+    ret = GetTempPathW(_countof(workdir), workdir);
+    ok(ret, "GetTempPathW error: %d\n", GetLastError());
+    lstrcatW(workdir, L"apphelp_test");
+
+    ret = CreateDirectoryW(workdir, NULL);
+    ok(ret, "CreateDirectoryW error: %d\n", GetLastError());
+
+    /* SdbInitDatabase needs an nt-path */
+    swprintf(dbpath, L"\\??\\%s\\test.sdb", workdir);
+
+    if (extract_resource(dbpath + 4, MAKEINTRESOURCEW(101)))
+    {
+        hsdb = pSdbInitDatabase(HID_DATABASE_FULLPATH, dbpath);
+
+        ok(hsdb != NULL, "Expected a valid database handle\n");
+
+        if (!hsdb)
+        {
+            skip("SdbInitDatabase not implemented?\n");
+        }
+        else
+        {
+            test_DataTags(hsdb);
+            pSdbReleaseDatabase(hsdb);
+        }
+    }
+    else
+    {
+        ok(0, "Unable to extract database\n");
+    }
+
+    DeleteFileW(dbpath + 4);
+
+    ret = RemoveDirectoryW(workdir);
+    ok(ret, "RemoveDirectoryW error: %d\n", GetLastError());
+}
+
 
 static void expect_indexA_imp(const char* text, LONGLONG expected)
 {
@@ -1775,7 +2111,12 @@ START_TEST(db)
     *(void**)&pSdbTagRefToTagID = (void *)GetProcAddress(hdll, "SdbTagRefToTagID");
     *(void**)&pSdbTagIDToTagRef = (void *)GetProcAddress(hdll, "SdbTagIDToTagRef");
     *(void**)&pSdbMakeIndexKeyFromString = (void *)GetProcAddress(hdll, "SdbMakeIndexKeyFromString");
+    *(void**)&pSdbQueryData = (void *)GetProcAddress(hdll, "SdbQueryData");
+    *(void**)&pSdbQueryDataEx = (void *)GetProcAddress(hdll, "SdbQueryDataEx");
+    *(void**)&pSdbQueryDataExTagID = (void *)GetProcAddress(hdll, "SdbQueryDataExTagID");
     *(void**)&pSdbGetLayerTagRef = (void *)GetProcAddress(hdll, "SdbGetLayerTagRef");
+    *(void**)&pSdbGetDatabaseInformation = (void *)GetProcAddress(hdll, "SdbGetDatabaseInformation");
+    *(void**)&pSdbFreeDatabaseInformation = (void *)GetProcAddress(hdll, "SdbFreeDatabaseInformation");
 
     test_Sdb();
     test_write_ex();
@@ -1796,6 +2137,7 @@ START_TEST(db)
         break;
     }
     test_TagRef();
+    test_Data();
     skip("test_SecondaryDB()\n");
     test_IndexKeyFromString();
 }

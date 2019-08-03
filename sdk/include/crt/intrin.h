@@ -11,6 +11,7 @@
 #if defined(_M_IX86) || defined(_M_X64)
 //#include <immintrin.h>
 //#include <ammintrin.h>
+#include <xmmintrin.h> // native headers: immintrin.h -> wmmintrin.h -> nmmintrin.h -> smmintrin.h -> tmmintrin.h -> pmmintrin.h -> emmintrin.h
 #endif /* _M_IX86 || _M_X64 */
 
 #if defined(_M_IX86)
@@ -1012,7 +1013,7 @@ long _InterlockedIncrement(_Interlocked_operand_ long volatile * _Addend);
 }
 #endif /* __cplusplus */
 
-#if defined(__GNUC__) && defined(_WIN32) // We can't use __MINGW32__ here
+#if (defined(__GNUC__) || defined(__clang__)) && defined(_WIN32) // We can't use __MINGW32__ here
 #  include "mingw32/intrin.h"
 #elif defined(_MSC_VER)
 #  include "msc/intrin.h"

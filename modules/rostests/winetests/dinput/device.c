@@ -16,18 +16,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #define DIRECTINPUT_VERSION 0x0700
 
 #define COBJMACROS
-//#include <windows.h>
+#include <windows.h>
 
-#include <wine/test.h>
-//#include "windef.h"
-#include <dinput.h>
+#include "wine/test.h"
+#include "windef.h"
+#include "dinput.h"
 
 static const DIOBJECTDATAFORMAT obj_data_format[] = {
   { &GUID_YAxis, 16, DIDFT_OPTIONAL|DIDFT_AXIS  |DIDFT_MAKEINSTANCE(1), 0},
@@ -55,7 +51,7 @@ static const DIDATAFORMAT data_format = {
     sizeof(DIOBJECTDATAFORMAT),
     DIDF_ABSAXIS,
     32,
-    sizeof(obj_data_format) / sizeof(obj_data_format[0]),
+    ARRAY_SIZE(obj_data_format),
     (LPDIOBJECTDATAFORMAT)obj_data_format
 };
 
@@ -98,7 +94,7 @@ static void test_object_info(IDirectInputDeviceA *device, HWND hwnd)
     ok(cnt == cnt1, "Enum count changed from %d to %d\n", cnt, cnt1);
 
     /* Testing EnumObjects with different types of device objects */
-    for (type_index=0; type_index < sizeof(obj_types)/sizeof(obj_types[0]); type_index++)
+    for (type_index=0; type_index < ARRAY_SIZE(obj_types); type_index++)
     {
         hr = IDirectInputDevice_EnumObjects(device, enum_type_callback, &obj_types[type_index], obj_types[type_index]);
         ok(SUCCEEDED(hr), "EnumObjects() failed: %08x\n", hr);

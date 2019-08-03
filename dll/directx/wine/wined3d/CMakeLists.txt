@@ -7,6 +7,11 @@ add_definitions(
 
 include_directories(BEFORE ${REACTOS_SOURCE_DIR}/sdk/include/reactos/wine)
 
+if(MSVC)
+    # error C4312: 'type cast': conversion from 'LONG' to 'void *' of greater size
+    replace_compile_flags("/we4312" " ")
+endif()
+
 # We name this d3dwine.dll, because the Virtualbox additions ship with a custom wined3d.dll
 # and it breaks everything if it is installed.
 spec2def(d3dwine.dll wined3d.spec ADD_IMPORTLIB)
@@ -19,7 +24,6 @@ list(APPEND SOURCE
     cs.c
     device.c
     directx.c
-    drawprim.c
     dxtn.c
     gl_compat.c
     glsl_shader.c
@@ -40,9 +44,9 @@ list(APPEND SOURCE
     vertexdeclaration.c
     view.c
     wined3d_main.c
-    wined3d_private.h)
+    precomp.h)
 
-add_library(d3dwine SHARED
+add_library(d3dwine MODULE
     ${SOURCE}
     version.rc
     ${CMAKE_CURRENT_BINARY_DIR}/d3dwine.def)
@@ -50,5 +54,5 @@ add_library(d3dwine SHARED
 set_module_type(d3dwine win32dll)
 target_link_libraries(d3dwine wine)
 add_importlibs(d3dwine user32 opengl32 gdi32 advapi32 msvcrt kernel32 ntdll)
-add_pch(d3dwine wined3d_private.h SOURCE)
+add_pch(d3dwine precomp.h SOURCE)
 add_cd_file(TARGET d3dwine DESTINATION reactos/system32 FOR all)

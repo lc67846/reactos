@@ -56,10 +56,11 @@ private:
     LPITEMIDLIST m_pidlFolder;
     LPWSTR m_wszPath;
     SHELLNEW_ITEM *m_pItems;
-    SHELLNEW_ITEM *m_pLinkItem;
+    SHELLNEW_ITEM *m_pLinkItem; // Points to the link handler item in the m_pItems list.
     CComPtr<IUnknown> m_pSite;
     HMENU m_hSubMenu;
-    HICON m_hiconFolder, m_hiconLink;
+    UINT m_idCmdFirst, m_idCmdFolder, m_idCmdLink;
+    HICON m_hIconFolder, m_hIconLink;
 
     SHELLNEW_ITEM *LoadItem(LPCWSTR pwszExt);
     void UnloadItem(SHELLNEW_ITEM *pItem);
@@ -71,7 +72,10 @@ private:
     SHELLNEW_ITEM *FindItemFromIdOffset(UINT IdOffset);
     HRESULT CreateNewFolder(LPCMINVOKECOMMANDINFO lpici);
     HRESULT CreateNewItem(SHELLNEW_ITEM *pItem, LPCMINVOKECOMMANDINFO lpcmi);
-    HRESULT SelectNewItem(LPCMINVOKECOMMANDINFO lpici, LONG wEventId, UINT uFlags, LPWSTR pszName);
+    HRESULT SelectNewItem(LONG wEventId, UINT uFlags, LPWSTR pszName, BOOL bRename);
+    HRESULT NewItemByCommand(SHELLNEW_ITEM *pItem, LPCWSTR wszPath);
+    HRESULT NewItemByNonCommand(SHELLNEW_ITEM *pItem, LPWSTR wszName,
+                                DWORD cchNameMax, LPCWSTR wszPath);
 
 public:
     CNewMenu();

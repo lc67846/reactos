@@ -1,8 +1,9 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite platform declarations
- * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ * PROJECT:     ReactOS kernel-mode tests
+ * LICENSE:     LGPL-2.1+ (https://spdx.org/licenses/LGPL-2.1+)
+ * PURPOSE:     Kernel-Mode Test Suite platform declarations
+ * COPYRIGHT:   Copyright 2011-2018 Thomas Faber <thomas.faber@reactos.org>
+ *              Copyright 2017 Ged Murphy <gedmurphy@reactos.org>
  */
 
 #ifndef _KMTEST_PLATFORM_H_
@@ -23,8 +24,12 @@
 #include <ndk/kefuncs.h>
 #include <ndk/mmfuncs.h>
 #include <ndk/obfuncs.h>
+#include <ndk/psfuncs.h>
 #include <ndk/sefuncs.h>
 #include <ntstrsafe.h>
+#if defined KMT_FILTER_DRIVER
+#include <fltkernel.h>
+#endif
 
 #elif defined KMT_USER_MODE
 #define WIN32_NO_STATUS
@@ -39,6 +44,8 @@
 #include <ndk/rtlfuncs.h>
 #include <ndk/mmfuncs.h>
 #include <strsafe.h>
+#include <fltuser.h>
+
 
 #ifdef KMT_EMULATE_KERNEL
 #define ok_irql(i)

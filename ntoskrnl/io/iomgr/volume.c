@@ -123,6 +123,14 @@ IopCheckVpbMounted(IN POPEN_PACKET OpenPacket,
             *Status = STATUS_WRONG_VOLUME;
             return NULL;
         }
+        /*
+         * In case IopMountVolume returns a valid VPB
+         * Then, the volume is mounted, return it
+         */
+        else if (Vpb != NULL)
+        {
+            return Vpb;
+        }
 
         /* Re-acquire the lock */
         IoAcquireVpbSpinLock(&OldIrql);
@@ -1346,7 +1354,7 @@ IoVolumeDeviceToDosName(IN PVOID VolumeDeviceObject,
         goto DereferenceFO;
     }
 
-    Status = IoCallDriver(VolumeDeviceObject, Irp);
+    Status = IoCallDriver(DeviceObject, Irp);
     if (Status == STATUS_PENDING)
     {
         KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);
@@ -1396,7 +1404,7 @@ IoVolumeDeviceToDosName(IN PVOID VolumeDeviceObject,
         goto ReleaseMemory;
     }
 
-    Status = IoCallDriver(VolumeDeviceObject, Irp);
+    Status = IoCallDriver(DeviceObject, Irp);
     if (Status == STATUS_PENDING)
     {
         KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);

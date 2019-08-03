@@ -121,6 +121,23 @@ Fail:
     return hMod;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDI_USERPROF));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
+
 /* First Applet */
 LONG CALLBACK
 SystemApplet(VOID)
@@ -137,20 +154,20 @@ SystemApplet(VOID)
 
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags =  PSH_PROPTITLE;
+    psh.dwFlags =  PSH_PROPTITLE | PSH_USEICONID | PSH_USECALLBACK;
     psh.hwndParent = hCPLWindow;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDI_CPLSYSTEM));
+    psh.pszIcon = MAKEINTRESOURCEW(IDI_USERPROF);
     psh.pszCaption = MAKEINTRESOURCE(IDS_CPLSYSTEMNAME);
     psh.nPages = 0;
     psh.nStartPage = 0;
     psh.phpage = hpsp;
-    psh.pfnCallback = NULL;
+    psh.pfnCallback = PropSheetProc;
 
-    InitPropSheetPage(&psh, IDD_PROPPAGEGENERAL, (DLGPROC) GeneralPageProc);
+    InitPropSheetPage(&psh, IDD_PROPPAGEGENERAL, GeneralPageProc);
     hNetIdDll = AddNetIdPage(&psh);
-    InitPropSheetPage(&psh, IDD_PROPPAGEHARDWARE, (DLGPROC) HardwarePageProc);
-    InitPropSheetPage(&psh, IDD_PROPPAGEADVANCED, (DLGPROC) AdvancedPageProc);
+    InitPropSheetPage(&psh, IDD_PROPPAGEHARDWARE, HardwarePageProc);
+    InitPropSheetPage(&psh, IDD_PROPPAGEADVANCED, AdvancedPageProc);
 
     /* Load additional pages provided by shell extensions */
     hpsxa = SHCreatePropSheetExtArray(HKEY_LOCAL_MACHINE, REGSTR_PATH_CONTROLSFOLDER TEXT("\\System"), MAX_SYSTEM_PAGES - psh.nPages);

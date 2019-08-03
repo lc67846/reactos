@@ -10,8 +10,8 @@
 /* INCLUDES *******************************************************************/
 
 #include "usersrv.h"
-
-#include "api.h"
+#include "api.h"            // USERSRV Public server APIs definitions
+#include "../consrv/api.h"  //  CONSRV Public server APIs definitions
 
 #define NDEBUG
 #include <debug.h>
@@ -90,6 +90,19 @@ PCHAR UserServerApiNameTable[UserpMaxApiNumber - USERSRV_FIRST_API_NUMBER] =
 
 /* FUNCTIONS ******************************************************************/
 
+BOOL CALLBACK
+FindTopLevelWnd(
+    IN HWND hWnd,
+    IN LPARAM lParam)
+{
+    if (GetWindow(hWnd, GW_OWNER) == NULL)
+    {
+        *(HWND*)lParam = hWnd;
+        return FALSE;
+    }
+    return TRUE;
+}
+
 // PUSER_SOUND_SENTRY. Used in basesrv.dll
 BOOL NTAPI _UserSoundSentry(VOID)
 {
@@ -101,15 +114,20 @@ ULONG
 NTAPI
 CreateSystemThreads(PVOID pParam)
 {
-    NtUserCallOneParam((DWORD)pParam, ONEPARAM_ROUTINE_CREATESYSTEMTHREADS);
+    NtUserCallOneParam((DWORD_PTR)pParam, ONEPARAM_ROUTINE_CREATESYSTEMTHREADS);
     RtlExitUserThread(0);
     return 0;
 }
 
 CSR_API(SrvCreateSystemThreads)
 {
-    DPRINT1("%s not yet implemented\n", __FUNCTION__);
-    return STATUS_NOT_IMPLEMENTED;
+    NTSTATUS Status = CsrExecServerThread(CreateSystemThreads, 0);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Cannot start system thread!\n");
+    }
+
+    return Status;
 }
 
 CSR_API(SrvActivateDebugger)
@@ -120,14 +138,18 @@ CSR_API(SrvActivateDebugger)
 
 CSR_API(SrvGetThreadConsoleDesktop)
 {
+    NTSTATUS Status;
     PUSER_GET_THREAD_CONSOLE_DESKTOP GetThreadConsoleDesktopRequest = &((PUSER_API_MESSAGE)ApiMessage)->Data.GetThreadConsoleDesktopRequest;
 
-    DPRINT1("%s not yet implemented\n", __FUNCTION__);
+    Status = GetThreadConsoleDesktop(GetThreadConsoleDesktopRequest->ThreadId,
+                                     &GetThreadConsoleDesktopRequest->ConsoleDesktop);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("GetThreadConsoleDesktop(%lu) failed with Status 0x%08x\n",
+                GetThreadConsoleDesktopRequest->ThreadId, Status);
+    }
 
-    /* Return nothing for the moment... */
-    GetThreadConsoleDesktopRequest->ConsoleDesktop = NULL;
-
-    /* Always succeeds */
+    /* Windows-compatibility: Always return success since User32 relies on this! */
     return STATUS_SUCCESS;
 }
 
@@ -256,6 +278,9 @@ CSR_SERVER_DLL_INIT(UserServerDllInitialization)
     /* Set the process creation notify routine for BASE */
     BaseSetProcessCreateNotify(NtUserNotifyProcessCreate);
 
+    /* Initialize the hard errors cache */
+    UserInitHardErrorsCache();
+
     /* Initialize the kernel mode subsystem */
     Status = NtUserInitialize(USER_VERSION,
                               ghPowerRequestEvent,
@@ -265,32 +290,6 @@ CSR_SERVER_DLL_INIT(UserServerDllInitialization)
         DPRINT1("NtUserInitialize failed with Status 0x%08x\n", Status);
         return Status;
     }
-
-/*** From win32csr... See r54125 ***/
-    {
-        HANDLE ServerThread;
-        CLIENT_ID ClientId;
-        UINT i;
-
-        /* Start the Raw Input Thread and the Desktop Thread */
-        for (i = 0; i < 2; ++i)
-        {
-            Status = RtlCreateUserThread(NtCurrentProcess(),
-                                         NULL, TRUE, 0, 0, 0,
-                                         CreateSystemThreads,
-                                         (PVOID)i, &ServerThread, &ClientId);
-            if (NT_SUCCESS(Status))
-            {
-                NtResumeThread(ServerThread, NULL);
-                NtClose(ServerThread);
-            }
-            else
-            {
-                DPRINT1("Cannot start Raw Input Thread!\n");
-            }
-        }
-    }
-/*** END - From win32csr... ***/
 
     /* All done */
     return STATUS_SUCCESS;

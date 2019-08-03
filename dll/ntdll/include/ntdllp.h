@@ -32,6 +32,7 @@ typedef struct _LDRP_TLS_DATA
 /* Global data */
 extern RTL_CRITICAL_SECTION LdrpLoaderLock;
 extern BOOLEAN LdrpInLdrInit;
+extern PVOID LdrpHeap;
 extern LIST_ENTRY LdrpHashTable[LDR_HASH_TABLE_ENTRIES];
 extern BOOLEAN ShowSnaps;
 extern UNICODE_STRING LdrpDefaultPath;
@@ -46,6 +47,7 @@ extern ULONG LdrpActiveUnloadCount;
 extern BOOLEAN LdrpShutdownInProgress;
 extern UNICODE_STRING LdrpKnownDllPath;
 extern PLDR_DATA_TABLE_ENTRY LdrpGetModuleHandleCache, LdrpLoadedDllHandleCache;
+extern BOOLEAN RtlpPageHeapEnabled;
 extern ULONG RtlpDphGlobalFlags;
 extern BOOLEAN g_ShimsEnabled;
 extern PVOID g_pShimEngineModule;
@@ -61,9 +63,9 @@ VOID NTAPI LdrpInitializeThread(IN PCONTEXT Context);
 NTSTATUS NTAPI LdrpInitializeTls(VOID);
 NTSTATUS NTAPI LdrpAllocateTls(VOID);
 VOID NTAPI LdrpFreeTls(VOID);
-VOID NTAPI LdrpCallTlsInitializers(PVOID BaseAddress, ULONG Reason);
-BOOLEAN NTAPI LdrpCallInitRoutine(PDLL_INIT_ROUTINE EntryPoint, PVOID BaseAddress, ULONG Reason, PVOID Context);
-NTSTATUS NTAPI LdrpInitializeProcess(PCONTEXT Context, PVOID SystemArgument1);
+VOID NTAPI LdrpCallTlsInitializers(IN PLDR_DATA_TABLE_ENTRY LdrEntry, IN ULONG Reason);
+BOOLEAN NTAPI LdrpCallInitRoutine(IN PDLL_INIT_ROUTINE EntryPoint, IN PVOID BaseAddress, IN ULONG Reason, IN PVOID Context);
+NTSTATUS NTAPI LdrpInitializeProcess(IN PCONTEXT Context, IN PVOID SystemArgument1);
 VOID NTAPI LdrpInitFailure(NTSTATUS Status);
 VOID NTAPI LdrpValidateImageForMp(IN PLDR_DATA_TABLE_ENTRY LdrDataTableEntry);
 VOID NTAPI LdrpEnsureLoaderLockIsHeld(VOID);
@@ -147,7 +149,7 @@ VOID NTAPI
 LdrpFreeUnicodeString(PUNICODE_STRING String);
 
 VOID NTAPI
-LdrpGetShimEngineInterface();
+LdrpGetShimEngineInterface(VOID);
 
 VOID
 NTAPI
@@ -156,7 +158,27 @@ LdrpLoadShimEngine(IN PWSTR ImageName,
                    IN PVOID pShimData);
 
 VOID NTAPI
-LdrpUnloadShimEngine();
+LdrpUnloadShimEngine(VOID);
+
+/* verifier.c */
+
+NTSTATUS NTAPI
+LdrpInitializeApplicationVerifierPackage(IN HANDLE KeyHandle,
+                                         IN PPEB Peb,
+                                         IN BOOLEAN SystemWide,
+                                         IN BOOLEAN ReadAdvancedOptions);
+
+NTSTATUS NTAPI
+AVrfInitializeVerifier(VOID);
+
+VOID NTAPI
+AVrfDllLoadNotification(IN PLDR_DATA_TABLE_ENTRY LdrEntry);
+
+VOID NTAPI
+AVrfDllUnloadNotification(IN PLDR_DATA_TABLE_ENTRY LdrEntry);
+
+VOID NTAPI
+AVrfPageHeapDllNotification(IN PLDR_DATA_TABLE_ENTRY LdrEntry);
 
 
 /* FIXME: Cleanup this mess */
@@ -180,5 +202,13 @@ LdrpLoadImportModule(IN PWSTR DllPath OPTIONAL,
 VOID
 NTAPI
 LdrpFinalizeAndDeallocateDataTableEntry(IN PLDR_DATA_TABLE_ENTRY Entry);
+
+
+/* path.c */
+BOOLEAN
+NTAPI
+RtlDoesFileExists_UStr(
+    IN PUNICODE_STRING FileName
+);
 
 /* EOF */

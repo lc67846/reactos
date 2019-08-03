@@ -27,15 +27,42 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "internet.h"
+#include "config.h"
+
+#include <stdlib.h>
 
 #ifdef HAVE_ZLIB
 #  include <zlib.h>
 #endif
 
-#include <winternl.h>
+#include "winsock2.h"
+#include "ws2ipdef.h"
 
-#include <wine/exception.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <time.h>
+#include <assert.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "wininet.h"
+#include "winerror.h"
+#include "winternl.h"
+#define NO_SHLWAPI_STREAM
+#define NO_SHLWAPI_REG
+#define NO_SHLWAPI_STRFCNS
+#define NO_SHLWAPI_GDI
+#include "shlwapi.h"
+#include "sspi.h"
+#include "wincrypt.h"
+#include "winuser.h"
+
+#include "internet.h"
+#include "wine/debug.h"
+#include "wine/exception.h"
+#include "wine/unicode.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wininet);
 
 static const WCHAR g_szHttp1_0[] = {'H','T','T','P','/','1','.','0',0};
 static const WCHAR g_szHttp1_1[] = {'H','T','T','P','/','1','.','1',0};
@@ -253,7 +280,7 @@ server_t *get_server(substr_t name, INTERNET_PORT port, BOOL is_https, BOOL do_c
     EnterCriticalSection(&connection_pool_cs);
 
     LIST_FOR_EACH_ENTRY(iter, &connection_pool, server_t, entry) {
-        if(iter->port == port && name.len == strlenW(iter->name) && !strncmpW(iter->name, name.str, name.len)
+        if(iter->port == port && name.len == strlenW(iter->name) && !strncmpiW(iter->name, name.str, name.len)
                 && iter->is_https == is_https) {
             server = iter;
             server_addref(server);
@@ -1725,7 +1752,7 @@ static BOOL HTTP_DomainMatches(LPCWSTR server, substr_t domain)
         return FALSE;
 
     len = strlenW(dot + 1);
-    if(len <= domain.len - 2)
+    if(len < domain.len - 2)
         return FALSE;
 
     /* The server's domain is longer than the wildcard, so it
@@ -5037,7 +5064,7 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
             res = set_content_length(request);
             if(res != ERROR_SUCCESS)
                 goto lend;
-            if(!request->contentLength)
+            if(!request->contentLength && !secure_proxy_connect)
                 http_release_netconn(request, TRUE);
 
             if (!(request->hdr.dwFlags & INTERNET_FLAG_NO_AUTO_REDIRECT) && responseLen)
@@ -5085,7 +5112,8 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                                                  request->session->password, host))
                         {
                             heap_free(requestString);
-                            if(!drain_content(request, TRUE) == ERROR_SUCCESS) {
+                            if (drain_content(request, TRUE) != ERROR_SUCCESS)
+                            {
                                 FIXME("Could not drain content\n");
                                 http_release_netconn(request, FALSE);
                             }
@@ -5113,7 +5141,8 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                                                  NULL))
                         {
                             heap_free(requestString);
-                            if(!drain_content(request, TRUE) == ERROR_SUCCESS) {
+                            if (drain_content(request, TRUE) != ERROR_SUCCESS)
+                            {
                                 FIXME("Could not drain content\n");
                                 http_release_netconn(request, FALSE);
                             }
@@ -5141,6 +5170,8 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                 remove_header(request, szProxy_Authorization, TRUE);
                 destroy_authinfo(request->proxyAuthInfo);
                 request->proxyAuthInfo = NULL;
+                request->contentLength = 0;
+                request->netconn_stream.content_length = 0;
 
                 secure_proxy_connect = FALSE;
                 loop_next = TRUE;

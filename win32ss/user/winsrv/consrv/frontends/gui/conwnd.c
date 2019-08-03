@@ -7,6 +7,7 @@
  *                  Johannes Anderwald
  *                  Jeffrey Morlan
  *                  Hermes Belusca-Maito (hermes.belusca@sfr.fr)
+ *                  Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 /* INCLUDES *******************************************************************/
@@ -14,13 +15,13 @@
 #include <consrv.h>
 #include <intrin.h>
 #include <windowsx.h>
+#include <shellapi.h>
 
 #define NDEBUG
 #include <debug.h>
 
-#include "font.h"
+#include "concfg/font.h"
 #include "guiterm.h"
-#include "conwnd.h"
 #include "resource.h"
 
 /* GLOBALS ********************************************************************/
@@ -172,28 +173,6 @@ UnRegisterConWndClass(HINSTANCE hInstance)
     return !!UnregisterClassW(GUI_CONWND_CLASS, hInstance);
 }
 
-
-/* NOTE: Also used in guiterm.c */
-/* static */ VOID
-GetScreenBufferSizeUnits(IN PCONSOLE_SCREEN_BUFFER Buffer,
-                         IN PGUI_CONSOLE_DATA GuiData,
-                         OUT PUINT WidthUnit,
-                         OUT PUINT HeightUnit)
-{
-    ASSERT(Buffer && GuiData && WidthUnit && HeightUnit);
-
-    if (GetType(Buffer) == TEXTMODE_BUFFER)
-    {
-        *WidthUnit  = GuiData->CharWidth ;
-        *HeightUnit = GuiData->CharHeight;
-    }
-    else /* if (GetType(Buffer) == GRAPHICS_BUFFER) */
-    {
-        *WidthUnit  = 1;
-        *HeightUnit = 1;
-    }
-}
-
 static VOID
 AppendMenuItems(HMENU hMenu,
                 const GUICONSOLE_MENUITEM *Items)
@@ -252,30 +231,32 @@ VOID
 CreateSysMenu(HWND hWnd)
 {
     MENUITEMINFOW mii;
+    HMENU hMenu;
+    PWCHAR ptrTab;
     WCHAR szMenuStringBack[255];
-    WCHAR *ptrTab;
-    HMENU hMenu = GetSystemMenu(hWnd, FALSE);
-    if (hMenu != NULL)
+
+    hMenu = GetSystemMenu(hWnd, FALSE);
+    if (hMenu == NULL)
+        return;
+
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STRING;
+    mii.dwTypeData = szMenuStringBack;
+    mii.cch = ARRAYSIZE(szMenuStringBack);
+
+    GetMenuItemInfoW(hMenu, SC_CLOSE, FALSE, &mii);
+
+    ptrTab = wcschr(szMenuStringBack, L'\t');
+    if (ptrTab)
     {
-        mii.cbSize = sizeof(mii);
-        mii.fMask = MIIM_STRING;
-        mii.dwTypeData = szMenuStringBack;
-        mii.cch = sizeof(szMenuStringBack)/sizeof(WCHAR);
+        *ptrTab = L'\0';
+        mii.cch = wcslen(szMenuStringBack);
 
-        GetMenuItemInfoW(hMenu, SC_CLOSE, FALSE, &mii);
-
-        ptrTab = wcschr(szMenuStringBack, '\t');
-        if (ptrTab)
-        {
-           *ptrTab = '\0';
-           mii.cch = wcslen(szMenuStringBack);
-
-           SetMenuItemInfoW(hMenu, SC_CLOSE, FALSE, &mii);
-        }
-
-        AppendMenuItems(hMenu, GuiConsoleMainMenuItems);
-        DrawMenuBar(hWnd);
+        SetMenuItemInfoW(hMenu, SC_CLOSE, FALSE, &mii);
     }
+
+    AppendMenuItems(hMenu, GuiConsoleMainMenuItems);
+    DrawMenuBar(hWnd);
 }
 
 static VOID
@@ -609,7 +590,7 @@ OnNcCreate(HWND hWnd, LPCREATESTRUCTW Create)
     PGUI_CONSOLE_DATA GuiData = (PGUI_CONSOLE_DATA)Create->lpCreateParams;
     PCONSRV_CONSOLE Console;
 
-    if (NULL == GuiData)
+    if (GuiData == NULL)
     {
         DPRINT1("GuiConsoleNcCreate: No GUI data\n");
         return FALSE;
@@ -618,6 +599,7 @@ OnNcCreate(HWND hWnd, LPCREATESTRUCTW Create)
     Console = GuiData->Console;
 
     GuiData->hWindow = hWnd;
+    GuiData->hSysMenu = GetSystemMenu(hWnd, FALSE);
 
     /* Initialize the fonts */
     if (!InitFonts(GuiData,
@@ -662,18 +644,11 @@ OnNcCreate(HWND hWnd, LPCREATESTRUCTW Create)
     DPRINT("OnNcCreate - setting start event\n");
     NtSetEvent(GuiData->hGuiInitEvent, NULL);
 
+    /* We accept dropped files */
+    DragAcceptFiles(GuiData->hWindow, TRUE);
+
     return (BOOL)DefWindowProcW(GuiData->hWindow, WM_NCCREATE, 0, (LPARAM)Create);
 }
-
-
-BOOL
-EnterFullScreen(PGUI_CONSOLE_DATA GuiData);
-VOID
-LeaveFullScreen(PGUI_CONSOLE_DATA GuiData);
-VOID
-SwitchFullScreen(PGUI_CONSOLE_DATA GuiData, BOOL FullScreen);
-VOID
-GuiConsoleSwitchFullScreen(PGUI_CONSOLE_DATA GuiData);
 
 static VOID
 OnActivate(PGUI_CONSOLE_DATA GuiData, WPARAM wParam)
@@ -740,20 +715,6 @@ OnFocus(PGUI_CONSOLE_DATA GuiData, BOOL SetFocus)
         DPRINT("TODO: Create console caret\n");
     else
         DPRINT("TODO: Destroy console caret\n");
-}
-
-static VOID
-SmallRectToRect(PGUI_CONSOLE_DATA GuiData, PRECT Rect, PSMALL_RECT SmallRect)
-{
-    PCONSOLE_SCREEN_BUFFER Buffer = GuiData->ActiveBuffer;
-    UINT WidthUnit, HeightUnit;
-
-    GetScreenBufferSizeUnits(Buffer, GuiData, &WidthUnit, &HeightUnit);
-
-    Rect->left   = (SmallRect->Left       - Buffer->ViewOrigin.X) * WidthUnit ;
-    Rect->top    = (SmallRect->Top        - Buffer->ViewOrigin.Y) * HeightUnit;
-    Rect->right  = (SmallRect->Right  + 1 - Buffer->ViewOrigin.X) * WidthUnit ;
-    Rect->bottom = (SmallRect->Bottom + 1 - Buffer->ViewOrigin.Y) * HeightUnit;
 }
 
 VOID
@@ -1010,18 +971,6 @@ UpdateSelection(PGUI_CONSOLE_DATA GuiData,
     DeleteObject(oldRgn);
 }
 
-
-VOID
-GuiPaintTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
-                       PGUI_CONSOLE_DATA GuiData,
-                       PRECT rcView,
-                       PRECT rcFramebuffer);
-VOID
-GuiPaintGraphicsBuffer(PGRAPHICS_SCREEN_BUFFER Buffer,
-                       PGUI_CONSOLE_DATA GuiData,
-                       PRECT rcView,
-                       PRECT rcFramebuffer);
-
 static VOID
 OnPaint(PGUI_CONSOLE_DATA GuiData)
 {
@@ -1067,6 +1016,8 @@ OnPaint(PGUI_CONSOLE_DATA GuiData)
         {
             PaintSelectionRect(GuiData, &ps);
         }
+
+        // TODO: Move cursor display here!
 
         LeaveCriticalSection(&GuiData->Lock);
     }
@@ -1424,6 +1375,7 @@ OnNcDestroy(HWND hWnd)
     /* Free the GuiData registration */
     SetWindowLongPtrW(hWnd, GWLP_USERDATA, (DWORD_PTR)NULL);
 
+    /* Reset the system menu back to default and destroy the previous menu */
     GetSystemMenu(hWnd, TRUE);
 
     if (GuiData)
@@ -2003,12 +1955,6 @@ Quit:
     return DefWindowProcW(GuiData->hWindow, msg, wParam, lParam);
 }
 
-VOID
-GuiCopyFromTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
-                          PGUI_CONSOLE_DATA GuiData);
-VOID
-GuiCopyFromGraphicsBuffer(PGRAPHICS_SCREEN_BUFFER Buffer,
-                          PGUI_CONSOLE_DATA GuiData);
 
 static VOID
 Copy(PGUI_CONSOLE_DATA GuiData)
@@ -2032,13 +1978,6 @@ Copy(PGUI_CONSOLE_DATA GuiData)
     /* Clear the selection */
     UpdateSelection(GuiData, NULL, NULL);
 }
-
-VOID
-GuiPasteToTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
-                         PGUI_CONSOLE_DATA GuiData);
-VOID
-GuiPasteToGraphicsBuffer(PGRAPHICS_SCREEN_BUFFER Buffer,
-                         PGUI_CONSOLE_DATA GuiData);
 
 static VOID
 Paste(PGUI_CONSOLE_DATA GuiData)
@@ -2172,6 +2111,30 @@ OnMove(PGUI_CONSOLE_DATA GuiData)
     GuiData->GuiInfo.WindowOrigin.y = rcWnd.top;
 }
 
+static VOID
+OnDropFiles(PCONSRV_CONSOLE Console, HDROP hDrop)
+{
+    LPWSTR pszPath;
+    WCHAR szPath[MAX_PATH + 2];
+
+    szPath[0] = L'"';
+
+    DragQueryFileW(hDrop, 0, &szPath[1], ARRAYSIZE(szPath) - 1);
+    DragFinish(hDrop);
+
+    if (wcschr(&szPath[1], L' ') != NULL)
+    {
+        StringCchCatW(szPath, ARRAYSIZE(szPath), L"\"");
+        pszPath = szPath;
+    }
+    else
+    {
+        pszPath = &szPath[1];
+    }
+
+    PasteText(Console, pszPath, wcslen(pszPath));
+}
+
 /*
 // HACK: This functionality is standard for general scrollbars. Don't add it by hand.
 
@@ -2199,7 +2162,6 @@ GuiConsoleHandleScrollbarMenu(VOID)
     //InsertItem(hMenu, MIIM_STRING, MIIM_ID | MIIM_FTYPE | MIIM_STRING, 0, NULL, IDS_SCROLLDOWN);
 }
 */
-
 
 static LRESULT CALLBACK
 ConWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -2459,6 +2421,10 @@ ConWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
         }
 
+        case WM_DROPFILES:
+            OnDropFiles(Console, (HDROP)wParam);
+            break;
+
         case WM_SETFOCUS:
         case WM_KILLFOCUS:
             OnFocus(GuiData, (msg == WM_SETFOCUS));
@@ -2568,9 +2534,9 @@ ConWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             Beep(800, 200);
             break;
 
-        // case PM_CONSOLE_SET_TITLE:
-            // SetWindowTextW(GuiData->hWindow, GuiData->Console->Title.Buffer);
-            // break;
+         case PM_CONSOLE_SET_TITLE:
+            SetWindowTextW(GuiData->hWindow, GuiData->Console->Title.Buffer);
+            break;
 
         default: Default:
             Result = DefWindowProcW(hWnd, msg, wParam, lParam);

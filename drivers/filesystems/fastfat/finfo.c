@@ -265,16 +265,14 @@ VfatSetBasicInformation(
         }
     }
 
-    VfatUpdateEntry(FCB, vfatVolumeIsFatX(DeviceExt));
+    VfatUpdateEntry(DeviceExt, FCB);
 
     if (NotifyFilter != 0)
     {
-        FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                    &(DeviceExt->NotifyList),
-                                    (PSTRING)&FCB->PathNameU,
-                                    FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                    NULL, NULL, NotifyFilter, FILE_ACTION_MODIFIED,
-                                    NULL);
+        vfatReportChange(DeviceExt,
+                         FCB,
+                         NotifyFilter,
+                         FILE_ACTION_MODIFIED);
     }
 
     return STATUS_SUCCESS;
@@ -715,7 +713,7 @@ VfatSetRenameInformation(
             NewName.MaximumLength += sizeof(WCHAR) + ((PVFATFCB)TargetFileObject->FsContext)->PathNameU.Length;
         }
 
-        NewName.Buffer = ExAllocatePoolWithTag(NonPagedPool, NewName.MaximumLength, TAG_VFAT);
+        NewName.Buffer = ExAllocatePoolWithTag(NonPagedPool, NewName.MaximumLength, TAG_NAME);
         if (NewName.Buffer == NULL)
         {
             if (TargetFileObject != NULL)
@@ -781,7 +779,7 @@ VfatSetRenameInformation(
 
         NewName.Length = 0;
         NewName.MaximumLength = TargetFileObject->FileName.Length + ((PVFATFCB)TargetFileObject->FsContext)->PathNameU.Length + sizeof(WCHAR);
-        NewName.Buffer = ExAllocatePoolWithTag(NonPagedPool, NewName.MaximumLength, TAG_VFAT);
+        NewName.Buffer = ExAllocatePoolWithTag(NonPagedPool, NewName.MaximumLength, TAG_NAME);
         if (NewName.Buffer == NULL)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -789,8 +787,12 @@ VfatSetRenameInformation(
         }
 
         RtlCopyUnicodeString(&NewName, &((PVFATFCB)TargetFileObject->FsContext)->PathNameU);
-        NewName.Buffer[NewName.Length / sizeof(WCHAR)] = L'\\';
-        NewName.Length += sizeof(WCHAR);
+        /* If \, it's already backslash terminated, don't add it */
+        if (!vfatFCBIsRoot(TargetFileObject->FsContext))
+        {
+            NewName.Buffer[NewName.Length / sizeof(WCHAR)] = L'\\';
+            NewName.Length += sizeof(WCHAR);
+        }
         RtlAppendUnicodeStringToString(&NewName, &TargetFileObject->FileName);
     }
 
@@ -822,29 +824,19 @@ VfatSetRenameInformation(
 
         if (FsRtlAreNamesEqual(&SourceFile, &NewFile, TRUE, NULL))
         {
-            FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                        &(DeviceExt->NotifyList),
-                                        (PSTRING)&FCB->PathNameU,
-                                        FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                        NULL,
-                                        NULL,
-                                        (vfatFCBIsDirectory(FCB) ?
-                                        FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
-                                        FILE_ACTION_RENAMED_OLD_NAME,
-                                        NULL);
+            vfatReportChange(DeviceExt,
+                             FCB,
+                             (vfatFCBIsDirectory(FCB) ?
+                              FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
+                             FILE_ACTION_RENAMED_OLD_NAME);
             Status = vfatRenameEntry(DeviceExt, FCB, &NewFile, TRUE);
             if (NT_SUCCESS(Status))
             {
-                FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                            &(DeviceExt->NotifyList),
-                                            (PSTRING)&FCB->PathNameU,
-                                            FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                            NULL,
-                                            NULL,
-                                            (vfatFCBIsDirectory(FCB) ?
-                                            FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
-                                            FILE_ACTION_RENAMED_NEW_NAME,
-                                            NULL);
+                vfatReportChange(DeviceExt,
+                                 FCB,
+                                 (vfatFCBIsDirectory(FCB) ?
+                                  FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
+                                 FILE_ACTION_RENAMED_NEW_NAME);
             }
         }
         else
@@ -865,44 +857,29 @@ VfatSetRenameInformation(
                 goto Cleanup;
             }
 
-            FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                        &(DeviceExt->NotifyList),
-                                        (PSTRING)&FCB->PathNameU,
-                                        FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                        NULL,
-                                        NULL,
-                                        (vfatFCBIsDirectory(FCB) ?
-                                        FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
-                                        (DeletedTarget ? FILE_ACTION_REMOVED : FILE_ACTION_RENAMED_OLD_NAME),
-                                        NULL);
+            vfatReportChange(DeviceExt,
+                             FCB,
+                             (vfatFCBIsDirectory(FCB) ?
+                              FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
+                             (DeletedTarget ? FILE_ACTION_REMOVED : FILE_ACTION_RENAMED_OLD_NAME));
             Status = vfatRenameEntry(DeviceExt, FCB, &NewFile, FALSE);
             if (NT_SUCCESS(Status))
             {
                 if (DeletedTarget)
                 {
-                    FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                                &(DeviceExt->NotifyList),
-                                                (PSTRING)&FCB->PathNameU,
-                                                FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                                NULL,
-                                                NULL,
-                                                FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE
-                                                | FILE_NOTIFY_CHANGE_LAST_ACCESS | FILE_NOTIFY_CHANGE_CREATION | FILE_NOTIFY_CHANGE_EA,
-                                                FILE_ACTION_MODIFIED,
-                                                NULL);
+                    vfatReportChange(DeviceExt,
+                                     FCB,
+                                     FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE
+                                     | FILE_NOTIFY_CHANGE_LAST_ACCESS | FILE_NOTIFY_CHANGE_CREATION | FILE_NOTIFY_CHANGE_EA,
+                                     FILE_ACTION_MODIFIED);
                 }
                 else
                 {
-                    FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                                &(DeviceExt->NotifyList),
-                                                (PSTRING)&FCB->PathNameU,
-                                                FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                                NULL,
-                                                NULL,
-                                                (vfatFCBIsDirectory(FCB) ?
-                                                FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
-                                                FILE_ACTION_RENAMED_NEW_NAME,
-                                                NULL);
+                    vfatReportChange(DeviceExt,
+                                     FCB,
+                                     (vfatFCBIsDirectory(FCB) ?
+                                      FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
+                                     FILE_ACTION_RENAMED_NEW_NAME);
                 }
             }
         }
@@ -936,44 +913,29 @@ VfatSetRenameInformation(
         UNREFERENCED_PARAMETER(NewReferences);
 #endif
 
-        FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                    &(DeviceExt->NotifyList),
-                                    (PSTRING)&FCB->PathNameU,
-                                    FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                    NULL,
-                                    NULL,
-                                    (vfatFCBIsDirectory(FCB) ?
-                                    FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
-                                    FILE_ACTION_REMOVED,
-                                    NULL);
+        vfatReportChange(DeviceExt,
+                         FCB,
+                         (vfatFCBIsDirectory(FCB) ?
+                          FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
+                         FILE_ACTION_REMOVED);
         Status = VfatMoveEntry(DeviceExt, FCB, &NewFile, ParentFCB);
         if (NT_SUCCESS(Status))
         {
             if (DeletedTarget)
             {
-                FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                            &(DeviceExt->NotifyList),
-                                            (PSTRING)&FCB->PathNameU,
-                                            FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                            NULL,
-                                            NULL,
-                                            FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE
-                                            | FILE_NOTIFY_CHANGE_LAST_ACCESS | FILE_NOTIFY_CHANGE_CREATION | FILE_NOTIFY_CHANGE_EA,
-                                            FILE_ACTION_MODIFIED,
-                                            NULL);
+                vfatReportChange(DeviceExt,
+                                 FCB,
+                                 FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE
+                                 | FILE_NOTIFY_CHANGE_LAST_ACCESS | FILE_NOTIFY_CHANGE_CREATION | FILE_NOTIFY_CHANGE_EA,
+                                 FILE_ACTION_MODIFIED);
             }
             else
             {
-                FsRtlNotifyFullReportChange(DeviceExt->NotifySync,
-                                            &(DeviceExt->NotifyList),
-                                            (PSTRING)&FCB->PathNameU,
-                                            FCB->PathNameU.Length - FCB->LongNameU.Length,
-                                            NULL,
-                                            NULL,
-                                            (vfatFCBIsDirectory(FCB) ?
-                                            FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
-                                            FILE_ACTION_ADDED,
-                                            NULL);
+                vfatReportChange(DeviceExt,
+                                 FCB,
+                                 (vfatFCBIsDirectory(FCB) ?
+                                  FILE_NOTIFY_CHANGE_DIR_NAME : FILE_NOTIFY_CHANGE_FILE_NAME),
+                                 FILE_ACTION_ADDED);
             }
         }
     }
@@ -987,7 +949,7 @@ VfatSetRenameInformation(
     ASSERT(NewReferences == ParentFCB->RefCount - 1); // new file
 Cleanup:
     if (ParentFCB != NULL) vfatReleaseFCB(DeviceExt, ParentFCB);
-    if (NewName.Buffer != NULL) ExFreePoolWithTag(NewName.Buffer, TAG_VFAT);
+    if (NewName.Buffer != NULL) ExFreePoolWithTag(NewName.Buffer, TAG_NAME);
     if (RenameInfo->RootDirectory != NULL) ObDereferenceObject(RootFileObject);
 
     return Status;
@@ -1188,6 +1150,8 @@ VfatGetAllInformation(
     if (*BufferLength < FIELD_OFFSET(FILE_ALL_INFORMATION, NameInformation.FileName))
         return STATUS_BUFFER_OVERFLOW;
 
+    *BufferLength -= (sizeof(FILE_ACCESS_INFORMATION) + sizeof(FILE_MODE_INFORMATION) + sizeof(FILE_ALIGNMENT_INFORMATION));
+
     /* Basic Information */
     Status = VfatGetBasicInformation(FileObject, Fcb, DeviceExt, &Info->BasicInformation, BufferLength);
     if (!NT_SUCCESS(Status)) return Status;
@@ -1200,15 +1164,9 @@ VfatGetAllInformation(
     /* EA Information */
     Status = VfatGetEaInformation(FileObject, Fcb, DeviceExt, &Info->EaInformation, BufferLength);
     if (!NT_SUCCESS(Status)) return Status;
-    /* Access Information: The IO-Manager adds this information */
-    *BufferLength -= sizeof(FILE_ACCESS_INFORMATION);
     /* Position Information */
     Status = VfatGetPositionInformation(FileObject, Fcb, DeviceExt, &Info->PositionInformation, BufferLength);
     if (!NT_SUCCESS(Status)) return Status;
-    /* Mode Information: The IO-Manager adds this information */
-    *BufferLength -= sizeof(FILE_MODE_INFORMATION);
-    /* Alignment Information: The IO-Manager adds this information */
-    *BufferLength -= sizeof(FILE_ALIGNMENT_INFORMATION);
     /* Name Information */
     Status = VfatGetNameInformation(FileObject, Fcb, DeviceExt, &Info->NameInformation, BufferLength);
 
@@ -1443,6 +1401,11 @@ VfatSetAllocationSizeInformation(
             WriteCluster(DeviceExt, Cluster, 0);
             Cluster = NCluster;
         }
+
+        if (DeviceExt->FatInfo.FatType == FAT32)
+        {
+            FAT32UpdateFreeClustersCount(DeviceExt);
+        }
     }
     else
     {
@@ -1453,7 +1416,9 @@ VfatSetAllocationSizeInformation(
     Fcb->Flags |= FCB_IS_DIRTY;
     if (AllocSizeChanged)
     {
-        VfatUpdateEntry(Fcb, vfatVolumeIsFatX(DeviceExt));
+        VfatUpdateEntry(DeviceExt, Fcb);
+
+        vfatReportChange(DeviceExt, Fcb, FILE_NOTIFY_CHANGE_SIZE, FILE_ACTION_MODIFIED);
     }
     return STATUS_SUCCESS;
 }
@@ -1596,6 +1561,7 @@ VfatSetInformation(
     PVFATFCB FCB;
     NTSTATUS Status = STATUS_SUCCESS;
     PVOID SystemBuffer;
+    BOOLEAN LockDir;
 
     /* PRECONDITION */
     ASSERT(IrpContext);
@@ -1637,7 +1603,14 @@ VfatSetInformation(
         DPRINT("Can set file size\n");
     }
 
-    if (FileInformationClass == FileRenameInformation)
+    LockDir = FALSE;
+    if (FileInformationClass == FileRenameInformation || FileInformationClass == FileAllocationInformation ||
+        FileInformationClass == FileEndOfFileInformation || FileInformationClass == FileBasicInformation)
+    {
+        LockDir = TRUE;
+    }
+
+    if (LockDir)
     {
         if (!ExAcquireResourceExclusiveLite(&((PDEVICE_EXTENSION)IrpContext->DeviceObject->DeviceExtension)->DirResource,
                                             BooleanFlagOn(IrpContext->Flags, IRPCONTEXT_CANWAIT)))
@@ -1651,7 +1624,7 @@ VfatSetInformation(
         if (!ExAcquireResourceExclusiveLite(&FCB->MainResource,
                                             BooleanFlagOn(IrpContext->Flags, IRPCONTEXT_CANWAIT)))
         {
-            if (FileInformationClass == FileRenameInformation)
+            if (LockDir)
             {
                 ExReleaseResourceLite(&((PDEVICE_EXTENSION)IrpContext->DeviceObject->DeviceExtension)->DirResource);
             }
@@ -1706,7 +1679,7 @@ VfatSetInformation(
         ExReleaseResourceLite(&FCB->MainResource);
     }
 
-    if (FileInformationClass == FileRenameInformation)
+    if (LockDir)
     {
         ExReleaseResourceLite(&((PDEVICE_EXTENSION)IrpContext->DeviceObject->DeviceExtension)->DirResource);
     }

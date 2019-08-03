@@ -1645,6 +1645,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
 
                 if (!context.stripes[i].mdl) {
                     ERR("IoAllocateMdl failed\n");
+                    MmUnlockPages(master_mdl);
+                    IoFreeMdl(master_mdl);
                     Status = STATUS_INSUFFICIENT_RESOURCES;
                     goto exit;
                 }
@@ -1654,6 +1656,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
         stripeoff = ExAllocatePoolWithTag(NonPagedPool, sizeof(UINT32) * ci->num_stripes, ALLOC_TAG);
         if (!stripeoff) {
             ERR("out of memory\n");
+            MmUnlockPages(master_mdl);
+            IoFreeMdl(master_mdl);
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto exit;
         }
@@ -1760,6 +1764,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
         stripes = ExAllocatePoolWithTag(NonPagedPool, sizeof(read_data_stripe*) * ci->num_stripes / ci->sub_stripes, ALLOC_TAG);
         if (!stripes) {
             ERR("out of memory\n");
+            MmUnlockPages(master_mdl);
+            IoFreeMdl(master_mdl);
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto exit;
         }
@@ -1795,6 +1801,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
 
                         if (!context.stripes[i+j].mdl) {
                             ERR("IoAllocateMdl failed\n");
+                            MmUnlockPages(master_mdl);
+                            IoFreeMdl(master_mdl);
                             Status = STATUS_INSUFFICIENT_RESOURCES;
                             goto exit;
                         }
@@ -1818,6 +1826,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
 
                             if (!context.stripes[i+j].mdl) {
                                 ERR("IoAllocateMdl failed\n");
+                                MmUnlockPages(master_mdl);
+                                IoFreeMdl(master_mdl);
                                 Status = STATUS_INSUFFICIENT_RESOURCES;
                                 goto exit;
                             }
@@ -1839,6 +1849,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
         stripeoff = ExAllocatePoolWithTag(NonPagedPool, sizeof(UINT32) * ci->num_stripes / ci->sub_stripes, ALLOC_TAG);
         if (!stripeoff) {
             ERR("out of memory\n");
+            MmUnlockPages(master_mdl);
+            IoFreeMdl(master_mdl);
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto exit;
         }
@@ -2075,6 +2087,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
 
                 if (!context.stripes[i].mdl) {
                     ERR("IoAllocateMdl failed\n");
+                    MmUnlockPages(master_mdl);
+                    IoFreeMdl(master_mdl);
                     Status = STATUS_INSUFFICIENT_RESOURCES;
                     goto exit;
                 }
@@ -2085,6 +2099,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
             dummypage = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, ALLOC_TAG);
             if (!dummypage) {
                 ERR("out of memory\n");
+                MmUnlockPages(master_mdl);
+                IoFreeMdl(master_mdl);
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 goto exit;
             }
@@ -2092,8 +2108,9 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
             dummy_mdl = IoAllocateMdl(dummypage, PAGE_SIZE, FALSE, FALSE, NULL);
             if (!dummy_mdl) {
                 ERR("IoAllocateMdl failed\n");
+                MmUnlockPages(master_mdl);
+                IoFreeMdl(master_mdl);
                 Status = STATUS_INSUFFICIENT_RESOURCES;
-                ExFreePool(dummypage);
                 goto exit;
             }
 
@@ -2105,6 +2122,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
         stripeoff = ExAllocatePoolWithTag(NonPagedPool, sizeof(UINT32) * ci->num_stripes, ALLOC_TAG);
         if (!stripeoff) {
             ERR("out of memory\n");
+            MmUnlockPages(master_mdl);
+            IoFreeMdl(master_mdl);
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto exit;
         }
@@ -2329,6 +2348,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
 
                 if (!context.stripes[i].mdl) {
                     ERR("IoAllocateMdl failed\n");
+                    MmUnlockPages(master_mdl);
+                    IoFreeMdl(master_mdl);
                     Status = STATUS_INSUFFICIENT_RESOURCES;
                     goto exit;
                 }
@@ -2339,6 +2360,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
             dummypage = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, ALLOC_TAG);
             if (!dummypage) {
                 ERR("out of memory\n");
+                MmUnlockPages(master_mdl);
+                IoFreeMdl(master_mdl);
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 goto exit;
             }
@@ -2346,8 +2369,9 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
             dummy_mdl = IoAllocateMdl(dummypage, PAGE_SIZE, FALSE, FALSE, NULL);
             if (!dummy_mdl) {
                 ERR("IoAllocateMdl failed\n");
+                MmUnlockPages(master_mdl);
+                IoFreeMdl(master_mdl);
                 Status = STATUS_INSUFFICIENT_RESOURCES;
-                ExFreePool(dummypage);
                 goto exit;
             }
 
@@ -2359,6 +2383,8 @@ NTSTATUS read_data(_In_ device_extension* Vcb, _In_ UINT64 addr, _In_ UINT32 len
         stripeoff = ExAllocatePoolWithTag(NonPagedPool, sizeof(UINT32) * ci->num_stripes, ALLOC_TAG);
         if (!stripeoff) {
             ERR("out of memory\n");
+            MmUnlockPages(master_mdl);
+            IoFreeMdl(master_mdl);
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto exit;
         }
@@ -2787,7 +2813,7 @@ NTSTATUS read_file(fcb* fcb, UINT8* data, UINT64 start, UINT64 length, ULONG* pb
                         read = (UINT32)min(min(len, ext->datalen) - off, length);
 
                         RtlCopyMemory(data + bytes_read, &ed->data[off], read);
-                    } else if (ed->compression == BTRFS_COMPRESSION_ZLIB || ed->compression == BTRFS_COMPRESSION_LZO) {
+                    } else if (ed->compression == BTRFS_COMPRESSION_ZLIB || ed->compression == BTRFS_COMPRESSION_LZO || ed->compression == BTRFS_COMPRESSION_ZSTD) {
                         UINT8* decomp;
                         BOOL decomp_alloc;
                         UINT16 inlen = ext->datalen - (UINT16)offsetof(EXTENT_DATA, data[0]);
@@ -2833,6 +2859,13 @@ NTSTATUS read_file(fcb* fcb, UINT8* data, UINT64 start, UINT64 length, ULONG* pb
                             Status = lzo_decompress(ed->data + sizeof(UINT32), inlen, decomp, (UINT32)(read + off), sizeof(UINT32));
                             if (!NT_SUCCESS(Status)) {
                                 ERR("lzo_decompress returned %08x\n", Status);
+                                if (decomp_alloc) ExFreePool(decomp);
+                                goto exit;
+                            }
+                        } else if (ed->compression == BTRFS_COMPRESSION_ZSTD) {
+                            Status = zstd_decompress(ed->data, inlen, decomp, (UINT32)(read + off));
+                            if (!NT_SUCCESS(Status)) {
+                                ERR("zstd_decompress returned %08x\n", Status);
                                 if (decomp_alloc) ExFreePool(decomp);
                                 goto exit;
                             }
@@ -3000,6 +3033,18 @@ NTSTATUS read_file(fcb* fcb, UINT8* data, UINT64 start, UINT64 length, ULONG* pb
 
                             if (!NT_SUCCESS(Status)) {
                                 ERR("lzo_decompress returned %08x\n", Status);
+                                ExFreePool(buf);
+
+                                if (decomp)
+                                    ExFreePool(decomp);
+
+                                goto exit;
+                            }
+                        } else if (ed->compression == BTRFS_COMPRESSION_ZSTD) {
+                            Status = zstd_decompress(buf2, inlen, decomp ? decomp : (data + bytes_read), outlen);
+
+                            if (!NT_SUCCESS(Status)) {
+                                ERR("zstd_decompress returned %08x\n", Status);
                                 ExFreePool(buf);
 
                                 if (decomp)
@@ -3209,17 +3254,6 @@ NTSTATUS do_read(PIRP Irp, BOOLEAN wait, ULONG* bytes_read) {
             return STATUS_PENDING;
         }
 
-        if (!(Irp->Flags & IRP_PAGING_IO) && FileObject->SectionObjectPointer->DataSectionObject) {
-            IO_STATUS_BLOCK iosb;
-
-            CcFlushCache(FileObject->SectionObjectPointer, &IrpSp->Parameters.Read.ByteOffset, length, &iosb);
-
-            if (!NT_SUCCESS(iosb.Status)) {
-                ERR("CcFlushCache returned %08x\n", iosb.Status);
-                return iosb.Status;
-            }
-        }
-
         if (fcb->ads)
             Status = read_stream(fcb, data, start, length, bytes_read);
         else
@@ -3250,7 +3284,7 @@ NTSTATUS do_read(PIRP Irp, BOOLEAN wait, ULONG* bytes_read) {
 
 _Dispatch_type_(IRP_MJ_READ)
 _Function_class_(DRIVER_DISPATCH)
-NTSTATUS drv_read(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
+NTSTATUS NTAPI drv_read(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     device_extension* Vcb = DeviceObject->DeviceExtension;
     PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
     PFILE_OBJECT FileObject = IrpSp->FileObject;
@@ -3324,6 +3358,16 @@ NTSTATUS drv_read(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     // deadlocks in CcCopyRead.
     if (Irp->Flags & IRP_PAGING_IO)
         wait = TRUE;
+
+    if (!(Irp->Flags & IRP_PAGING_IO) && FileObject->SectionObjectPointer && FileObject->SectionObjectPointer->DataSectionObject) {
+        IO_STATUS_BLOCK iosb;
+
+        CcFlushCache(FileObject->SectionObjectPointer, &IrpSp->Parameters.Read.ByteOffset, IrpSp->Parameters.Read.Length, &iosb);
+        if (!NT_SUCCESS(iosb.Status)) {
+            ERR("CcFlushCache returned %08x\n", iosb.Status);
+            return iosb.Status;
+        }
+    }
 
     if (!ExIsResourceAcquiredSharedLite(fcb->Header.Resource)) {
         if (!ExAcquireResourceSharedLite(fcb->Header.Resource, wait)) {

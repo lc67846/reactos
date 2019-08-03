@@ -57,7 +57,14 @@ extern "C" {
 #define CDB10GENERIC_LENGTH                 10
 #define CDB12GENERIC_LENGTH                 12
 
-#define INQUIRYDATABUFFERSIZE               36
+#define INQUIRYDATABUFFERSIZE                36
+#define SENSE_BUFFER_SIZE                    18
+#define MAX_SENSE_BUFFER_SIZE               255
+
+#define FILE_DEVICE_SCSI 0x0000001b
+#define IOCTL_SCSI_EXECUTE_IN   ((FILE_DEVICE_SCSI << 16) + 0x0011)
+#define IOCTL_SCSI_EXECUTE_OUT  ((FILE_DEVICE_SCSI << 16) + 0x0012)
+#define IOCTL_SCSI_EXECUTE_NONE ((FILE_DEVICE_SCSI << 16) + 0x0013)
 
 #define MODE_PAGE_VENDOR_SPECIFIC           0x00
 #define MODE_PAGE_ERROR_RECOVERY            0x01
@@ -397,6 +404,23 @@ extern "C" {
 #define VPD_MODE_PAGE_POLICY                0x87
 #define VPD_SCSI_PORTS                      0x88
 
+#define SCSI_SENSE_NO_SENSE                 0x00
+#define SCSI_SENSE_RECOVERED_ERROR          0x01
+#define SCSI_SENSE_NOT_READY                0x02
+#define SCSI_SENSE_MEDIUM_ERROR             0x03
+#define SCSI_SENSE_HARDWARE_ERROR           0x04
+#define SCSI_SENSE_ILLEGAL_REQUEST          0x05
+#define SCSI_SENSE_UNIT_ATTENTION           0x06
+#define SCSI_SENSE_DATA_PROTECT             0x07
+#define SCSI_SENSE_BLANK_CHECK              0x08
+#define SCSI_SENSE_UNIQUE                   0x09
+#define SCSI_SENSE_COPY_ABORTED             0x0A
+#define SCSI_SENSE_ABORTED_COMMAND          0x0B
+#define SCSI_SENSE_EQUAL                    0x0C
+#define SCSI_SENSE_VOL_OVERFLOW             0x0D
+#define SCSI_SENSE_MISCOMPARE               0x0E
+#define SCSI_SENSE_RESERVED                 0x0F
+
 typedef enum _STOR_SYNCHRONIZATION_MODEL
 {
     StorSynchronizeHalfDuplex,
@@ -522,6 +546,52 @@ typedef enum _VPD_IDENTIFIER_TYPE
     VpdIdentifierTypeMD5LogicalUnitId = 7,
     VpdIdentifierTypeSCSINameString = 8
 } VPD_IDENTIFIER_TYPE, *PVPD_IDENTIFIER_TYPE;
+
+typedef enum _STORPORT_FUNCTION_CODE
+{
+    ExtFunctionAllocatePool,
+    ExtFunctionFreePool,
+    ExtFunctionAllocateMdl,
+    ExtFunctionFreeMdl,
+    ExtFunctionBuildMdlForNonPagedPool,
+    ExtFunctionGetSystemAddress,
+    ExtFunctionGetOriginalMdl,
+    ExtFunctionCompleteServiceIrp,
+    ExtFunctionGetDeviceObjects,
+    ExtFunctionBuildScatterGatherList,
+    ExtFunctionPutScatterGatherList,
+    ExtFunctionAcquireMSISpinLock,
+    ExtFunctionReleaseMSISpinLock,
+    ExtFunctionGetMessageInterruptInformation,
+    ExtFunctionInitializePerformanceOptimizations,
+    ExtFunctionGetStartIoPerformanceParameters,
+    ExtFunctionLogSystemEvent,
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+    ExtFunctionGetCurrentProcessorNumber,
+    ExtFunctionGetActiveGroupCount,
+    ExtFunctionGetGroupAffinity,
+    ExtFunctionGetActiveNodeCount,
+    ExtFunctionGetNodeAffinity,
+    ExtFunctionGetHighestNodeNumber,
+    ExtFunctionGetLogicalProcessorRelationship,
+    ExtFunctionAllocateContiguousMemorySpecifyCacheNode,
+    ExtFunctionFreeContiguousMemorySpecifyCache
+#endif
+} STORPORT_FUNCTION_CODE, *PSTORPORT_FUNCTION_CODE;
+
+typedef enum _STOR_EVENT_ASSOCIATION_ENUM
+{
+    StorEventAdapterAssociation = 0,
+    StorEventLunAssociation,
+    StorEventTargetAssociation,
+    StorEventInvalidAssociation
+} STOR_EVENT_ASSOCIATION_ENUM;
+
+typedef enum _GETSGSTATUS
+{
+    SG_ALLOCATED = 0,
+    SG_BUFFER_TOO_SMALL
+} GETSGSTATUS, *PGETSGSTATUS;
 
 typedef struct _SCSI_REQUEST_BLOCK
 {
@@ -1878,6 +1948,26 @@ typedef struct _LUN_LIST
     UCHAR Lun[0][8];
 #endif
 } LUN_LIST, *PLUN_LIST;
+
+typedef struct _SENSE_DATA
+{
+    UCHAR ErrorCode:7;
+    UCHAR Valid:1;
+    UCHAR SegmentNumber;
+    UCHAR SenseKey:4;
+    UCHAR Reserved:1;
+    UCHAR IncorrectLength:1;
+    UCHAR EndOfMedia:1;
+    UCHAR FileMark:1;
+    UCHAR Information[4];
+    UCHAR AdditionalSenseLength;
+    UCHAR CommandSpecificInformation[4];
+    UCHAR AdditionalSenseCode;
+    UCHAR AdditionalSenseCodeQualifier;
+    UCHAR FieldReplaceableUnitCode;
+    UCHAR SenseKeySpecific[3];
+} SENSE_DATA, *PSENSE_DATA;
+
 #include <poppack.h>
 
 typedef PHYSICAL_ADDRESS STOR_PHYSICAL_ADDRESS;
@@ -2003,6 +2093,54 @@ typedef struct _STOR_LOCK_HANDLE
     } Context;
 } STOR_LOCK_HANDLE, *PSTOR_LOCK_HANDLE;
 
+typedef struct _STOR_LOG_EVENT_DETAILS
+{
+    ULONG InterfaceRevision;
+    ULONG Size;
+    ULONG Flags;
+    STOR_EVENT_ASSOCIATION_ENUM EventAssociation;
+    ULONG PathId;
+    ULONG TargetId;
+    ULONG LunId;
+    BOOLEAN StorportSpecificErrorCode;
+    ULONG ErrorCode;
+    ULONG UniqueId;
+    ULONG DumpDataSize;
+    PVOID DumpData;
+    ULONG StringCount;
+    PWSTR *StringList;
+} STOR_LOG_EVENT_DETAILS, *PSTOR_LOG_EVENT_DETAILS;
+
+typedef struct _PERF_CONFIGURATION_DATA
+{
+    ULONG Version;
+    ULONG Size;
+    ULONG Flags;
+    ULONG ConcurrentChannels;
+    ULONG FirstRedirectionMessageNumber, LastRedirectionMessageNumber;
+    ULONG DeviceNode;
+    ULONG Reserved;
+    PGROUP_AFFINITY MessageTargets;
+} PERF_CONFIGURATION_DATA, *PPERF_CONFIGURATION_DATA;
+
+typedef struct _STARTIO_PERFORMANCE_PARAMETERS
+{
+    ULONG Version;
+    ULONG Size;
+    ULONG MessageNumber;
+    ULONG ChannelNumber;
+} STARTIO_PERFORMANCE_PARAMETERS, *PSTARTIO_PERFORMANCE_PARAMETERS;
+
+typedef struct _MESSAGE_INTERRUPT_INFORMATION
+{
+    ULONG MessageId;
+    ULONG MessageData;
+    STOR_PHYSICAL_ADDRESS MessageAddress;
+    ULONG InterruptVector;
+    ULONG InterruptLevel;
+    KINTERRUPT_MODE InterruptMode;
+} MESSAGE_INTERRUPT_INFORMATION, *PMESSAGE_INTERRUPT_INFORMATION;
+
 typedef
 BOOLEAN
 (NTAPI *PHW_INITIALIZE)(
@@ -2085,6 +2223,72 @@ BOOLEAN
     _In_ PVOID Context);
 
 typedef STOR_SYNCHRONIZED_ACCESS *PSTOR_SYNCHRONIZED_ACCESS;
+
+typedef
+VOID
+(NTAPI *PpostScaterGatherExecute)(
+    _In_ PVOID *DeviceObject,
+    _In_ PVOID *Irp,
+    _In_ PSTOR_SCATTER_GATHER_LIST ScatterGather,
+    _In_ PVOID Context);
+
+typedef
+BOOLEAN
+(NTAPI *PStorPortGetMessageInterruptInformation)(
+    _In_ PVOID HwDeviceExtension,
+    _In_ ULONG MessageId,
+    _Out_ PMESSAGE_INTERRUPT_INFORMATION InterruptInfo);
+
+typedef
+VOID
+(NTAPI *PStorPortPutScatterGatherList)(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PSTOR_SCATTER_GATHER_LIST ScatterGatherList,
+    _In_ BOOLEAN WriteToDevice);
+
+typedef
+GETSGSTATUS
+(NTAPI *PStorPortBuildScatterGatherList)(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PVOID Mdl,
+    _In_ PVOID CurrentVa,
+    _In_ ULONG Length,
+    _In_ PpostScaterGatherExecute ExecutionRoutine,
+    _In_ PVOID Context,
+    _In_ BOOLEAN WriteToDevice,
+    _Inout_ PVOID ScatterGatherBuffer,
+    _In_ ULONG ScatterGatherBufferLength);
+
+typedef
+VOID
+(NTAPI *PStorPortFreePool)(
+    _In_ PVOID PMemory,
+    _In_ PVOID HwDeviceExtension,
+    _In_opt_ PVOID PMdl);
+
+typedef
+PVOID
+(NTAPI *PStorPortAllocatePool)(
+    _In_ ULONG NumberOfBytes,
+    _In_ ULONG Tag,
+    _In_ PVOID HwDeviceExtension,
+    _Out_ PVOID *PMdl);
+
+typedef
+PVOID
+(NTAPI *PStorPortGetSystemAddress)(
+    _In_ PSCSI_REQUEST_BLOCK Srb);
+
+typedef struct _STORPORT_EXTENDED_FUNCTIONS
+{
+    ULONG Version;
+    PStorPortGetMessageInterruptInformation GetMessageInterruptInformation;
+    PStorPortPutScatterGatherList PutScatterGatherList;
+    PStorPortBuildScatterGatherList BuildScatterGatherList;
+    PStorPortFreePool FreePool;
+    PStorPortAllocatePool AllocatePool;
+    PStorPortGetSystemAddress GetSystemAddress;
+} STORPORT_EXTENDED_FUNCTIONS, *PSTORPORT_EXTENDED_FUNCTIONS;
 
 typedef struct _HW_INITIALIZATION_DATA
 {
@@ -2719,6 +2923,245 @@ StorPortReleaseSpinLock(
     StorPortNotification(ReleaseSpinLock,
                          DeviceExtension,
                          LockHandle);
+}
+
+STORPORT_API
+ULONG
+StorPortExtendedFunction(
+    _In_ STORPORT_FUNCTION_CODE FunctionCode,
+    _In_ PVOID HwDeviceExtension,
+    ...);
+
+FORCEINLINE
+ULONG
+StorPortAllocatePool(
+    _In_ PVOID HwDeviceExtension,
+    _In_ ULONG NumberOfBytes,
+    _In_ ULONG Tag,
+    _Out_ PVOID *BufferPointer
+    )
+{
+    return StorPortExtendedFunction(ExtFunctionAllocatePool,
+                                    HwDeviceExtension,
+                                    NumberOfBytes,
+                                    Tag,
+                                    BufferPointer);
+}
+
+FORCEINLINE
+ULONG
+StorPortFreePool(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PVOID BufferPointer)
+{
+    return StorPortExtendedFunction(ExtFunctionFreePool,
+                                    HwDeviceExtension,
+                                    BufferPointer);
+}
+
+FORCEINLINE
+ULONG
+StorPortAllocateMdl(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PVOID BufferPointer,
+    _In_ ULONG NumberOfBytes,
+    _Out_ PVOID *Mdl)
+{
+    return StorPortExtendedFunction(ExtFunctionAllocateMdl,
+                                    HwDeviceExtension,
+                                    BufferPointer,
+                                    NumberOfBytes,
+                                    Mdl);
+}
+
+FORCEINLINE
+ULONG
+StorPortFreeMdl(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PVOID Mdl)
+{
+    return StorPortExtendedFunction(ExtFunctionFreeMdl,
+                                    HwDeviceExtension,
+                                    Mdl);
+}
+
+FORCEINLINE
+ULONG
+StorPortBuildMdlForNonPagedPool(
+    _In_ PVOID HwDeviceExtension,
+    _Inout_ PVOID Mdl)
+{
+    return StorPortExtendedFunction(ExtFunctionBuildMdlForNonPagedPool,
+                                    HwDeviceExtension,
+                                    Mdl);
+}
+
+FORCEINLINE
+ULONG
+StorPortGetSystemAddress(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PSCSI_REQUEST_BLOCK Srb,
+    _Out_ PVOID *SystemAddress)
+{
+    return StorPortExtendedFunction(ExtFunctionGetSystemAddress,
+                                    HwDeviceExtension,
+                                    Srb,
+                                    SystemAddress);
+}
+
+FORCEINLINE
+ULONG
+StorPortGetOriginalMdl(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PSCSI_REQUEST_BLOCK Srb,
+    _Out_ PVOID *Mdl)
+{
+    return StorPortExtendedFunction(ExtFunctionGetOriginalMdl,
+                                    HwDeviceExtension,
+                                    Srb,
+                                    Mdl);
+}
+
+FORCEINLINE
+ULONG
+StorPortCompleteServiceIrp(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PVOID Irp)
+{
+    return StorPortExtendedFunction(ExtFunctionCompleteServiceIrp,
+                                    HwDeviceExtension,
+                                    Irp);
+}
+
+FORCEINLINE
+ULONG
+StorPortGetDeviceObjects(
+    _In_ PVOID HwDeviceExtension,
+    _Out_ PVOID *AdapterDeviceObject,
+    _Out_ PVOID *PhysicalDeviceObject,
+    _Out_ PVOID *LowerDeviceObject)
+{
+    return StorPortExtendedFunction(ExtFunctionGetDeviceObjects,
+                                    HwDeviceExtension,
+                                    AdapterDeviceObject,
+                                    PhysicalDeviceObject,
+                                    LowerDeviceObject);
+}
+
+FORCEINLINE
+ULONG
+StorPortBuildScatterGatherList(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PVOID Mdl,
+    _In_ PVOID CurrentVa,
+    _In_ ULONG Length,
+    _In_ PpostScaterGatherExecute ExecutionRoutine,
+    _In_ PVOID Context,
+    _In_ BOOLEAN WriteToDevice,
+    _Inout_ PVOID ScatterGatherBuffer,
+    _In_ ULONG ScatterGatherBufferLength)
+{
+    return StorPortExtendedFunction(ExtFunctionBuildScatterGatherList,
+                                    HwDeviceExtension,
+                                    Mdl,
+                                    CurrentVa,
+                                    Length,
+                                    ExecutionRoutine,
+                                    Context,
+                                    WriteToDevice,
+                                    ScatterGatherBuffer,
+                                    ScatterGatherBufferLength);
+}
+
+FORCEINLINE
+ULONG
+StorPortPutScatterGatherList(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PSTOR_SCATTER_GATHER_LIST ScatterGatherList,
+    _In_ BOOLEAN WriteToDevice)
+{
+    return StorPortExtendedFunction(ExtFunctionPutScatterGatherList,
+                                    HwDeviceExtension,
+                                    ScatterGatherList,
+                                    WriteToDevice);
+}
+
+FORCEINLINE
+ULONG
+StorPortAcquireMSISpinLock(
+    _In_ PVOID HwDeviceExtension,
+    _In_ ULONG MessageId,
+    _In_ PULONG OldIrql)
+{
+    return StorPortExtendedFunction(ExtFunctionAcquireMSISpinLock,
+                                    HwDeviceExtension,
+                                    MessageId,
+                                    OldIrql);
+}
+
+FORCEINLINE
+ULONG
+StorPortReleaseMSISpinLock(
+    _In_ PVOID HwDeviceExtension,
+    _In_ ULONG MessageId,
+    _In_ ULONG OldIrql)
+{
+    return StorPortExtendedFunction(ExtFunctionReleaseMSISpinLock,
+                                    HwDeviceExtension,
+                                    MessageId,
+                                    OldIrql);
+}
+
+FORCEINLINE
+ULONG
+StorPortGetMSIInfo(
+    _In_ PVOID HwDeviceExtension,
+    _In_ ULONG MessageId,
+    _Out_ PMESSAGE_INTERRUPT_INFORMATION InterruptInfo)
+{
+    return StorPortExtendedFunction(ExtFunctionGetMessageInterruptInformation,
+                                    HwDeviceExtension,
+                                    MessageId,
+                                    InterruptInfo);
+}
+
+FORCEINLINE
+ULONG
+StorPortInitializePerfOpts(
+    _In_ PVOID HwDeviceExtension,
+    _In_ BOOLEAN Query,
+    _Inout_ PPERF_CONFIGURATION_DATA PerfConfigData)
+{
+    return StorPortExtendedFunction(ExtFunctionInitializePerformanceOptimizations,
+                                    HwDeviceExtension,
+                                    Query,
+                                    PerfConfigData);
+}
+
+FORCEINLINE
+ULONG
+StorPortGetStartIoPerfParams(
+    _In_ PVOID HwDeviceExtension,
+    _In_ PSCSI_REQUEST_BLOCK Srb,
+    _Inout_ PSTARTIO_PERFORMANCE_PARAMETERS StartIoPerfParams)
+{
+    return StorPortExtendedFunction(ExtFunctionGetStartIoPerformanceParameters,
+                                    HwDeviceExtension,
+                                    Srb,
+                                    StartIoPerfParams);
+}
+
+FORCEINLINE
+ULONG
+StorPortLogSystemEvent(
+    _In_ PVOID HwDeviceExtension,
+    _Inout_ PSTOR_LOG_EVENT_DETAILS LogDetails,
+    _Inout_ PULONG MaximumSize)
+{
+    return StorPortExtendedFunction(ExtFunctionLogSystemEvent,
+                                    HwDeviceExtension,
+                                    LogDetails,
+                                    MaximumSize);
 }
 
 #if DBG

@@ -71,6 +71,8 @@ typedef struct _SERVICE
     DWORD dwErrorControl;
     DWORD dwTag;
 
+    DWORD dwServiceBits;
+
     ULONG Flags;
 
     PSECURITY_DESCRIPTOR pSecurityDescriptor;
@@ -148,9 +150,17 @@ ScmDeleteRegKey(
     _In_ HKEY hKey,
     _In_ PCWSTR pszSubKey);
 
+DWORD
+ScmDecryptPassword(
+    _In_ PBYTE pPassword,
+    _In_ DWORD dwPasswordSize,
+    _Out_ PWSTR *pDecryptedPassword);
+
+
 /* controlset.c */
 
-BOOL ScmGetControlSetValues(VOID);
+DWORD
+ScmCreateLastKnownGoodControlSet(VOID);
 
 
 /* database.c */
@@ -164,15 +174,20 @@ DWORD ScmStartService(PSERVICE Service,
                       DWORD argc,
                       LPWSTR *argv);
 
+VOID ScmRemoveServiceImage(PSERVICE_IMAGE pServiceImage);
 PSERVICE ScmGetServiceEntryByName(LPCWSTR lpServiceName);
 PSERVICE ScmGetServiceEntryByDisplayName(LPCWSTR lpDisplayName);
 PSERVICE ScmGetServiceEntryByResumeCount(DWORD dwResumeCount);
 DWORD ScmCreateNewServiceRecord(LPCWSTR lpServiceName,
-                                PSERVICE *lpServiceRecord);
+                                PSERVICE *lpServiceRecord,
+                                DWORD dwServiceType,
+                                DWORD dwStartType);
 VOID ScmDeleteServiceRecord(PSERVICE lpService);
 DWORD ScmMarkServiceForDelete(PSERVICE pService);
 
-DWORD ScmControlService(PSERVICE Service,
+DWORD ScmControlService(HANDLE hControlPipe,
+                        PWSTR pServiceName,
+                        SERVICE_STATUS_HANDLE hServiceStatus,
                         DWORD dwControl);
 
 BOOL ScmLockDatabaseExclusive(VOID);
@@ -182,11 +197,14 @@ VOID ScmUnlockDatabase(VOID);
 VOID ScmInitNamedPipeCriticalSection(VOID);
 VOID ScmDeleteNamedPipeCriticalSection(VOID);
 
+DWORD ScmGetServiceNameFromTag(PTAG_INFO_NAME_FROM_TAG_IN_PARAMS InParams,
+                               PTAG_INFO_NAME_FROM_TAG_OUT_PARAMS *OutParams);
+
+DWORD ScmGenerateServiceTag(PSERVICE lpServiceRecord);
 
 /* driver.c */
 
-DWORD ScmLoadDriver(PSERVICE lpService);
-DWORD ScmUnloadDriver(PSERVICE lpService);
+DWORD ScmStartDriver(PSERVICE lpService);
 DWORD ScmControlDriver(PSERVICE lpService,
                        DWORD dwControl,
                        LPSERVICE_STATUS lpServiceStatus);

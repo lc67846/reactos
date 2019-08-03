@@ -226,6 +226,69 @@ CopyLines(PTEXTMODE_SCREEN_BUFFER Buffer,
 
 
 VOID
+PasteText(
+    IN PCONSRV_CONSOLE Console,
+    IN PWCHAR Buffer,
+    IN SIZE_T cchSize)
+{
+    USHORT VkKey; // MAKEWORD(low = vkey_code, high = shift_state);
+    INPUT_RECORD er;
+    WCHAR CurChar = 0;
+
+    /* Do nothing if we have nothing to paste */
+    if (!Buffer || (cchSize <= 0))
+        return;
+
+    er.EventType = KEY_EVENT;
+    er.Event.KeyEvent.wRepeatCount = 1;
+    while (cchSize--)
+    {
+        /* \r or \n characters. Go to the line only if we get "\r\n" sequence. */
+        if (CurChar == L'\r' && *Buffer == L'\n')
+        {
+            ++Buffer;
+            continue;
+        }
+        CurChar = *Buffer++;
+
+        /* Get the key code (+ shift state) corresponding to the character */
+        VkKey = VkKeyScanW(CurChar);
+        if (VkKey == 0xFFFF)
+        {
+            DPRINT1("FIXME: TODO: VkKeyScanW failed - Should simulate the key!\n");
+            /*
+             * We don't really need the scan/key code because we actually only
+             * use the UnicodeChar for output purposes. It may pose few problems
+             * later on but it's not of big importance. One trick would be to
+             * convert the character to OEM / multibyte and use MapVirtualKey()
+             * on each byte (simulating an Alt-0xxx OEM keyboard press).
+             */
+        }
+
+        /* Pressing some control keys */
+
+        /* Pressing the character key, with the control keys maintained pressed */
+        er.Event.KeyEvent.bKeyDown = TRUE;
+        er.Event.KeyEvent.wVirtualKeyCode = LOBYTE(VkKey);
+        er.Event.KeyEvent.wVirtualScanCode = MapVirtualKeyW(LOBYTE(VkKey), MAPVK_VK_TO_VSC);
+        er.Event.KeyEvent.uChar.UnicodeChar = CurChar;
+        er.Event.KeyEvent.dwControlKeyState = 0;
+        if (HIBYTE(VkKey) & 1)
+            er.Event.KeyEvent.dwControlKeyState |= SHIFT_PRESSED;
+        if (HIBYTE(VkKey) & 2)
+            er.Event.KeyEvent.dwControlKeyState |= LEFT_CTRL_PRESSED; // RIGHT_CTRL_PRESSED;
+        if (HIBYTE(VkKey) & 4)
+            er.Event.KeyEvent.dwControlKeyState |= LEFT_ALT_PRESSED; // RIGHT_ALT_PRESSED;
+
+        ConioProcessInputEvent(Console, &er);
+
+        /* Up all the character and control keys */
+        er.Event.KeyEvent.bKeyDown = FALSE;
+        ConioProcessInputEvent(Console, &er);
+    }
+}
+
+VOID
 GetSelectionBeginEnd(PCOORD Begin, PCOORD End,
                      PCOORD SelectionAnchor,
                      PSMALL_RECT SmallRect);
@@ -274,67 +337,16 @@ GuiPasteToTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
     PCONSRV_CONSOLE Console = Buffer->Header.Console;
 
     HANDLE hData;
-    LPWSTR str;
-    WCHAR CurChar = 0;
-
-    USHORT VkKey; // MAKEWORD(low = vkey_code, high = shift_state);
-    INPUT_RECORD er;
+    LPWSTR pszText;
 
     hData = GetClipboardData(CF_UNICODETEXT);
     if (hData == NULL) return;
 
-    str = GlobalLock(hData);
-    if (str == NULL) return;
+    pszText = GlobalLock(hData);
+    if (pszText == NULL) return;
 
-    DPRINT("Got data <%S> from clipboard\n", str);
-
-    er.EventType = KEY_EVENT;
-    er.Event.KeyEvent.wRepeatCount = 1;
-    while (*str)
-    {
-        /* \r or \n characters. Go to the line only if we get "\r\n" sequence. */
-        if (CurChar == L'\r' && *str == L'\n')
-        {
-            str++;
-            continue;
-        }
-        CurChar = *str++;
-
-        /* Get the key code (+ shift state) corresponding to the character */
-        VkKey = VkKeyScanW(CurChar);
-        if (VkKey == 0xFFFF)
-        {
-            DPRINT1("FIXME: TODO: VkKeyScanW failed - Should simulate the key!\n");
-            /*
-             * We don't really need the scan/key code because we actually only
-             * use the UnicodeChar for output purposes. It may pose few problems
-             * later on but it's not of big importance. One trick would be to
-             * convert the character to OEM / multibyte and use MapVirtualKey
-             * on each byte (simulating an Alt-0xxx OEM keyboard press).
-             */
-        }
-
-        /* Pressing some control keys */
-
-        /* Pressing the character key, with the control keys maintained pressed */
-        er.Event.KeyEvent.bKeyDown = TRUE;
-        er.Event.KeyEvent.wVirtualKeyCode = LOBYTE(VkKey);
-        er.Event.KeyEvent.wVirtualScanCode = MapVirtualKeyW(LOBYTE(VkKey), MAPVK_VK_TO_VSC);
-        er.Event.KeyEvent.uChar.UnicodeChar = CurChar;
-        er.Event.KeyEvent.dwControlKeyState = 0;
-        if (HIBYTE(VkKey) & 1)
-            er.Event.KeyEvent.dwControlKeyState |= SHIFT_PRESSED;
-        if (HIBYTE(VkKey) & 2)
-            er.Event.KeyEvent.dwControlKeyState |= LEFT_CTRL_PRESSED; // RIGHT_CTRL_PRESSED;
-        if (HIBYTE(VkKey) & 4)
-            er.Event.KeyEvent.dwControlKeyState |= LEFT_ALT_PRESSED; // RIGHT_ALT_PRESSED;
-
-        ConioProcessInputEvent(Console, &er);
-
-        /* Up all the character and control keys */
-        er.Event.KeyEvent.bKeyDown = FALSE;
-        ConioProcessInputEvent(Console, &er);
-    }
+    DPRINT("Got data <%S> from clipboard\n", pszText);
+    PasteText(Console, pszText, wcslen(pszText));
 
     GlobalUnlock(hData);
 }
@@ -346,9 +358,7 @@ GuiPaintTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
                        PRECT rcFramebuffer)
 {
     PCONSRV_CONSOLE Console = Buffer->Header.Console;
-    // ASSERT(Console == GuiData->Console);
-
-    ULONG TopLine, BottomLine, LeftChar, RightChar;
+    ULONG TopLine, BottomLine, LeftColumn, RightColumn;
     ULONG Line, Char, Start;
     PCHAR_INFO From;
     PWCHAR To;
@@ -358,24 +368,33 @@ GuiPaintTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
     HFONT OldFont, NewFont;
     BOOLEAN IsUnderline;
 
-    if (Buffer->Buffer == NULL) return;
+    // ASSERT(Console == GuiData->Console);
 
-    if (!ConDrvValidateConsoleUnsafe((PCONSOLE)Console, CONSOLE_RUNNING, TRUE)) return;
+    ConioInitLongRect(rcFramebuffer, 0, 0, 0, 0);
 
-    rcFramebuffer->left   = Buffer->ViewOrigin.X * GuiData->CharWidth  + rcView->left;
-    rcFramebuffer->top    = Buffer->ViewOrigin.Y * GuiData->CharHeight + rcView->top;
-    rcFramebuffer->right  = Buffer->ViewOrigin.X * GuiData->CharWidth  + rcView->right;
-    rcFramebuffer->bottom = Buffer->ViewOrigin.Y * GuiData->CharHeight + rcView->bottom;
+    if (Buffer->Buffer == NULL)
+        return;
 
-    LeftChar   = rcFramebuffer->left   / GuiData->CharWidth;
+    if (!ConDrvValidateConsoleUnsafe((PCONSOLE)Console, CONSOLE_RUNNING, TRUE))
+        return;
+
+    ConioInitLongRect(rcFramebuffer,
+                      Buffer->ViewOrigin.Y * GuiData->CharHeight + rcView->top,
+                      Buffer->ViewOrigin.X * GuiData->CharWidth  + rcView->left,
+                      Buffer->ViewOrigin.Y * GuiData->CharHeight + rcView->bottom,
+                      Buffer->ViewOrigin.X * GuiData->CharWidth  + rcView->right);
+
+    LeftColumn  = rcFramebuffer->left  / GuiData->CharWidth;
+    RightColumn = rcFramebuffer->right / GuiData->CharWidth;
+    if (RightColumn >= (ULONG)Buffer->ScreenBufferSize.X)
+        RightColumn  = Buffer->ScreenBufferSize.X - 1;
+
     TopLine    = rcFramebuffer->top    / GuiData->CharHeight;
-    RightChar  = rcFramebuffer->right  / GuiData->CharWidth;
     BottomLine = rcFramebuffer->bottom / GuiData->CharHeight;
+    if (BottomLine >= (ULONG)Buffer->ScreenBufferSize.Y)
+        BottomLine  = Buffer->ScreenBufferSize.Y - 1;
 
-    if (RightChar  >= (ULONG)Buffer->ScreenBufferSize.X) RightChar  = Buffer->ScreenBufferSize.X - 1;
-    if (BottomLine >= (ULONG)Buffer->ScreenBufferSize.Y) BottomLine = Buffer->ScreenBufferSize.Y - 1;
-
-    LastAttribute = ConioCoordToPointer(Buffer, LeftChar, TopLine)->Attributes;
+    LastAttribute = ConioCoordToPointer(Buffer, LeftColumn, TopLine)->Attributes;
 
     SetTextColor(GuiData->hMemDC, PaletteRGBFromAttrib(Console, TextAttribFromAttrib(LastAttribute)));
     SetBkColor(GuiData->hMemDC, PaletteRGBFromAttrib(Console, BkgdAttribFromAttrib(LastAttribute)));
@@ -389,11 +408,11 @@ GuiPaintTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
     for (Line = TopLine; Line <= BottomLine; Line++)
     {
         WCHAR LineBuffer[80];   // Buffer containing a part or all the line to be displayed
-        From  = ConioCoordToPointer(Buffer, LeftChar, Line);    // Get the first code of the line
-        Start = LeftChar;
+        From  = ConioCoordToPointer(Buffer, LeftColumn, Line);  // Get the first code of the line
+        Start = LeftColumn;
         To    = LineBuffer;
 
-        for (Char = LeftChar; Char <= RightChar; Char++)
+        for (Char = LeftColumn; Char <= RightColumn; Char++)
         {
             /*
              * We flush the buffer if the new attribute is different
@@ -433,7 +452,7 @@ GuiPaintTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
                  Start * GuiData->CharWidth,
                  Line  * GuiData->CharHeight,
                  LineBuffer,
-                 RightChar - Start + 1);
+                 RightColumn - Start + 1);
     }
 
     /* Restore the old font */
@@ -448,13 +467,14 @@ GuiPaintTextModeBuffer(PTEXTMODE_SCREEN_BUFFER Buffer,
     {
         CursorX = Buffer->CursorPosition.X;
         CursorY = Buffer->CursorPosition.Y;
-        if (LeftChar <= CursorX && CursorX <= RightChar &&
-            TopLine  <= CursorY && CursorY <= BottomLine)
+        if (LeftColumn <= CursorX && CursorX <= RightColumn &&
+            TopLine    <= CursorY && CursorY <= BottomLine)
         {
             CursorHeight = ConioEffectiveCursorSize(Console, GuiData->CharHeight);
 
             Attribute = ConioCoordToPointer(Buffer, Buffer->CursorPosition.X, Buffer->CursorPosition.Y)->Attributes;
-            if (Attribute == DEFAULT_SCREEN_ATTRIB) Attribute = Buffer->ScreenDefaultAttrib;
+            if (Attribute == DEFAULT_SCREEN_ATTRIB)
+                Attribute = Buffer->ScreenDefaultAttrib;
 
             CursorBrush = CreateSolidBrush(PaletteRGBFromAttrib(Console, TextAttribFromAttrib(Attribute)));
             OldBrush    = SelectObject(GuiData->hMemDC, CursorBrush);

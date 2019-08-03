@@ -509,6 +509,7 @@ typedef MDL NDIS_BUFFER, *PNDIS_BUFFER;
 #define NDIS_STATUS_TOKEN_RING_OPEN_ERROR       ((NDIS_STATUS)0xC0011000L)
 #define NDIS_STATUS_INVALID_DEVICE_REQUEST      ((NDIS_STATUS)STATUS_INVALID_DEVICE_REQUEST)
 #define NDIS_STATUS_NETWORK_UNREACHABLE         ((NDIS_STATUS)STATUS_NETWORK_UNREACHABLE)
+#define NDIS_STATUS_HOST_UNREACHABLE            ((NDIS_STATUS)STATUS_HOST_UNREACHABLE)
 
 #if NDIS_SUPPORT_NDIS6
 
@@ -985,7 +986,6 @@ typedef NTSTATUS
 typedef struct _OID_LIST    OID_LIST, *POID_LIST;
 
 /* PnP state */
-
 typedef enum _NDIS_PNP_DEVICE_STATE {
   NdisPnPDeviceAdded,
   NdisPnPDeviceStarted,
@@ -995,6 +995,25 @@ typedef enum _NDIS_PNP_DEVICE_STATE {
   NdisPnPDeviceRemoved,
   NdisPnPDeviceSurpriseRemoved
 } NDIS_PNP_DEVICE_STATE;
+
+typedef enum _NDIS_DEVICE_PNP_EVENT {
+  NdisDevicePnPEventQueryRemoved,
+  NdisDevicePnPEventRemoved,
+  NdisDevicePnPEventSurpriseRemoved,
+  NdisDevicePnPEventQueryStopped,
+  NdisDevicePnPEventStopped,
+  NdisDevicePnPEventPowerProfileChanged,
+#if NDIS_SUPPORT_NDIS6
+  NdisDevicePnPEventFilterListChanged,
+#endif /* NDIS_SUPPORT_NDIS6 */
+  NdisDevicePnPEventMaximum
+} NDIS_DEVICE_PNP_EVENT, *PNDIS_DEVICE_PNP_EVENT;
+
+/* Power profiles */
+typedef enum _NDIS_POWER_PROFILE {
+  NdisPowerProfileBattery,
+  NdisPowerProfileAcOnLine
+} NDIS_POWER_PROFILE, *PNDIS_POWER_PROFILE;
 
 #define	NDIS_DEVICE_NOT_STOPPABLE                 0x00000001
 #define	NDIS_DEVICE_NOT_REMOVEABLE                0x00000002
@@ -4463,14 +4482,14 @@ NdisGetCurrentProcessorCpuUsage(
  * NDIS_INIT_FUNCTION(FunctionName)
  */
 #define NDIS_INIT_FUNCTION(FunctionName)    \
-  alloc_text(init, FunctionName)
+  alloc_text(INIT, FunctionName)
 
 /*
  * VOID
  * NDIS_PAGABLE_FUNCTION(FunctionName)
  */
 #define NDIS_PAGEABLE_FUNCTION(FunctionName) \
-  alloc_text(page, FunctionName)
+  alloc_text(PAGE, FunctionName)
 
 #define NDIS_PAGABLE_FUNCTION NDIS_PAGEABLE_FUNCTION
 

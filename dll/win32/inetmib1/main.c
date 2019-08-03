@@ -16,21 +16,19 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-
-#include <config.h>
+#include "config.h"
 #include <assert.h>
 #include <stdarg.h>
 #include <stdlib.h>
-//#include <limits.h>
+#include <limits.h>
 
 #define NONAMELESSUNION
 
-#include <windef.h>
-#include <winbase.h>
-#include <snmp.h>
-#include <iphlpapi.h>
-#include <wine/debug.h>
+#include "windef.h"
+#include "winbase.h"
+#include "snmp.h"
+#include "iphlpapi.h"
+#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(inetmib1);
 
@@ -1323,7 +1321,7 @@ BOOL WINAPI SnmpExtensionInit(DWORD dwUptimeReference,
         pFirstSupportedRegion);
 
     minSupportedIDLength = UINT_MAX;
-    for (i = 0; i < sizeof(supportedIDs) / sizeof(supportedIDs[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(supportedIDs); i++)
     {
         if (supportedIDs[i].init)
             supportedIDs[i].init();
@@ -1339,7 +1337,7 @@ static void cleanup(void)
 {
     UINT i;
 
-    for (i = 0; i < sizeof(supportedIDs) / sizeof(supportedIDs[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(supportedIDs); i++)
         if (supportedIDs[i].cleanup)
             supportedIDs[i].cleanup();
 }

@@ -19,6 +19,7 @@
  */
 
 #include <freeldr.h>
+#include "winldr.h"
 
 #include <ndk/ldrtypes.h>
 #include <arc/setupblk.h>
@@ -28,12 +29,6 @@
 DBG_DEFAULT_CHANNEL(WINDOWS);
 #define TAG_BOOT_OPTIONS 'pOtB'
 
-void
-WinLdrSetupMachineDependent(PLOADER_PARAMETER_BLOCK LoaderBlock);
-
-VOID
-WinLdrSetProcessorContext(void);
-
 // TODO: Move to .h
 VOID AllocateAndInitLPB(PLOADER_PARAMETER_BLOCK *OutLoaderBlock);
 
@@ -41,7 +36,6 @@ static VOID
 SetupLdrLoadNlsData(PLOADER_PARAMETER_BLOCK LoaderBlock, HINF InfHandle, LPCSTR SearchPath)
 {
     INFCONTEXT InfContext;
-    BOOLEAN Success;
     LPCSTR AnsiName, OemName, LangName;
 
     /* Get ANSI codepage file */
@@ -79,8 +73,19 @@ SetupLdrLoadNlsData(PLOADER_PARAMETER_BLOCK LoaderBlock, HINF InfHandle, LPCSTR 
         return;
     }
 
-    Success = WinLdrLoadNLSData(LoaderBlock, SearchPath, AnsiName, OemName, LangName);
-    TRACE("NLS data loading %s\n", Success ? "successful" : "failed");
+    TRACE("NLS data %s %s %s\n", AnsiName, OemName, LangName);
+
+#if DBG
+    {
+        BOOLEAN Success = WinLdrLoadNLSData(LoaderBlock, SearchPath, AnsiName, OemName, LangName);
+        TRACE("NLS data loading %s\n", Success ? "successful" : "failed");
+    }    
+#else
+    WinLdrLoadNLSData(LoaderBlock, SearchPath, AnsiName, OemName, LangName);
+#endif
+
+    /* TODO: Load OEM HAL font */
+    // Value "OemHalFont"
 }
 
 static VOID
@@ -133,6 +138,9 @@ SetupLdrScanBootDrivers(PLIST_ENTRY BootDriverListHead, HINF InfHandle, LPCSTR S
     } while (InfFindNextLine(&InfContext, &InfContext));
 }
 
+
+/* SETUP STARTER **************************************************************/
+
 VOID
 LoadReactOSSetup(IN OperatingSystemItem* OperatingSystem,
                  IN USHORT OperatingSystemVersion)
@@ -148,6 +156,7 @@ LoadReactOSSetup(IN OperatingSystemItem* OperatingSystem,
     LPCSTR LoadOptions;
     LPSTR BootOptions;
     BOOLEAN BootFromFloppy;
+    BOOLEAN Success;
     ULONG i, ErrorLine;
     HINF InfHandle;
     INFCONTEXT InfContext;
@@ -167,6 +176,8 @@ LoadReactOSSetup(IN OperatingSystemItem* OperatingSystem,
         "reactos\\",
         NULL
     };
+
+    UiDrawStatusText("Setup is loading...");
 
     /* Get OS setting value */
     SettingsValue[0] = ANSI_NULL;
@@ -308,8 +319,6 @@ LoadReactOSSetup(IN OperatingSystemItem* OperatingSystem,
 
     TRACE("BootOptions: '%s'\n", BootOptions);
 
-    UiDrawStatusText("Setup is loading...");
-
     /* Allocate and minimalist-initialize LPB */
     AllocateAndInitLPB(&LoaderBlock);
 
@@ -320,16 +329,29 @@ LoadReactOSSetup(IN OperatingSystemItem* OperatingSystem,
     /* Set textmode setup flag */
     SetupBlock->Flags = SETUPLDR_TEXT_MODE;
 
-    /* Load NLS data, they are in system32 */
+    /* Load the system hive "setupreg.hiv" for setup */
+    UiDrawBackdrop();
+    UiDrawProgressBarCenter(15, 100, "Loading setup system hive...");
+    Success = WinLdrInitSystemHive(LoaderBlock, BootPath, TRUE);
+    TRACE("Setup SYSTEM hive %s\n", (Success ? "loaded" : "not loaded"));
+    /* Bail out if failure */
+    if (!Success)
+        return;
+
+    /* Load NLS data, they are in the System32 directory of the installation medium */
     strcpy(FileName, BootPath);
     strcat(FileName, "system32\\");
     SetupLdrLoadNlsData(LoaderBlock, InfHandle, FileName);
+
+    // UiDrawStatusText("Press F6 if you need to install a 3rd-party SCSI or RAID driver...");
 
     /* Get a list of boot drivers */
     SetupLdrScanBootDrivers(&LoaderBlock->BootDriverListHead, InfHandle, BootPath);
 
     /* Close the inf file */
     InfCloseFile(InfHandle);
+
+    UiDrawStatusText("The Setup program is starting...");
 
     /* Load ReactOS Setup */
     LoadAndBootWindowsCommon(_WIN32_WINNT_WS03,

@@ -87,14 +87,6 @@ static int NOTEPAD_MenuCommand(WPARAM wParam)
     case CMD_STATUSBAR: DIALOG_ViewStatusBar(); break;
 
     case CMD_HELP_CONTENTS: DIALOG_HelpContents(); break;
-
-    case CMD_ABOUT:
-        DialogBox(GetModuleHandle(NULL),
-                  MAKEINTRESOURCE(IDD_ABOUTBOX),
-                  Globals.hMainWnd,
-                  AboutDialogProc);
-        break;
-
     case CMD_HELP_ABOUT_NOTEPAD: DIALOG_HelpAboutNotepad(); break;
 
     default:
@@ -353,6 +345,9 @@ NOTEPAD_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_CREATE:
         Globals.hMenu = GetMenu(hWnd);
+
+        // For now, the "Help" dialog is disabled due to the lack of HTML Help support
+        EnableMenuItem(Globals.hMenu, CMD_HELP_CONTENTS, MF_BYCOMMAND | MF_GRAYED);
         break;
 
     case WM_COMMAND:

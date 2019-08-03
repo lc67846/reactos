@@ -47,7 +47,7 @@ public:
 
     virtual INT OnCompareItems(T * p1, T * p2)
     {
-        INT t = (reinterpret_cast<INT>(p2) - reinterpret_cast<INT>(p1));
+        INT_PTR t = (reinterpret_cast<INT_PTR>(p2) - reinterpret_cast<INT_PTR>(p1));
         if (t > 0)
             return 1;
         if (t < 0)
@@ -114,7 +114,7 @@ public:
 
     INT Search(T* item, INT iStart, UINT uFlags)
     {
-        return DPA_Search(m_hDpa, s_OnCompareItems, (LPARAM)this);
+        return DPA_Search(m_hDpa, item, 0, s_OnCompareItems, (LPARAM)this, 0);
     }
 };
 

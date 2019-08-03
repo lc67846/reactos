@@ -16,41 +16,43 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _WINE_JSCRIPT_H
-#define _WINE_JSCRIPT_H
+#pragma once
 
-#include <wine/config.h>
-#include <wine/port.h>
-
-#include <assert.h>
 #include <stdarg.h>
-
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
+#include <stdio.h>
 
 #define COBJMACROS
 
-#include <windef.h>
-#include <winbase.h>
-#include <objbase.h>
-#include <oleauto.h>
-#include <dispex.h>
-#include <activscp.h>
-#include <objsafe.h>
-
-#include <wine/debug.h>
-#include <wine/list.h>
-#include <wine/unicode.h>
-
-WINE_DEFAULT_DEBUG_CHANNEL(jscript);
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "ole2.h"
+#include "dispex.h"
+#include "activscp.h"
 
 #include "resource.h"
+
+#include "wine/unicode.h"
+#include "wine/heap.h"
+#include "wine/list.h"
+
+/*
+ * This is Wine jscript extension for ES5 compatible mode. Native IE9+ implements
+ * a separated JavaScript enging in side MSHTML. We implement its features here
+ * and enable it when HTML flag is specified in SCRIPTPROP_INVOKEVERSIONING property.
+ */
+#define SCRIPTLANGUAGEVERSION_HTML 0x400
+
+/*
+ * This is Wine jscript extension for ES5 compatible mode. Allowed only in HTML mode.
+ */
+#define SCRIPTLANGUAGEVERSION_ES5  0x102
 
 typedef struct _jsval_t jsval_t;
 typedef struct _jsstr_t jsstr_t;
 typedef struct _script_ctx_t script_ctx_t;
 typedef struct _dispex_prop_t dispex_prop_t;
+typedef struct _property_desc_t property_desc_t;
 
 typedef struct {
     void **blocks;
@@ -67,26 +69,6 @@ void *heap_pool_grow(heap_pool_t*,void*,DWORD,DWORD) DECLSPEC_HIDDEN;
 void heap_pool_clear(heap_pool_t*) DECLSPEC_HIDDEN;
 void heap_pool_free(heap_pool_t*) DECLSPEC_HIDDEN;
 heap_pool_t *heap_pool_mark(heap_pool_t*) DECLSPEC_HIDDEN;
-
-static inline void* __WINE_ALLOC_SIZE(1) heap_alloc(size_t size)
-{
-    return HeapAlloc(GetProcessHeap(), 0, size);
-}
-
-static inline void* __WINE_ALLOC_SIZE(1) heap_alloc_zero(size_t size)
-{
-    return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
-}
-
-static inline void* __WINE_ALLOC_SIZE(2) heap_realloc(void *mem, size_t size)
-{
-    return HeapReAlloc(GetProcessHeap(), 0, mem, size);
-}
-
-static inline BOOL heap_free(void *mem)
-{
-    return HeapFree(GetProcessHeap(), 0, mem);
-}
 
 static inline LPWSTR heap_strdupW(LPCWSTR str)
 {
@@ -108,12 +90,19 @@ typedef struct jsdisp_t jsdisp_t;
 
 extern HINSTANCE jscript_hinstance DECLSPEC_HIDDEN;
 
-#define PROPF_ARGMASK     0x00ff
-#define PROPF_METHOD      0x0100
-#define PROPF_ENUM        0x0200
-#define PROPF_CONSTR      0x0400
-#define PROPF_CONST       0x0800
-#define PROPF_DONTDELETE  0x1000
+#define PROPF_ARGMASK       0x00ff
+#define PROPF_METHOD        0x0100
+#define PROPF_CONSTR        0x0200
+
+#define PROPF_ENUMERABLE    0x0400
+#define PROPF_WRITABLE      0x0800
+#define PROPF_CONFIGURABLE  0x1000
+#define PROPF_ALL           (PROPF_ENUMERABLE | PROPF_WRITABLE | PROPF_CONFIGURABLE)
+
+#define PROPF_VERSION_MASK  0x01ff0000
+#define PROPF_VERSION_SHIFT 16
+#define PROPF_HTML          (SCRIPTLANGUAGEVERSION_HTML << PROPF_VERSION_SHIFT)
+#define PROPF_ES5           ((SCRIPTLANGUAGEVERSION_HTML|SCRIPTLANGUAGEVERSION_ES5) << PROPF_VERSION_SHIFT)
 
 /*
  * This is our internal dispatch flag informing calee that it's called directly from interpreter.
@@ -299,8 +288,6 @@ HRESULT disp_propput(script_ctx_t*,IDispatch*,DISPID,jsval_t) DECLSPEC_HIDDEN;
 HRESULT jsdisp_propget(jsdisp_t*,DISPID,jsval_t*) DECLSPEC_HIDDEN;
 HRESULT jsdisp_propput(jsdisp_t*,const WCHAR*,DWORD,jsval_t) DECLSPEC_HIDDEN;
 HRESULT jsdisp_propput_name(jsdisp_t*,const WCHAR*,jsval_t) DECLSPEC_HIDDEN;
-HRESULT jsdisp_propput_const(jsdisp_t*,const WCHAR*,jsval_t) DECLSPEC_HIDDEN;
-HRESULT jsdisp_propput_dontenum(jsdisp_t*,const WCHAR*,jsval_t) DECLSPEC_HIDDEN;
 HRESULT jsdisp_propput_idx(jsdisp_t*,DWORD,jsval_t) DECLSPEC_HIDDEN;
 HRESULT jsdisp_propget_name(jsdisp_t*,LPCWSTR,jsval_t*) DECLSPEC_HIDDEN;
 HRESULT jsdisp_get_idx(jsdisp_t*,DWORD,jsval_t*) DECLSPEC_HIDDEN;
@@ -308,8 +295,9 @@ HRESULT jsdisp_get_id(jsdisp_t*,const WCHAR*,DWORD,DISPID*) DECLSPEC_HIDDEN;
 HRESULT disp_delete(IDispatch*,DISPID,BOOL*) DECLSPEC_HIDDEN;
 HRESULT disp_delete_name(script_ctx_t*,IDispatch*,jsstr_t*,BOOL*) DECLSPEC_HIDDEN;
 HRESULT jsdisp_delete_idx(jsdisp_t*,DWORD) DECLSPEC_HIDDEN;
-HRESULT jsdisp_is_own_prop(jsdisp_t*,const WCHAR*,BOOL*) DECLSPEC_HIDDEN;
-HRESULT jsdisp_is_enumerable(jsdisp_t*,const WCHAR*,BOOL*) DECLSPEC_HIDDEN;
+HRESULT jsdisp_get_own_property(jsdisp_t*,const WCHAR*,BOOL,property_desc_t*) DECLSPEC_HIDDEN;
+HRESULT jsdisp_define_property(jsdisp_t*,const WCHAR*,property_desc_t*) DECLSPEC_HIDDEN;
+HRESULT jsdisp_define_data_property(jsdisp_t*,const WCHAR*,unsigned,jsval_t) DECLSPEC_HIDDEN;
 
 HRESULT create_builtin_function(script_ctx_t*,builtin_invoke_t,const WCHAR*,const builtin_info_t*,DWORD,
         jsdisp_t*,jsdisp_t**) DECLSPEC_HIDDEN;
@@ -357,6 +345,8 @@ HRESULT to_string(script_ctx_t*,jsval_t,jsstr_t**) DECLSPEC_HIDDEN;
 HRESULT to_flat_string(script_ctx_t*,jsval_t,jsstr_t**,const WCHAR**) DECLSPEC_HIDDEN;
 HRESULT to_object(script_ctx_t*,jsval_t,IDispatch**) DECLSPEC_HIDDEN;
 
+HRESULT jsval_strict_equal(jsval_t,jsval_t,BOOL*) DECLSPEC_HIDDEN;
+
 HRESULT variant_change_type(script_ctx_t*,VARIANT*,VARIANT*,VARTYPE) DECLSPEC_HIDDEN;
 
 HRESULT decode_source(WCHAR*) DECLSPEC_HIDDEN;
@@ -390,6 +380,17 @@ typedef struct {
 
 #include "jsval.h"
 
+struct _property_desc_t {
+    unsigned flags;
+    unsigned mask;
+    BOOL explicit_value;
+    jsval_t value;
+    BOOL explicit_getter;
+    jsdisp_t *getter;
+    BOOL explicit_setter;
+    jsdisp_t *setter;
+};
+
 typedef struct {
     EXCEPINFO ei;
     jsval_t val;
@@ -412,6 +413,7 @@ struct _script_ctx_t {
     IInternetHostSecurityManager *secmgr;
     DWORD safeopt;
     DWORD version;
+    BOOL html_mode;
     LCID lcid;
     cc_ctx_t *cc;
     JSCaller *jscaller;
@@ -424,6 +426,7 @@ struct _script_ctx_t {
     jsval_t *stack;
     unsigned stack_size;
     unsigned stack_top;
+    jsval_t acc;
 
     jsstr_t *last_match;
     match_result_t match_parens[9];
@@ -516,7 +519,7 @@ static inline BOOL is_int32(double d)
 
 static inline DWORD make_grfdex(script_ctx_t *ctx, DWORD flags)
 {
-    return (ctx->version << 28) | flags;
+    return ((ctx->version & 0xff) << 28) | flags;
 }
 
 #define FACILITY_JSCRIPT 10
@@ -564,6 +567,10 @@ static inline DWORD make_grfdex(script_ctx_t *ctx, DWORD flags)
 #define JS_E_PRECISION_OUT_OF_RANGE  MAKE_JSERROR(IDS_PRECISION_OUT_OF_RANGE)
 #define JS_E_INVALID_LENGTH          MAKE_JSERROR(IDS_INVALID_LENGTH)
 #define JS_E_ARRAY_EXPECTED          MAKE_JSERROR(IDS_ARRAY_EXPECTED)
+#define JS_E_NONCONFIGURABLE_REDEFINED MAKE_JSERROR(IDS_NONCONFIGURABLE_REDEFINED)
+#define JS_E_NONWRITABLE_MODIFIED    MAKE_JSERROR(IDS_NONWRITABLE_MODIFIED)
+#define JS_E_PROP_DESC_MISMATCH      MAKE_JSERROR(IDS_PROP_DESC_MISMATCH)
+#define JS_E_INVALID_WRITABLE_PROP_DESC MAKE_JSERROR(IDS_INVALID_WRITABLE_PROP_DESC)
 
 static inline BOOL is_jscript_error(HRESULT hres)
 {
@@ -585,9 +592,3 @@ static inline void unlock_module(void)
 {
     InterlockedDecrement(&module_ref);
 }
-
-#include "engine.h"
-#include "parser.h"
-#include "regexp.h"
-
-#endif /* _WINE_JSCRIPT_H */

@@ -19,10 +19,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdio.h>
+
 #include "dmusic_private.h"
 
-#include <winuser.h>
-#include <winreg.h>
+WINE_DEFAULT_DEBUG_CHANNEL(dmusic);
 
 static inline IDirectMusic8Impl *impl_from_IDirectMusic8(IDirectMusic8 *iface)
 {
@@ -300,7 +301,7 @@ static HRESULT WINAPI IDirectMusic8Impl_GetDefaultPort(LPDIRECTMUSIC8 iface, LPG
         return S_OK;
     }
     /* FIXME: Check return types to ensure we're interpreting data right */
-    MultiByteToWideChar(CP_ACP, 0, returnBuffer, -1, buff, sizeof(buff) / sizeof(WCHAR));
+    MultiByteToWideChar(CP_ACP, 0, returnBuffer, -1, buff, ARRAY_SIZE(buff));
     CLSIDFromString(buff, &defaultPortGUID);
     *guid_port = defaultPortGUID;
 
@@ -372,8 +373,8 @@ static const IDirectMusic8Vtbl DirectMusic8_Vtbl = {
 
 static void create_system_ports_list(IDirectMusic8Impl* object)
 {
+    static const WCHAR emulated[] = {' ','[','E','m','u','l','a','t','e','d',']',0};
     port_info * port;
-    const WCHAR emulated[] = {' ','[','E','m','u','l','a','t','e','d',']',0};
     ULONG nb_ports;
     ULONG nb_midi_out;
     ULONG nb_midi_in;

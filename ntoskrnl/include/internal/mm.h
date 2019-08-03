@@ -15,6 +15,8 @@ extern PFN_NUMBER MmLowestPhysicalPage;
 extern PFN_NUMBER MmHighestPhysicalPage;
 extern PFN_NUMBER MmAvailablePages;
 extern PFN_NUMBER MmResidentAvailablePages;
+extern ULONG MmThrottleTop;
+extern ULONG MmThrottleBottom;
 
 extern LIST_ENTRY MmLoadedUserImageList;
 
@@ -99,6 +101,8 @@ typedef ULONG_PTR SWAPENTRY;
 #define QUOTA_POOL_MASK                     8
 #define SESSION_POOL_MASK                   32
 #define VERIFIER_POOL_MASK                  64
+
+#define MAX_PAGING_FILES                    (16)
 
 // FIXME: use ALIGN_UP_BY
 #define MM_ROUND_UP(x,s)                    \
@@ -419,6 +423,23 @@ typedef struct _MM_PAGED_POOL_INFO
 
 extern MM_MEMORY_CONSUMER MiMemoryConsumers[MC_MAXIMUM];
 
+/* Page file information */
+typedef struct _MMPAGING_FILE
+{
+    PFN_NUMBER Size;
+    PFN_NUMBER MaximumSize;
+    PFN_NUMBER MinimumSize;
+    PFN_NUMBER FreeSpace;
+    PFN_NUMBER CurrentUsage;
+    PFILE_OBJECT FileObject;
+    UNICODE_STRING PageFileName;
+    PRTL_BITMAP Bitmap;
+    HANDLE FileHandle;
+}
+MMPAGING_FILE, *PMMPAGING_FILE;
+
+extern PMMPAGING_FILE MmPagingFile[MAX_PAGING_FILES];
+
 typedef VOID
 (*PMM_ALTER_REGION_FUNC)(
     PMMSUPPORT AddressSpace,
@@ -538,6 +559,7 @@ MiCheckAllProcessMemoryAreas(VOID);
 
 /* npool.c *******************************************************************/
 
+INIT_FUNCTION
 VOID
 NTAPI
 MiInitializeNonPagedPool(VOID);
@@ -588,6 +610,7 @@ MmInit1(
     VOID
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 MmInitSystem(IN ULONG Phase,
@@ -604,6 +627,7 @@ VOID
 NTAPI
 MmFreeSwapPage(SWAPENTRY Entry);
 
+INIT_FUNCTION
 VOID
 NTAPI
 MmInitPagingFile(VOID);
@@ -744,7 +768,7 @@ MmFreeSpecialPool(
 NTSTATUS
 NTAPI
 MmAccessFault(
-    IN BOOLEAN StoreInstruction,
+    IN ULONG FaultCode,
     IN PVOID Address,
     IN KPROCESSOR_MODE Mode,
     IN PVOID TrapInformation
@@ -755,8 +779,8 @@ MmAccessFault(
 NTSTATUS
 NTAPI
 MiCopyFromUserPage(
-    PFN_NUMBER NewPage,
-    PFN_NUMBER OldPage
+    PFN_NUMBER DestPage,
+    const VOID *SrcAddress
 );
 
 /* process.c *****************************************************************/
@@ -770,8 +794,9 @@ NTAPI
 MmDeleteKernelStack(PVOID Stack,
                     BOOLEAN GuiStack);
 
-/* balace.c ******************************************************************/
+/* balance.c *****************************************************************/
 
+INIT_FUNCTION
 VOID
 NTAPI
 MmInitializeMemoryConsumer(
@@ -779,6 +804,7 @@ MmInitializeMemoryConsumer(
     NTSTATUS (*Trim)(ULONG Target, ULONG Priority, PULONG NrFreed)
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 MmInitializeBalancer(
@@ -801,6 +827,7 @@ MmRequestPageMemoryConsumer(
     PPFN_NUMBER AllocatedPage
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 MiInitBalancerThread(VOID);
@@ -846,6 +873,7 @@ MmDeleteRmap(
     PVOID Address
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 MmInitializeRmapList(VOID);
@@ -867,6 +895,45 @@ NTAPI
 MmPageOutPhysicalAddress(PFN_NUMBER Page);
 
 /* freelist.c **********************************************************/
+
+FORCEINLINE
+KIRQL
+MiAcquirePfnLock(VOID)
+{
+    return KeAcquireQueuedSpinLock(LockQueuePfnLock);
+}
+
+FORCEINLINE
+VOID
+MiReleasePfnLock(
+    _In_ KIRQL OldIrql)
+{
+    KeReleaseQueuedSpinLock(LockQueuePfnLock, OldIrql);
+}
+
+FORCEINLINE
+VOID
+MiAcquirePfnLockAtDpcLevel(VOID)
+{
+    PKSPIN_LOCK_QUEUE LockQueue;
+
+    ASSERT(KeGetCurrentIrql() >= DISPATCH_LEVEL);
+    LockQueue = &KeGetCurrentPrcb()->LockQueue[LockQueuePfnLock];
+    KeAcquireQueuedSpinLockAtDpcLevel(LockQueue);
+}
+
+FORCEINLINE
+VOID
+MiReleasePfnLockFromDpcLevel(VOID)
+{
+    PKSPIN_LOCK_QUEUE LockQueue;
+
+    LockQueue = &KeGetCurrentPrcb()->LockQueue[LockQueuePfnLock];
+    KeReleaseQueuedSpinLockFromDpcLevel(LockQueue);
+    ASSERT(KeGetCurrentIrql() >= DISPATCH_LEVEL);
+}
+
+#define MI_ASSERT_PFN_LOCK_HELD() ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL)
 
 FORCEINLINE
 PMMPFN
@@ -1016,6 +1083,7 @@ MmIsDisabledPage(
     PVOID Address
 );
 
+INIT_FUNCTION
 VOID
 NTAPI
 MmInitGlobalKernelPageDirectory(VOID);
@@ -1118,6 +1186,7 @@ MmCreateProcessAddressSpace(
     IN PULONG_PTR DirectoryTableBase
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 MmInitializeHandBuiltProcess(
@@ -1125,7 +1194,7 @@ MmInitializeHandBuiltProcess(
     IN PULONG_PTR DirectoryTableBase
 );
 
-
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 MmInitializeHandBuiltProcess2(
@@ -1245,6 +1314,7 @@ MmProtectSectionView(
     PULONG OldProtect
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 MmInitSectionImplementation(VOID);
@@ -1267,6 +1337,7 @@ MmPageOutSectionView(
     ULONG_PTR Entry
 );
 
+INIT_FUNCTION
 NTSTATUS
 NTAPI
 MmCreatePhysicalMemorySection(VOID);
@@ -1285,17 +1356,27 @@ MmFreeSectionSegments(PFILE_OBJECT FileObject);
 
 /* sysldr.c ******************************************************************/
 
+INIT_FUNCTION
 VOID
 NTAPI
 MiReloadBootLoadedDrivers(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock
 );
 
+INIT_FUNCTION
 BOOLEAN
 NTAPI
 MiInitializeLoadedModuleList(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock
 );
+
+BOOLEAN
+NTAPI
+MmChangeKernelResourceSectionProtection(IN ULONG_PTR ProtectionMask);
+
+VOID
+NTAPI
+MmMakeKernelResourceSectionWritable(VOID);
 
 NTSTATUS
 NTAPI
@@ -1433,6 +1514,10 @@ NTAPI
 MmSetSessionLocaleId(
     _In_ LCID LocaleId);
 
+/* shutdown.c *****************************************************************/
+
+VOID
+MmShutdownSystem(IN ULONG Phase);
 
 /* virtual.c *****************************************************************/
 

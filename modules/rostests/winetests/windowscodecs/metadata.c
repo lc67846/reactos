@@ -18,27 +18,23 @@
  */
 
 #include <stdio.h>
-//#include <stdarg.h>
-//#include <math.h>
+#include <stdarg.h>
+#include <math.h>
 #include <assert.h>
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #define COBJMACROS
+#ifdef __REACTOS__
+#define CONST_VTABLE
+#endif
 
-#include <windef.h>
-#include <winbase.h>
-#include <winnls.h>
-#include <winreg.h>
-#include <ole2.h>
-//#include "wincodec.h"
-#include <wincodecsdk.h>
-#include <propvarutil.h>
-#include <wine/test.h>
+#include "windef.h"
+#include "objbase.h"
+#include "wincodec.h"
+#include "wincodecsdk.h"
+#include "propvarutil.h"
+#include "wine/test.h"
 
-#include <initguid.h>
+#include "initguid.h"
 DEFINE_GUID(IID_MdbrUnknown, 0x00240e6f,0x3f23,0x4432,0xb0,0xcc,0x48,0xd5,0xbb,0xff,0x6c,0x36);
 
 #define expect_blob(propvar, data, length) do { \
@@ -823,7 +819,7 @@ static void test_metadata_IFD(void)
 
     hr = IWICMetadataReader_GetCount(reader, &count);
     ok(hr == S_OK, "GetCount error %#x\n", hr);
-    ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+    ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
 
     compare_metadata(reader, td, count);
 
@@ -839,7 +835,7 @@ static void test_metadata_IFD(void)
     load_stream((IUnknown *)reader, IFD_data_swapped, sizeof(IFD_data), persist_options);
     hr = IWICMetadataReader_GetCount(reader, &count);
     ok(hr == S_OK, "GetCount error %#x\n", hr);
-    ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+    ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
     compare_metadata(reader, td, count);
     HeapFree(GetProcessHeap(), 0, IFD_data_swapped);
 
@@ -1278,7 +1274,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(gif_LSD)/sizeof(gif_LSD[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(gif_LSD), "unexpected count %u\n", count);
 
             compare_metadata(reader, gif_LSD, count);
 
@@ -1327,7 +1323,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(gif_IMD)/sizeof(gif_IMD[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(gif_IMD), "unexpected count %u\n", count);
 
             compare_metadata(reader, gif_IMD, count);
 
@@ -1381,7 +1377,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_LSD)/sizeof(animated_gif_LSD[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_LSD), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_LSD, count);
 
@@ -1400,7 +1396,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_APE)/sizeof(animated_gif_APE[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_APE), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_APE, count);
 
@@ -1419,7 +1415,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_comment_1)/sizeof(animated_gif_comment_1[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_comment_1), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_comment_1, count);
 
@@ -1438,7 +1434,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_plain_1)/sizeof(animated_gif_plain_1[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_plain_1), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_plain_1, count);
 
@@ -1487,7 +1483,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_IMD)/sizeof(animated_gif_IMD[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_IMD), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_IMD, count);
 
@@ -1506,7 +1502,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_comment_2)/sizeof(animated_gif_comment_2[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_comment_2), "unexpected count %u\n", count);
 
             if (count == 1)
             compare_metadata(reader, animated_gif_comment_2, count);
@@ -1526,7 +1522,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_plain_2)/sizeof(animated_gif_plain_2[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_plain_2), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_plain_2, count);
 
@@ -1545,7 +1541,7 @@ static void test_metadata_gif(void)
 
             hr = IWICMetadataReader_GetCount(reader, &count);
             ok(hr == S_OK, "GetCount error %#x\n", hr);
-            ok(count == sizeof(animated_gif_GCE)/sizeof(animated_gif_GCE[0]), "unexpected count %u\n", count);
+            ok(count == ARRAY_SIZE(animated_gif_GCE), "unexpected count %u\n", count);
 
             compare_metadata(reader, animated_gif_GCE, count);
 
@@ -1606,13 +1602,17 @@ static void test_metadata_gif(void)
         ok(len == 2, "expected 2, got %u\n", len);
         ok(!lstrcmpW(name, rootW), "expected '/', got %s\n", wine_dbgstr_w(name));
 
-        for (i = 0; i < sizeof(decoder_data)/sizeof(decoder_data[0]); i++)
+        for (i = 0; i < ARRAY_SIZE(decoder_data); i++)
         {
             WCHAR queryW[256];
 
             if (winetest_debug > 1)
                 trace("query: %s\n", decoder_data[i].query);
             MultiByteToWideChar(CP_ACP, 0, decoder_data[i].query, -1, queryW, 256);
+
+            hr = IWICMetadataQueryReader_GetMetadataByName(queryreader, queryW, NULL);
+            ok(hr == decoder_data[i].hr, "GetMetadataByName(%s) returned %#x, expected %#x\n", wine_dbgstr_w(queryW), hr, decoder_data[i].hr);
+
             PropVariantInit(&value);
             hr = IWICMetadataQueryReader_GetMetadataByName(queryreader, queryW, &value);
             ok(hr == decoder_data[i].hr, "GetMetadataByName(%s) returned %#x, expected %#x\n", wine_dbgstr_w(queryW), hr, decoder_data[i].hr);
@@ -1629,7 +1629,7 @@ static void test_metadata_gif(void)
                 ok(len == lstrlenW(queryW) + 1, "expected %u, got %u\n", lstrlenW(queryW) + 1, len);
                 ok(!lstrcmpW(name, queryW), "expected %s, got %s\n", wine_dbgstr_w(queryW), wine_dbgstr_w(name));
 
-                for (j = 0; j < sizeof(decoder_data)/sizeof(decoder_data[0]); j++)
+                for (j = 0; j < ARRAY_SIZE(decoder_data); j++)
                 {
                     MultiByteToWideChar(CP_ACP, 0, decoder_data[j].query, -1, queryW, 256);
 
@@ -1705,7 +1705,7 @@ static void test_metadata_gif(void)
         ok(len == 2, "expected 2, got %u\n", len);
         ok(!lstrcmpW(name, rootW), "expected '/', got %s\n", wine_dbgstr_w(name));
 
-        for (i = 0; i < sizeof(frame_data)/sizeof(frame_data[0]); i++)
+        for (i = 0; i < ARRAY_SIZE(frame_data); i++)
         {
             if (winetest_debug > 1)
                 trace("query: %s\n", frame_data[i].query);
@@ -1819,7 +1819,7 @@ static void test_metadata_LSD(void)
     {
         hr = IWICMetadataReader_GetCount(reader, &count);
         ok(hr == S_OK, "GetCount error %#x\n", hr);
-        ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+        ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
 
         compare_metadata(reader, td, count);
 
@@ -1897,7 +1897,7 @@ static void test_metadata_IMD(void)
     {
         hr = IWICMetadataReader_GetCount(reader, &count);
         ok(hr == S_OK, "GetCount error %#x\n", hr);
-        ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+        ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
 
         compare_metadata(reader, td, count);
 
@@ -1972,7 +1972,7 @@ static void test_metadata_GCE(void)
     {
         hr = IWICMetadataReader_GetCount(reader, &count);
         ok(hr == S_OK, "GetCount error %#x\n", hr);
-        ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+        ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
 
         compare_metadata(reader, td, count);
 
@@ -2045,7 +2045,7 @@ static void test_metadata_APE(void)
     {
         hr = IWICMetadataReader_GetCount(reader, &count);
         ok(hr == S_OK, "GetCount error %#x\n", hr);
-        ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+        ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
 
         compare_metadata(reader, td, count);
 
@@ -2129,7 +2129,7 @@ static void test_metadata_GIF_comment(void)
     {
         hr = IWICMetadataReader_GetCount(reader, &count);
         ok(hr == S_OK, "GetCount error %#x\n", hr);
-        ok(count == sizeof(td)/sizeof(td[0]), "unexpected count %u\n", count);
+        ok(count == ARRAY_SIZE(td), "unexpected count %u\n", count);
 
         compare_metadata(reader, td, count);
 
@@ -2432,9 +2432,9 @@ static void test_WICMapSchemaToName(void)
         return;
     }
 
-    for (i = 0; i < sizeof(guid_list)/sizeof(guid_list[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(guid_list); i++)
     {
-        for (j = 0; j < sizeof(schema_list)/sizeof(schema_list[0]); j++)
+        for (j = 0; j < ARRAY_SIZE(schema_list); j++)
         {
             hr = WICMapSchemaToName(guid_list[i], schema_list[j], 0, NULL, &len);
             if (IsEqualGUID(guid_list[i], &GUID_MetadataFormatXMP) ||
@@ -2692,7 +2692,7 @@ static HRESULT WINAPI mdr_GetEnumerator(IWICMetadataReader *iface, IWICEnumMetad
     return E_NOTIMPL;
 }
 
-static /* const */ IWICMetadataReaderVtbl mdr_vtbl =
+static const IWICMetadataReaderVtbl mdr_vtbl =
 {
     mdr_QueryInterface,
     mdr_AddRef,
@@ -2782,7 +2782,7 @@ static HRESULT WINAPI mdbr_GetEnumerator(IWICMetadataBlockReader *iface, IEnumUn
     return E_NOTIMPL;
 }
 
-static /* const */ IWICMetadataBlockReaderVtbl mdbr_vtbl =
+static const IWICMetadataBlockReaderVtbl mdbr_vtbl =
 {
     mdbr_QueryInterface,
     mdbr_AddRef,
@@ -2966,7 +2966,7 @@ static void test_queryreader(void)
     hr = IWICComponentFactory_CreateQueryReaderFromBlockReader(factory, &mdbr, &reader);
     ok(hr == S_OK, "CreateQueryReaderFromBlockReader error %#x\n", hr);
 
-    for (i = 0; i < sizeof(test_data)/sizeof(test_data[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(test_data); i++)
     {
         current_metadata = test_data[i].data;
 

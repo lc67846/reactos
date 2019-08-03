@@ -17,22 +17,18 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-
 #define DIRECTINPUT_VERSION 0x0700
 
 #define COBJMACROS
-//#include <windows.h>
+#include <windows.h>
 
-//#include <math.h>
-//#include <stdlib.h>
+#include <math.h>
+#include <stdlib.h>
 
-#include <wine/test.h>
-//#include "windef.h"
-//#include "wingdi.h"
-#include <dinput.h>
+#include "wine/test.h"
+#include "windef.h"
+#include "wingdi.h"
+#include "dinput.h"
 
 static const HRESULT SetCoop_null_window[16] =  {
     E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG,
@@ -97,7 +93,6 @@ static void test_acquire(IDirectInputA *pDI, HWND hwnd)
     DIPROPDWORD di_op;
     DIDEVICEOBJECTDATA mouse_state;
     DWORD cnt;
-    MSG msg;
     int i;
 
     if (! SetForegroundWindow(hwnd))
@@ -136,12 +131,9 @@ static void test_acquire(IDirectInputA *pDI, HWND hwnd)
     hwnd2 = CreateWindowA("static", "Temporary", WS_VISIBLE, 10, 210, 200, 200, NULL, NULL, NULL,
                           NULL);
     ok(hwnd2 != NULL, "CreateWindowA failed with %u\n", GetLastError());
-    while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
 
     hr = IDirectInputDevice_GetDeviceState(pMouse, sizeof(m_state), &m_state);
     ok(hr == DIERR_NOTACQUIRED, "GetDeviceState() should have failed: %08x\n", hr);
-    /* Workaround so we can test other things. Remove when Wine is fixed */
-    IDirectInputDevice_Unacquire(pMouse);
 
     hr = IDirectInputDevice_Acquire(pMouse);
     ok(hr == DIERR_OTHERAPPHASPRIO, "Acquire() should have failed: %08x\n", hr);
@@ -173,7 +165,7 @@ else {
     hr = IDirectInputDevice_GetDeviceData(pMouse, sizeof(mouse_state), &mouse_state, &cnt, 0);
     ok(hr == S_OK && cnt > 0, "GetDeviceData() failed: %08x cnt:%d\n", hr, cnt);
 
-    /* Check for buffer owerflow */
+    /* Check for buffer overflow */
     for (i = 0; i < 6; i++)
         mouse_event(MOUSEEVENTF_MOVE, 10 + i, 10 + i, 0, 0);
 
@@ -183,6 +175,27 @@ else {
     cnt = 1;
     hr = IDirectInputDevice_GetDeviceData(pMouse, sizeof(mouse_state), &mouse_state, &cnt, 0);
     ok(hr == DI_OK && cnt == 1, "GetDeviceData() failed: %08x cnt:%d\n", hr, cnt);
+
+    /* Check for granularity property using BYOFFSET */
+    memset(&di_op, 0, sizeof(di_op));
+    di_op.diph.dwHow = DIPH_BYOFFSET;
+    di_op.diph.dwObj = DIMOFS_Y;
+    di_op.diph.dwSize = sizeof(DIPROPDWORD);
+    di_op.diph.dwHeaderSize = sizeof(DIPROPHEADER);
+    hr = IDirectInputDevice_GetProperty(pMouse, DIPROP_GRANULARITY, &di_op.diph);
+    /* Granularity of Y axis should be 1! */
+    ok(hr == S_OK && di_op.dwData == 1, "GetProperty(): %08x, dwData: %i but should be 1.\n", hr, di_op.dwData);
+
+    /* Check for granularity property using BYID */
+    memset(&di_op, 0, sizeof(di_op));
+    di_op.diph.dwHow = DIPH_BYID;
+    /* WINE_MOUSE_Y_AXIS_INSTANCE := 1 */
+    di_op.diph.dwObj = (DIDFT_MAKEINSTANCE(1) | DIDFT_RELAXIS);
+    di_op.diph.dwSize = sizeof(DIPROPDWORD);
+    di_op.diph.dwHeaderSize = sizeof(DIPROPHEADER);
+    hr = IDirectInputDevice_GetProperty(pMouse, DIPROP_GRANULARITY, &di_op.diph);
+    /* Granularity of Y axis should be 1! */
+    ok(hr == S_OK && di_op.dwData == 1, "GetProperty(): %08x, dwData: %i but should be 1.\n", hr, di_op.dwData);
 }
     if (pMouse) IUnknown_Release(pMouse);
 

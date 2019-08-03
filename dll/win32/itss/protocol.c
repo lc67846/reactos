@@ -16,22 +16,42 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "precomp.h"
+#include <stdarg.h>
 
-#include <winreg.h>
-#include <urlmon.h>
-#include <shlwapi.h>
+#define COBJMACROS
+
+#include "windef.h"
+#include "winbase.h"
+#include "winuser.h"
+#include "winreg.h"
+#include "ole2.h"
+#include "urlmon.h"
+#include "shlwapi.h"
+#include "itsstor.h"
+#include "chm_lib.h"
+
+#include "wine/debug.h"
+#include "wine/unicode.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(itss);
 
 typedef struct {
+    IUnknown              IUnknown_inner;
     IInternetProtocol     IInternetProtocol_iface;
     IInternetProtocolInfo IInternetProtocolInfo_iface;
 
     LONG ref;
+    IUnknown *outer;
 
     ULONG offset;
     struct chmFile *chm_file;
     struct chmUnitInfo chm_object;
 } ITSProtocol;
+
+static inline ITSProtocol *impl_from_IUnknown(IUnknown *iface)
+{
+    return CONTAINING_RECORD(iface, ITSProtocol, IUnknown_inner);
+}
 
 static inline ITSProtocol *impl_from_IInternetProtocol(IInternetProtocol *iface)
 {
@@ -52,14 +72,13 @@ static void release_chm(ITSProtocol *This)
     This->offset = 0;
 }
 
-static HRESULT WINAPI ITSProtocol_QueryInterface(IInternetProtocol *iface, REFIID riid, void **ppv)
+static HRESULT WINAPI ITSProtocol_QueryInterface(IUnknown *iface, REFIID riid, void **ppv)
 {
-    ITSProtocol *This = impl_from_IInternetProtocol(iface);
+    ITSProtocol *This = impl_from_IUnknown(iface);
 
-    *ppv = NULL;
     if(IsEqualGUID(&IID_IUnknown, riid)) {
         TRACE("(%p)->(IID_IUnknown %p)\n", This, ppv);
-        *ppv = &This->IInternetProtocol_iface;
+        *ppv = &This->IUnknown_inner;
     }else if(IsEqualGUID(&IID_IInternetProtocolRoot, riid)) {
         TRACE("(%p)->(IID_IInternetProtocolRoot %p)\n", This, ppv);
         *ppv = &This->IInternetProtocol_iface;
@@ -69,28 +88,27 @@ static HRESULT WINAPI ITSProtocol_QueryInterface(IInternetProtocol *iface, REFII
     }else if(IsEqualGUID(&IID_IInternetProtocolInfo, riid)) {
         TRACE("(%p)->(IID_IInternetProtocolInfo %p)\n", This, ppv);
         *ppv = &This->IInternetProtocolInfo_iface;
+    }else {
+        *ppv = NULL;
+        WARN("not supported interface %s\n", debugstr_guid(riid));
+        return E_NOINTERFACE;
     }
 
-    if(*ppv) {
-        IInternetProtocol_AddRef(iface);
-        return S_OK;
-    }
-
-    WARN("not supported interface %s\n", debugstr_guid(riid));
-    return E_NOINTERFACE;
+    IUnknown_AddRef((IUnknown*)*ppv);
+    return S_OK;
 }
 
-static ULONG WINAPI ITSProtocol_AddRef(IInternetProtocol *iface)
+static ULONG WINAPI ITSProtocol_AddRef(IUnknown *iface)
 {
-    ITSProtocol *This = impl_from_IInternetProtocol(iface);
+    ITSProtocol *This = impl_from_IUnknown(iface);
     LONG ref = InterlockedIncrement(&This->ref);
     TRACE("(%p) ref=%d\n", This, ref);
     return ref;
 }
 
-static ULONG WINAPI ITSProtocol_Release(IInternetProtocol *iface)
+static ULONG WINAPI ITSProtocol_Release(IUnknown *iface)
 {
-    ITSProtocol *This = impl_from_IInternetProtocol(iface);
+    ITSProtocol *This = impl_from_IUnknown(iface);
     LONG ref = InterlockedDecrement(&This->ref);
 
     TRACE("(%p) ref=%d\n", This, ref);
@@ -105,18 +123,42 @@ static ULONG WINAPI ITSProtocol_Release(IInternetProtocol *iface)
     return ref;
 }
 
+static const IUnknownVtbl ITSProtocolUnkVtbl = {
+    ITSProtocol_QueryInterface,
+    ITSProtocol_AddRef,
+    ITSProtocol_Release
+};
+
+static HRESULT WINAPI ITSInternetProtocol_QueryInterface(IInternetProtocol *iface, REFIID riid, void **ppv)
+{
+    ITSProtocol *This = impl_from_IInternetProtocol(iface);
+    return IUnknown_QueryInterface(This->outer, riid, ppv);
+}
+
+static ULONG WINAPI ITSInternetProtocol_AddRef(IInternetProtocol *iface)
+{
+    ITSProtocol *This = impl_from_IInternetProtocol(iface);
+    return IUnknown_AddRef(This->outer);
+}
+
+static ULONG WINAPI ITSInternetProtocol_Release(IInternetProtocol *iface)
+{
+    ITSProtocol *This = impl_from_IInternetProtocol(iface);
+    return IUnknown_Release(This->outer);
+}
+
 static LPCWSTR skip_schema(LPCWSTR url)
 {
     static const WCHAR its_schema[] = {'i','t','s',':'};
     static const WCHAR msits_schema[] = {'m','s','-','i','t','s',':'};
     static const WCHAR mk_schema[] = {'m','k',':','@','M','S','I','T','S','t','o','r','e',':'};
 
-    if(!strncmpiW(its_schema, url, sizeof(its_schema)/sizeof(WCHAR)))
-        return url+sizeof(its_schema)/sizeof(WCHAR);
-    if(!strncmpiW(msits_schema, url, sizeof(msits_schema)/sizeof(WCHAR)))
-        return url+sizeof(msits_schema)/sizeof(WCHAR);
-    if(!strncmpiW(mk_schema, url, sizeof(mk_schema)/sizeof(WCHAR)))
-        return url+sizeof(mk_schema)/sizeof(WCHAR);
+    if(!strncmpiW(its_schema, url, ARRAY_SIZE(its_schema)))
+        return url + ARRAY_SIZE(its_schema);
+    if(!strncmpiW(msits_schema, url, ARRAY_SIZE(msits_schema)))
+        return url + ARRAY_SIZE(msits_schema);
+    if(!strncmpiW(mk_schema, url, ARRAY_SIZE(mk_schema)))
+        return url + ARRAY_SIZE(mk_schema);
 
     return NULL;
 }
@@ -374,9 +416,9 @@ static HRESULT WINAPI ITSProtocol_UnlockRequest(IInternetProtocol *iface)
 }
 
 static const IInternetProtocolVtbl ITSProtocolVtbl = {
-    ITSProtocol_QueryInterface,
-    ITSProtocol_AddRef,
-    ITSProtocol_Release,
+    ITSInternetProtocol_QueryInterface,
+    ITSInternetProtocol_AddRef,
+    ITSInternetProtocol_Release,
     ITSProtocol_Start,
     ITSProtocol_Continue,
     ITSProtocol_Abort,
@@ -507,21 +549,24 @@ static const IInternetProtocolInfoVtbl ITSProtocolInfoVtbl = {
     ITSProtocolInfo_QueryInfo
 };
 
-HRESULT ITSProtocol_create(IUnknown *pUnkOuter, LPVOID *ppobj)
+HRESULT ITSProtocol_create(IUnknown *outer, void **ppv)
 {
     ITSProtocol *ret;
 
-    TRACE("(%p %p)\n", pUnkOuter, ppobj);
+    TRACE("(%p %p)\n", outer, ppv);
 
     ITSS_LockModule();
 
     ret = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ITSProtocol));
+    if(!ret)
+        return E_OUTOFMEMORY;
 
+    ret->IUnknown_inner.lpVtbl = &ITSProtocolUnkVtbl;
     ret->IInternetProtocol_iface.lpVtbl = &ITSProtocolVtbl;
     ret->IInternetProtocolInfo_iface.lpVtbl = &ITSProtocolInfoVtbl;
     ret->ref = 1;
+    ret->outer = outer ? outer : &ret->IUnknown_inner;
 
-    *ppobj = &ret->IInternetProtocol_iface;
-
+    *ppv = &ret->IUnknown_inner;
     return S_OK;
 }

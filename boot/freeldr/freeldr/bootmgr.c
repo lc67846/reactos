@@ -29,9 +29,9 @@ VOID
 (*OS_LOADING_METHOD)(IN OperatingSystemItem* OperatingSystem,
                      IN USHORT OperatingSystemVersion);
 
-struct
+static const struct
 {
-    CHAR BootType[80];
+    PCHAR BootType;
     USHORT OperatingSystemVersion;
     OS_LOADING_METHOD Load;
 } OSLoadingMethods[] =
@@ -88,8 +88,8 @@ VOID LoadOperatingSystem(IN OperatingSystemItem* OperatingSystem)
         }
     }
 
+#if defined(_M_IX86)
     /* Install the drive mapper according to this section drive mappings */
-#if defined(_M_IX86) && !defined(_MSC_VER)
     DriveMapMapDrivesInSection(SectionName);
 #endif
 

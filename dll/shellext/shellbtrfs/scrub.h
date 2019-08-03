@@ -15,6 +15,8 @@
  * You should have received a copy of the GNU Lesser General Public Licence
  * along with WinBtrfs.  If not, see <http://www.gnu.org/licenses/>. */
 
+#pragma once
+
 #include <windows.h>
 #ifndef __REACTOS__
 #include "../btrfs.h"
@@ -26,21 +28,21 @@
 
 class BtrfsScrub {
 public:
-    BtrfsScrub(WCHAR* drive) {
-        wcscpy(fn, drive);
+    BtrfsScrub(const wstring& drive) {
+        fn = drive;
     }
 
     INT_PTR CALLBACK ScrubDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 private:
-    void RefreshScrubDlg(HWND hwndDlg, BOOL first_time);
+    void RefreshScrubDlg(HWND hwndDlg, bool first_time);
     void UpdateTextBox(HWND hwndDlg, btrfs_query_scrub* bqs);
     void StartScrub(HWND hwndDlg);
     void PauseScrub(HWND hwndDlg);
     void StopScrub(HWND hwndDlg);
 
-    WCHAR fn[MAX_PATH];
-    UINT32 status;
-    UINT64 chunks_left;
-    UINT32 num_errors;
+    wstring fn;
+    uint32_t status;
+    uint64_t chunks_left;
+    uint32_t num_errors;
 };
