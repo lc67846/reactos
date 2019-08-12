@@ -970,7 +970,6 @@ XHCI_DisableInterrupts(IN PVOID xhciExtension)
     Iman.InterruptEnable = 0;
     WRITE_REGISTER_ULONG(RunTimeRegisterBase + XHCI_IMAN,Iman.AsULONG);
 
-    DPRINT1("XHCI_EnableInterrupts: Interrupts enabled\n");
     DPRINT1("XHCI_DisableInterrupts: Interrupts disabled\n");
 }
 
@@ -1117,12 +1116,10 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
 
     RegPacket.MiniPortFlags = USB_MINIPORT_FLAGS_INTERRUPT |
                               USB_MINIPORT_FLAGS_MEMORY_IO |
-                              USB_MINIPORT_FLAGS_USB2 |
                               USB_MINIPORT_FLAGS_NOT_LOCK_INT |
                               USB_MINIPORT_FLAGS_POLLING |
                               USB_MINIPORT_FLAGS_WAKE_SUPPORT;
 
-    RegPacket.MiniPortBusBandwidth = 400000;
     RegPacket.MiniPortBusBandwidth = TOTAL_USB30_BUS_BANDWIDTH;
 
     RegPacket.MiniPortExtensionSize = sizeof(XHCI_EXTENSION);
@@ -1186,7 +1183,6 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
     
     DPRINT1("XHCI_DriverEntry: after driver unload, before usbport_reg call. FIXME\n");
 
-    return USBPORT_RegisterUSBPortDriver(DriverObject, 200, &RegPacket); // 200- is version for usb 2... 
     return USBPORT_RegisterUSBPortDriver(DriverObject, USB30_MINIPORT_INTERFACE_VERSION, &RegPacket); // 200- is version for usb 2... 
 
 }
