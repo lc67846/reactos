@@ -106,7 +106,7 @@ XHCI_ProcessEvent (IN PXHCI_EXTENSION XhciExtension)
     
     RunTimeRegisterBase = XhciExtension-> RunTimeRegisterBase;
     dequeue_pointer = HcResourcesVA-> EventRing.dequeue_pointer;
-    
+
     while (TRUE) 
     {
         eventTRB = (*dequeue_pointer).EventTRB;
@@ -970,7 +970,6 @@ XHCI_DisableInterrupts(IN PVOID xhciExtension)
     Iman.InterruptEnable = 0;
     WRITE_REGISTER_ULONG(RunTimeRegisterBase + XHCI_IMAN,Iman.AsULONG);
 
-    DPRINT1("XHCI_EnableInterrupts: Interrupts enabled\n");
 }
 
 VOID
@@ -1102,9 +1101,7 @@ NTAPI
 DriverEntry(IN PDRIVER_OBJECT DriverObject,
             IN PUNICODE_STRING RegistryPath)
 {
-    DPRINT1("DriverEntry: DriverObject - %p, RegistryPath - %wZ\n",
-           DriverObject,
-           RegistryPath);
+    DPRINT1("DriverEntry: DriverObject - %p, RegistryPath - %wZ\n", DriverObject, RegistryPath);
     if (USBPORT_GetHciMn() != USBPORT_HCI_MN) 
     {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -1116,11 +1113,11 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
 
     RegPacket.MiniPortFlags = USB_MINIPORT_FLAGS_INTERRUPT |
                               USB_MINIPORT_FLAGS_MEMORY_IO |
-                              USB_MINIPORT_FLAGS_USB2 |
+                              USB_MINIPORT_FLAGS_NOT_LOCK_INT |
                               USB_MINIPORT_FLAGS_POLLING |
                               USB_MINIPORT_FLAGS_WAKE_SUPPORT;
 
-    RegPacket.MiniPortBusBandwidth = 400000;
+    RegPacket.MiniPortBusBandwidth = TOTAL_USB30_BUS_BANDWIDTH;
 
     RegPacket.MiniPortExtensionSize = sizeof(XHCI_EXTENSION);
     RegPacket.MiniPortEndpointSize = sizeof(XHCI_ENDPOINT);
@@ -1183,6 +1180,6 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
     
     DPRINT1("XHCI_DriverEntry: after driver unload, before usbport_reg call. FIXME\n");
 
-    return USBPORT_RegisterUSBPortDriver(DriverObject, 200, &RegPacket); // 200- is version for usb 2... 
+    return USBPORT_RegisterUSBPortDriver(DriverObject, USB30_MINIPORT_INTERFACE_VERSION, &RegPacket); // 200- is version for usb 2... 
 
 }

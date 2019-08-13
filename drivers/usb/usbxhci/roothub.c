@@ -21,9 +21,7 @@ XHCI_RH_GetRootHubData(IN PVOID xhciExtension,
     DPRINT1("XHCI_RH_GetRootHubData: function initiated\n");
     XhciExtension = (PXHCI_EXTENSION)xhciExtension;
 
-    DPRINT_RH("XHCI_RH_GetRootHubData: XhciExtension - %p, rootHubData - %p\n",
-              XhciExtension,
-              rootHubData);
+    DPRINT1("XHCI_RH_GetRootHubData: XhciExtension - %p, rootHubData - %p\n", XhciExtension, rootHubData);
 
     RootHubData = (PUSBPORT_ROOT_HUB_DATA)rootHubData;
 
