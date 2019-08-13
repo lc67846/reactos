@@ -192,6 +192,7 @@ XHCI_SendCommand (IN XHCI_TRB CommandTRB,
     HcResourcesPA = XhciExtension->HcResourcesPA;
     enqueue_pointer = HcResourcesVA->CommandRing.enqueue_pointer;
     dequeue_pointer = HcResourcesVA->CommandRing.dequeue_pointer;
+    
     // check if ring is full
     if ((enqueue_pointer + 1) == dequeue_pointer) 
     {
@@ -970,6 +971,7 @@ XHCI_DisableInterrupts(IN PVOID xhciExtension)
     Iman.InterruptEnable = 0;
     WRITE_REGISTER_ULONG(RunTimeRegisterBase + XHCI_IMAN,Iman.AsULONG);
 
+    DPRINT1("XHCI_DisableInterrupts: Interrupts disabled\n");
 }
 
 VOID
