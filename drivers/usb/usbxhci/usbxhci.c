@@ -113,7 +113,7 @@ XHCI_ProcessEvent (IN PXHCI_EXTENSION XhciExtension)
         if (eventTRB.EventGenericTRB.CycleBit != HcResourcesVA->EventRing.ConsumerCycleState)
         {
             DPRINT1("XHCI_ProcessEvent: cycle bit mismatch. end of processing\n");
-            break;
+            //break;
         }
         TRBType = eventTRB.EventGenericTRB.TRBType;
         switch (TRBType)
@@ -813,9 +813,15 @@ XHCI_InterruptService(IN PVOID xhciExtension)
     DPRINT1("XHCI_InterruptService: function initiated\n");
     XhciExtension = (PXHCI_EXTENSION)xhciExtension;
     
+    if (!Iman.InterruptEnable)
+    {
+        DPRINT1("XHCI_InterruptService: Interrupts disabled! Ending function\n");
+        return FALSE;
+    }
+    
     RunTimeRegisterBase = XhciExtension->RunTimeRegisterBase; 
     Iman.AsULONG = READ_REGISTER_ULONG(RunTimeRegisterBase + XHCI_IMAN);
-    if (Iman.InterruptPending == 0)
+    if (!Iman.InterruptPending)
     {
         return FALSE;
     }
