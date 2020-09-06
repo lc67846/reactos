@@ -1,0 +1,107 @@
+;++
+;
+; Module Name:
+;
+;    QxlDod.inf
+;
+; Abstract:
+;
+;    Inf file for Kernel mode display only QXL driver
+;
+;--
+
+[Version]
+Signature = "$Windows NT$"
+Class=Display
+ClassGUID={4d36e968-e325-11ce-bfc1-08002be10318}
+Provider=%MNF%
+DriverVer= 03/15/2011, 0.03.15.0011
+CatalogFile=qxldod.cat
+
+[DestinationDirs]
+QxlDod.Files = 12
+
+[SourceDisksNames]
+0=%Desc_Sample%
+
+[SourceDisksFiles]
+QxlDod.sys=0
+
+[Manufacturer]
+%MNF%=MNF,NTamd64
+
+[MNF]
+;
+;	Allow the driver to be loaded on VGA and XGA
+;
+"QXL KMDOD" = QxlDod_Inst, PCI\VEN_1B36&DEV_0100&SUBSYS_11001AF4
+
+[MNF.NTamd64]
+;
+;	Allow the driver to be loaded on VGA and XGA
+;
+"QXL KMDOD" = QxlDod_Inst, PCI\VEN_1B36&DEV_0100&SUBSYS_11001AF4
+
+
+[QxlDod_Inst]
+Include=msdv.inf
+FeatureScore=F9
+CopyFiles = QxlDod.Files
+AddReg = QxlDod_SoftwareDeviceSettings
+
+;
+;   Install driver service
+;
+[QxlDod_Inst.Services]
+AddService = QxlDod,0x00000002,QxlDod_Service_Inst,
+
+[QxlDod_Service_Inst]
+ServiceType = %SERVICE_KERNEL_DRIVER%
+StartType = %SERVICE_DEMAND_START%
+ErrorControl = %SERVICE_ERROR_IGNORE%
+ServiceBinary = %12%\qxldod.sys
+
+;
+;   Display Adapter Specific Settings
+;
+[QxlDod.SoftwareSettings]
+AddReg = QxlDod_SoftwareDeviceSettings
+
+[QxlDod_SoftwareDeviceSettings]
+HKR,, VgaCompatible,               %REG_DWORD%, 0
+HKR,, PointerCaps,                 %REG_DWORD%, 0
+
+[QxlDod.Files]
+qxldod.sys
+
+[QxlDod_EventLog_Inst]
+AddReg = QxlDod_EventLog_Inst.AddReg
+
+[QxlDod_EventLog_Inst.AddReg]
+HKR,,EventMessageFile,%REG_EXPAND_SZ%,"%%SystemRoot%%\System32\IoLogMsg.dll"
+HKR,,TypesSupported,%REG_DWORD%,7
+
+
+[Strings]
+
+;  *******Localizable Strings*******
+MNF= "SPICE"
+Desc_Sample = "Data"
+
+;  *******Non Localizable Strings*******
+
+SERVICE_BOOT_START = 0x0
+SERVICE_SYSTEM_START = 0x1
+SERVICE_AUTO_START = 0x2
+SERVICE_DEMAND_START = 0x3
+SERVICE_DISABLED = 0x4
+
+SERVICE_KERNEL_DRIVER = 0x1
+SERVICE_ERROR_IGNORE = 0x0
+SERVICE_ERROR_NORMAL = 0x1
+SERVICE_ERROR_SEVERE = 0x2
+SERVICE_ERROR_CRITICAL = 0x3
+
+REG_MULTI_SZ   = 0x00010000
+REG_EXPAND_SZ = 0x00020000
+REG_DWORD = 0x00010001

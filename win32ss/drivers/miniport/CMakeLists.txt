@@ -3,6 +3,7 @@ if(SARCH STREQUAL "pc98")
     # Actual binary filename is vga.sys
     add_subdirectory(pc98vid)
 else()
+    add_subdirectory(qxldod)
     add_subdirectory(vbe)
     add_subdirectory(vga)
     add_subdirectory(vga_new)
