@@ -324,52 +324,64 @@ NTSTATUS
 IopTraverseDeviceTreeNode(
     _In_ PDEVICETREE_TRAVERSE_CONTEXT Context)
 {
-    PDEVICE_NODE ParentDeviceNode;
-    PDEVICE_NODE ChildDeviceNode;
-    PDEVICE_NODE NextDeviceNode;
+    PDEVICE_NODE DeviceNode;
     NTSTATUS Status;
 
-    /* Copy context data so we don't overwrite it in subsequent calls to this function */
-    ParentDeviceNode = Context->DeviceNode;
+    /* Get current device node */
+    DeviceNode = Context->DeviceNode;
 
     /* HACK: Keep a reference to the PDO so we can keep traversing the tree
      * if the device is deleted. In a perfect world, children would have to be
      * deleted before their parents, and we'd restart the traversal after
      * deleting a device node. */
-    ObReferenceObject(ParentDeviceNode->PhysicalDeviceObject);
+    ObReferenceObject(DeviceNode->PhysicalDeviceObject);
 
     /* Call the action routine */
-    Status = (Context->Action)(ParentDeviceNode, Context->Context);
+    Status = (Context->Action)(DeviceNode, Context->Context);
     if (!NT_SUCCESS(Status))
     {
-        ObDereferenceObject(ParentDeviceNode->PhysicalDeviceObject);
-        return Status;
+        goto Exit;
     }
 
-    /* Traversal of all children nodes */
-    for (ChildDeviceNode = ParentDeviceNode->Child;
-         ChildDeviceNode != NULL;
-         ChildDeviceNode = NextDeviceNode)
+    /* Find next device node */
+    ASSERT(Context->DeviceNode == DeviceNode);
+
+    /* If we have a child, simply go down the tree */
+    if (Context->DeviceNode->Child != NULL)
     {
-        /* HACK: We need this reference to ensure we can get Sibling below. */
-        ObReferenceObject(ChildDeviceNode->PhysicalDeviceObject);
+        ASSERT(Context->DeviceNode->Child->Parent == Context->DeviceNode);
+        Context->DeviceNode = Context->DeviceNode->Child;
+        goto Exit;
+    }
 
-        /* Pass the current device node to the action routine */
-        Context->DeviceNode = ChildDeviceNode;
-
-        Status = IopTraverseDeviceTreeNode(Context);
-        if (!NT_SUCCESS(Status))
+    while (1)
+    {
+        /* Done with all children of the start node -- stop enumeration */
+        if (Context->DeviceNode == Context->FirstDeviceNode)
         {
-            ObDereferenceObject(ChildDeviceNode->PhysicalDeviceObject);
-            ObDereferenceObject(ParentDeviceNode->PhysicalDeviceObject);
-            return Status;
+            Status = STATUS_UNSUCCESSFUL;
+            break;
         }
 
-        NextDeviceNode = ChildDeviceNode->Sibling;
-        ObDereferenceObject(ChildDeviceNode->PhysicalDeviceObject);
+        /* All children processed -- go sideways */
+        if (Context->DeviceNode->Sibling != NULL)
+        {
+            Context->DeviceNode = Context->DeviceNode->Sibling;
+            break;
+        }
+
+        /* We're the last sibling -- go back up */
+        ASSERT(Context->DeviceNode->Parent->LastChild == Context->DeviceNode);
+        Context->DeviceNode = Context->DeviceNode->Parent;
+
+        /* We already visited the parent and all its children, so keep looking */
     }
 
-    ObDereferenceObject(ParentDeviceNode->PhysicalDeviceObject);
+Exit:
+    /* We need to either abort or make progress */
+    ASSERT(!NT_SUCCESS(Status) || Context->DeviceNode != DeviceNode);
+
+    ObDereferenceObject(DeviceNode->PhysicalDeviceObject);
     return Status;
 }
 
@@ -387,8 +399,12 @@ IopTraverseDeviceTree(
     /* Start from the specified device node */
     Context->DeviceNode = Context->FirstDeviceNode;
 
-    /* Recursively traverse the device tree */
-    Status = IopTraverseDeviceTreeNode(Context);
+    /* Traverse the device tree */
+    do
+    {
+        Status = IopTraverseDeviceTreeNode(Context);
+    } while (NT_SUCCESS(Status));
+
     if (Status == STATUS_UNSUCCESSFUL)
     {
         /* The action routine just wanted to terminate the traversal with status
