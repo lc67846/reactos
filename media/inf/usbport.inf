@@ -63,7 +63,7 @@ CopyFiles = OHCI_CopyFiles.NT
 
 [OHCI_CopyFiles.NT]
 usbport.sys
-usbohci.sys
+;usbohci.sys
 
 [OHCI_Inst.NT.Services]
 AddService = usbohci, 0x00000002, usbohci_Service_Inst
@@ -72,7 +72,7 @@ AddService = usbohci, 0x00000002, usbohci_Service_Inst
 ServiceType   = 1
 StartType     = 0
 ErrorControl  = 1
-ServiceBinary = %12%\usbohci.sys
+;ServiceBinary = %12%\usbohci.sys
 LoadOrderGroup = Base
 
 ;------------------------------ EHCI DRIVER -----------------------------
