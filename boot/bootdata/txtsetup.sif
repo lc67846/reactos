@@ -196,9 +196,9 @@ DefaultLanguage  = 00000409
 [Computer.NTx86]
 pci_up = "Standard PC Uniprocessor"
 ;pci_mp = "Standard PC Multiprocessor"
-acpi_up = "ACPI PC Uniprocessor"
+;acpi_up = "ACPI PC Uniprocessor"
 ;acpi_mp = "ACPI PC Multiprocessor"
-xbox = "Original Xbox (x86 based)"
+;xbox = "Original Xbox (x86 based)"
 
 [Computer.NTamd64]
 x64_up = "Standard x64 Uniprocessor"
