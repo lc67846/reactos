@@ -31,24 +31,11 @@ list(APPEND FONT_FILES
     georgiab.ttf
     georgiai.ttf
     georgiaz.ttf
-    lucon.ttf
     Marlett.ttf
     pala.ttf
     palab.ttf
     palabi.ttf
     palai.ttf
-    SourceSansPro-Regular.ttf
-    SourceSansPro-Bold.ttf
-    SourceSansPro-BoldIt.ttf
-    SourceSansPro-It.ttf
-    #ssee874.fon # to be added
-    #ssee1255.fon # to be added
-    #ssee1256.fon # to be added
-    #ssee1257.fon # to be added
-    #sserife.fon # to be added
-    #sserifeg.fon # to be added
-    #sserifer.fon # to be added
-    #sserifet.fon # to be added
     symbol.ttf
     tahoma.ttf
     tahomabd.ttf
@@ -61,10 +48,6 @@ list(APPEND FONT_FILES
     trebucbi.ttf
     trebucit.ttf
     UniVGA16.ttf
-    verdanab.ttf
-    verdanaz.ttf
-    verdanai.ttf
-    verdana.ttf
     wingding.ttf)
 
 foreach(item ${FONT_FILES})
