@@ -26,7 +26,7 @@ DefaultDestDir = 12
 CopyFiles = ACPI_CopyFiles.NT
 
 [ACPI_CopyFiles.NT]
-acpi.sys
+;acpi.sys
 
 [ACPI_Inst.NT.Services]
 AddService = acpi, 0x00000002, acpi_Service_Inst
@@ -35,7 +35,7 @@ AddService = acpi, 0x00000002, acpi_Service_Inst
 ServiceType   = 1
 StartType     = 0
 ErrorControl  = 1
-ServiceBinary = %12%\acpi.sys
+;ServiceBinary = %12%\acpi.sys
 LoadOrderGroup = Boot Bus Extender
 
 ;-------------------------------- STRINGS -------------------------------

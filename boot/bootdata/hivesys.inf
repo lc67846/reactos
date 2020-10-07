@@ -1674,14 +1674,6 @@ HKLM,"SYSTEM\CurrentControlSet\Services\MountMgr","Start",0x00010001,0x00000000
 HKLM,"SYSTEM\CurrentControlSet\Services\MountMgr","Tag",0x00010001,0x00000008
 HKLM,"SYSTEM\CurrentControlSet\Services\MountMgr","Type",0x00010001,0x00000001
 
-; ACPI driver
-HKLM,"SYSTEM\CurrentControlSet\Services\acpi","ErrorControl",0x00010001,0x00000001
-HKLM,"SYSTEM\CurrentControlSet\Services\acpi","Group",0x00000000,"Boot Bus Extender"
-HKLM,"SYSTEM\CurrentControlSet\Services\acpi","ImagePath",0x00020000,"system32\drivers\acpi.sys"
-HKLM,"SYSTEM\CurrentControlSet\Services\acpi","Start",0x00010001,0x00000000
-HKLM,"SYSTEM\CurrentControlSet\Services\acpi","Tag",0x00010001,0x00000001
-HKLM,"SYSTEM\CurrentControlSet\Services\acpi","Type",0x00010001,0x00000001
-
 ; PCI Bus driver
 HKLM,"SYSTEM\CurrentControlSet\Services\Pci","ErrorControl",0x00010001,0x00000001
 HKLM,"SYSTEM\CurrentControlSet\Services\Pci","Group",0x00000000,"Boot Bus Extender"

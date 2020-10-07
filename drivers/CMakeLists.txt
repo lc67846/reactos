@@ -2,7 +2,7 @@
 PROJECT(Drivers)
 
 add_subdirectory(base)
-add_subdirectory(battery)
+#add_subdirectory(battery)
 #add_subdirectory(bluetooth)
 add_subdirectory(bus)
 add_subdirectory(crypto)
