@@ -1,5 +1,5 @@
 [Version]
-Signature = "$Windows NT$"
+Signature = "$Windows 10$"
 ;Signature = "$ReactOS$"
 
 ;
@@ -15,12 +15,12 @@ Signature = "$Windows NT$"
 _1 = %cdname%,%cdtagfile%,,""
 
 [SourceDisksNames.x86]
-;1 = %cdname%,%cdtagfilei%,,\i386
-1 = %cdname%,%cdtagfilei%,,\reactos
+;1 = %cdname%,%cdtagfilei%,,\SYSWOW32
+1 = %cdname%,%cdtagfilei%,,\windows
 
 [SourceDisksNames.amd64]
-;1 = %cdname%,%cdtagfilea%,,\amd64
-1 = %cdname%,%cdtagfilei%,,\reactos
+;1 = %cdname%,%cdtagfilea%,,\system32
+1 = %cdname%,%cdtagfilei%,,\windows
 
 ;
 ; The directories listed in the [Directories] or [WinntDirectories] sections
@@ -42,8 +42,8 @@ _1 = %cdname%,%cdtagfile%,,""
 7 = bin
 
 [DiskSpaceRequirements]
-; Required free system partition disk space in MB
-FreeSysPartDiskSpace=450
+; Required free system partition disk space in GB
+FreeSysPartDiskSpace=100
 
 ;
 ; The [SourceDisksFiles] section lists all the files available to the
@@ -57,7 +57,7 @@ FreeSysPartDiskSpace=450
 ;
 ; <source_filename> =
 ;     <disk_id>,<subdirectory>,<file_size>,<checksum>,<unused>,<unused>,
-; NT-specific fields:
+; 10-specific fields:
 ;     <boot_media_id>,<destination_dir_id>,<upgrade_dispo>,<install_dispo>,
 ;     <destination_filename>,
 ; WinPE(MiniNT)-specific optional fields:
