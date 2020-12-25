@@ -1,5 +1,5 @@
 [Version]
-Signature  = "$Windows NT$"
+Signature  = "$Windows 10$"
 ;Signature  = "$ReactOS$"
 LayoutFile = layout.inf
 Class      = Processor
@@ -23,7 +23,7 @@ HKR, , Icon,           0, "-28"
 [Manufacturer]
 %Standard%=Standard
 %CyrixMfg%=Cyrix
-%IntelMfg%=Intel
+%IntelMfg%=AMD
 %AMDMfg%=AMD
 %TransmetaMfg%=Transmeta
 %VIAMfg%=VIA
@@ -34,33 +34,6 @@ HKR, , Icon,           0, "-28"
 [Cyrix]
 %CyrixProcessor.DeviceDesc% = Processr_Inst,ACPI\CyrixInstead_-_x86
 
-[Intel]
-%IntelProcessor.DeviceDesc%       = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_5_model_1
-%IntelProcessor.DeviceDesc%       = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_5_model_2
-%IntelProcessor.DeviceDesc%       = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_5_model_3
-%IntelMMXProcessor.DeviceDesc%    = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_5_model_4
-%IntelMMXProcessor.DeviceDesc%    = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_5_model_7
-%IntelMMXProcessor.DeviceDesc%    = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_5_model_8
-%IntelPROProcessor.DeviceDesc%    = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_1
-%IntelP2Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_3
-%IntelP2Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_5
-%IntelP2Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_6
-%IntelP3Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_7
-%IntelP3Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_8
-%IntelMProcessor.DeviceDesc%      = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_9
-%IntelP3Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_10
-%IntelP3Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_11
-%IntelMProcessor.DeviceDesc%      = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_13
-%IntelCoreProcessor.DeviceDesc%   = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_14
-%IntelCoreProcessor.DeviceDesc%   = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_15
-%IntelCoreProcessor.DeviceDesc%   = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_22
-%IntelCoreProcessor.DeviceDesc%   = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_23
-%IntelCoreiXProcessor.DeviceDesc% = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_26
-%IntelAtomProcessor.DeviceDesc%   = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_28
-%IntelCoreiXProcessor.DeviceDesc% = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_30
-%IntelCoreiXProcessor.DeviceDesc% = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_6_Model_37
-%IntelP4Processor.DeviceDesc%     = Processr_Inst,ACPI\GenuineIntel_-_x86_Family_15
-%IntelProcessor.DeviceDesc%       = Processr_Inst,ACPI\GenuineIntel_-_x86
 
 [AMD]
 %AMDK6Processor.DeviceDesc%   = Processr_Inst,ACPI\AuthenticAMD_-_x86_Family_5_Model_7
@@ -119,19 +92,6 @@ IntelMfg = "Intel"
 AMDMfg = "Advanced Micro Devices"
 TransmetaMfg = "Transmeta"
 VIAMfg = "VIA"
-Processor.DeviceDesc = "Processor"
-Processor.ServiceDesc = "Processor driver"
-CyrixProcessor.DeviceDesc = "Cyrix 6x86 Processor"
-IntelProcessor.DeviceDesc = "Intel Pentium Processor"
-IntelMMXProcessor.DeviceDesc = "Intel Pentium MMX Processor"
-IntelPROProcessor.DeviceDesc = "Intel Pentium Pro Processor"
-IntelP2Processor.DeviceDesc = "Intel Pentium II / Celeron Processor"
-IntelP3Processor.DeviceDesc = "Intel Pentium III / Celeron / Xeon Processor"
-IntelMProcessor.DeviceDesc = "Intel Pentium M / Celeron M Processor"
-IntelP4Processor.DeviceDesc = "Intel Pentium 4 / Celeron / Xeon / D Processor"
-IntelAtomProcessor.DeviceDesc = "Intel Atom Processor"
-IntelCoreProcessor.DeviceDesc = "Intel Core Solo/Duo/Ex / Celeron / Xeon / M Processor"
-IntelCoreiXProcessor.DeviceDesc = "Intel Core i* Processor"
 AMDProcessor.DeviceDesc = "AMD Processor"
 AMDK6Processor.DeviceDesc = "AMD K6 Processor"
 AMDK62Processor.DeviceDesc = "AMD K6-2 Processor"
@@ -149,19 +109,6 @@ ViaNANOProcessor.DeviceDesc = "VIA Nano Processor"
 ViaProcessor.DeviceDesc = "VIA Processor"
 
 [Strings.0405]
-Processor.DeviceDesc = "Procesor"
-Processor.ServiceDesc = "Processor driver"
-CyrixProcessor.DeviceDesc = "Procesor Cyrix 6x86"
-IntelProcessor.DeviceDesc = "Procesor Intel Pentium"
-IntelMMXProcessor.DeviceDesc = "Procesor Intel Pentium MMX"
-IntelPROProcessor.DeviceDesc = "Procesor Intel Pentium Pro"
-IntelP2Processor.DeviceDesc = "Procesor Intel Pentium II / Celeron"
-IntelP3Processor.DeviceDesc = "Procesor Intel Pentium III / Celeron / Xeon"
-IntelMProcessor.DeviceDesc = "Procesor Intel Pentium M / Celeron M"
-IntelP4Processor.DeviceDesc = "Procesor Intel Pentium 4 / Celeron / Xeon / D"
-IntelAtomProcessor.DeviceDesc = "Procesor Intel Atom"
-IntelCoreProcessor.DeviceDesc = "Procesor Intel Core Solo/Duo/Ex / Celeron / Xeon"
-IntelCoreiXProcessor.DeviceDesc = "Procesor Intel Core i*"
 AMDProcessor.DeviceDesc = "Procesor AMD"
 AMDK6Processor.DeviceDesc = "Procesor AMD K6"
 AMDK62Processor.DeviceDesc = "Procesor AMD K6-2"
@@ -179,20 +126,6 @@ ViaNANOProcessor.DeviceDesc = "Procesor VIA Nano"
 ViaProcessor.DeviceDesc = "Procesor VIA"
 
 [Strings.0407]
-ProcessorClassName = "Prozessoren"
-Processor.DeviceDesc = "Prozessor"
-Processor.ServiceDesc = "Prozessortreiber"
-CyrixProcessor.DeviceDesc = "Cyrix 6x86 Prozessor"
-IntelProcessor.DeviceDesc = "Intel Pentium Prozessor"
-IntelMMXProcessor.DeviceDesc = "Intel Pentium MMX Prozessor"
-IntelPROProcessor.DeviceDesc = "Intel Pentium Pro Prozessor"
-IntelP2Processor.DeviceDesc = "Intel Pentium II / Celeron Prozessor"
-IntelP3Processor.DeviceDesc = "Intel Pentium III / Celeron / Xeon Prozessor"
-IntelMProcessor.DeviceDesc = "Intel Pentium M / Celeron M Prozessor"
-IntelP4Processor.DeviceDesc = "Intel Pentium 4 / Celeron / Xeon / D Prozessor"
-IntelAtomProcessor.DeviceDesc = "Intel Atom Prozessor"
-IntelCoreProcessor.DeviceDesc = "Intel Core Solo/Duo/Ex / Celeron / Xeon Prozessor"
-IntelCoreiXProcessor.DeviceDesc = "Intel Core i* Prozessor"
 AMDProcessor.DeviceDesc = "AMD Prozessor"
 AMDK6Processor.DeviceDesc = "AMD K6 Prozessor"
 AMDK62Processor.DeviceDesc = "AMD K6-2 Prozessor"
@@ -244,19 +177,6 @@ IntelMfg = "Intel"
 AMDMfg = "Advanced Micro Devices"
 TransmetaMfg = "Transmeta"
 VIAMfg = "VIA"
-Processor.DeviceDesc = "Procesor"
-Processor.ServiceDesc = "Processor driver"
-CyrixProcessor.DeviceDesc = "Procesor Cyrix 6x86"
-IntelProcessor.DeviceDesc = "Procesor Intel Pentium"
-IntelMMXProcessor.DeviceDesc = "Procesor Intel Pentium MMX"
-IntelPROProcessor.DeviceDesc = "Procesor Intel Pentium Pro"
-IntelP2Processor.DeviceDesc = "Procesor Intel Pentium II / Celeron"
-IntelP3Processor.DeviceDesc = "Procesor Intel Pentium III / Celeron / Xeon"
-IntelMProcessor.DeviceDesc = "Procesor Intel Pentium M / Celeron M"
-IntelP4Processor.DeviceDesc = "Procesor Intel Pentium 4 / Celeron / Xeon / D"
-IntelAtomProcessor.DeviceDesc = "Procesor Intel Atom"
-IntelCoreProcessor.DeviceDesc = "Procesor Intel Core Solo/Duo/Ex / Celeron / Xeon / M"
-IntelCoreiXProcessor.DeviceDesc = "Procesor Intel Core i*"
 AMDProcessor.DeviceDesc = "Procesor AMD"
 AMDK6Processor.DeviceDesc = "Procesor AMD K6"
 AMDK62Processor.DeviceDesc = "Procesor AMD K6-2"
